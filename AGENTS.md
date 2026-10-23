@@ -75,4 +75,16 @@ Steps, commands, and gotchas go here. Keep it short and concrete.
 
 ## Commands
 
-_To be filled in as Phase 0 scaffolds the project (install, run engine, run app, regenerate types, lint/test)._
+Prereqs: `uv`, `pnpm`, Node, and the Rust toolchain. Everything runs from the repo root via `make`:
+
+| Command | What |
+|---|---|
+| `make install` | `uv sync` the engine and `pnpm install` the app |
+| `make engine` | Python engine on `ws://localhost:8765` |
+| `make app` | Tauri app (console window; open the projector from the console) |
+| `make web` | UI in a plain browser: `http://localhost:1420/?view=console` and `?view=projector` |
+| `make dev` | Engine + Tauri app together |
+| `make types` | Regenerate `app/src/shared/protocol.ts` from `engine/protocol.py` |
+| `make test` | Engine pytest + app typecheck |
+
+Engine modules use flat imports (`from protocol import ...`) and are run from `engine/`. Config lives in a root `.env` (see `.env.example`), read by both `make` and Vite.
