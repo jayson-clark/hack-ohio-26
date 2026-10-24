@@ -3,7 +3,9 @@
 # dependencies = [
 #     "manifold3d>=3.0",
 #     "numpy>=2.0",
+#     "opencv-python-headless>=4.7",
 #     "pillow>=10.0",
+#     "pydantic>=2.0",
 #     "pyyaml>=6.0",
 #     "scipy>=1.13",
 # ]
@@ -34,8 +36,11 @@ import json
 import math
 import sys
 import urllib.request
+import uuid
+import zipfile
 from pathlib import Path
 
+import cv2
 import manifold3d as mf
 import numpy as np
 import yaml
@@ -43,6 +48,9 @@ from PIL import Image, ImageDraw
 from scipy import ndimage
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "engine"))
+from vision.markers import CORNER_IDS, DICTIONARY  # noqa: E402
+
 CACHE = REPO / "tools" / ".cache" / "terrarium"
 TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
 EARTH_R = 6371008.8
@@ -77,9 +85,13 @@ DEFAULTS = {
         # Calibration markers sit on separate corner holders outside the terrain,
         # pinned into the board's outer walls. One holder STL fits every corner.
         "enabled": True,
-        "size_mm": 30.0,  # printed ArUco square, including its white border
-        "clearance_mm": 0.4,  # per side of the pocket
-        "depth_mm": 1.0,  # pocket depth
+        "size_mm": 30.0,  # ArUco square, including its one-cell white border
+        # true: the marker is printed into the holder top (white body, black cells
+        # inlaid flush), one two-colour 3MF for an AMS. false: a pocket for paper.
+        "printed": True,
+        "inlay_mm": 0.6,  # depth of the black cells, a few layers so white can't show through
+        "clearance_mm": 0.4,  # per side of the paper pocket
+        "depth_mm": 1.0,  # paper pocket depth
         "rim_mm": 3.0,  # holder pad around the pocket
         "arm_length_mm": 30.0,  # along each board wall from the corner
         "arm_width_mm": 8.0,
@@ -124,8 +136,9 @@ def load_config(path, overrides):
     pinned = t["pins"]["per_edge"] or cfg["markers"]["enabled"]
     if pinned and m["base_mm"] < t["pins"]["hole_diameter_mm"] + 2:
         sys.exit("model.base_mm must be at least pin hole diameter + 2 mm")
-    if cfg["markers"]["enabled"] and m["base_mm"] <= cfg["markers"]["depth_mm"]:
-        sys.exit("model.base_mm must be deeper than markers.depth_mm")
+    mk = cfg["markers"]
+    if mk["enabled"] and m["base_mm"] <= (mk["inlay_mm"] if mk["printed"] else mk["depth_mm"]):
+        sys.exit("model.base_mm must be deeper than the marker inlay or pocket")
     return cfg
 
 
@@ -325,10 +338,103 @@ def build_holder(cfg):
         mf.Manifold.cube([L, w, h]).translate([0, -w, 0]),  # along the south wall
         mf.Manifold.cube([w, L, h]).translate([-w, 0, 0]),  # along the west wall
     ], mf.OpType.Add)  # fmt: skip
-    cut = mf.Manifold.cube([pocket, pocket, mk["depth_mm"] + 1]).translate([-pad + mk["rim_mm"], -pad + mk["rim_mm"], h - mk["depth_mm"]])
     # Through-holes across each arm (and a little past, into the air beside the board).
-    holes = holder_pin_holes_local(cfg, 2 * w + 2)
-    return body - mf.Manifold.batch_boolean([cut, *holes], mf.OpType.Add)
+    cuts = holder_pin_holes_local(cfg, 2 * w + 2)
+    if not mk["printed"]:
+        cuts.append(mf.Manifold.cube([pocket, pocket, mk["depth_mm"] + 1]).translate([-pad + mk["rim_mm"], -pad + mk["rim_mm"], h - mk["depth_mm"]]))
+    return body - mf.Manifold.batch_boolean(cuts, mf.OpType.Add)
+
+
+def marker_inlay(cfg, marker_id, rot):
+    """The black cells of an ArUco marker as a solid flush with the holder top, in holder-local mm.
+
+    Drawn upright in the board frame (top edge to the north), so it's turned by
+    -rot here and the holder's rotation brings it back.
+    """
+    mk, h = cfg["markers"], cfg["model"]["base_mm"]
+    cells = 6  # 4x4 data bits plus the black border, inside a one-cell white quiet zone
+    bits = cv2.aruco.generateImageMarker(cv2.aruco.getPredefinedDictionary(DICTIONARY), marker_id, cells) < 128
+    cell = mk["size_mm"] / (cells + 2)
+    cx, cy = marker_centre_local(cfg)
+    a = math.radians(-rot)
+    eps = 1e-3  # cells that only touch diagonally would otherwise share a non-manifold edge
+    squares = []
+    for r, c in zip(*np.nonzero(bits)):
+        u, v = (c + 0.5 - cells / 2) * cell, (cells / 2 - r - 0.5) * cell  # row 0 is the top (north)
+        x, y = cx + u * math.cos(a) - v * math.sin(a), cy + u * math.sin(a) + v * math.cos(a)
+        squares.append(mf.CrossSection.square([cell + eps, cell + eps], center=True).translate([x, y]))
+    return mf.CrossSection.batch_boolean(squares, mf.OpType.Add).extrude(mk["inlay_mm"]).translate([0, 0, h - mk["inlay_mm"]])
+
+
+def write_3mf(path, objects, bed_mm):
+    """Bambu Studio project: one object per (name, [(part name, solid, filament)]), laid out on the plate.
+
+    The layout follows what Bambu Studio itself writes (meshes in 3D/Objects,
+    filament per part in Metadata/model_settings.config). Other slicers read it
+    as a plain 3MF with multi-part objects.
+    """
+    files, root_objs, items, settings, instances = {}, [], [], [], []
+    cols = math.ceil(math.sqrt(len(objects)))
+    boxes = [np.array([s.bounding_box() for _, s, _ in parts]) for _, parts in objects]
+    lo_all = [b[:, :3].min(axis=0) for b in boxes]
+    hi_all = [b[:, 3:].max(axis=0) for b in boxes]
+    step = max(float((hi - lo)[:2].max()) for lo, hi in zip(lo_all, hi_all)) + 8
+    # Packed together, a little toward the front left: the wipe tower sits at the back right.
+    x0, y0 = bed_mm[0] / 2 - 20 - (cols - 1) * step / 2, bed_mm[1] / 2 - 20 + (cols - 1) * step / 2
+    next_id = 1  # Bambu Studio shares meshes by sub-object id across files, so ids must be unique
+    for k, (name, parts) in enumerate(objects):
+        sub, comps, part_cfg = [], [], []
+        sub_path = f"/3D/Objects/object_{k + 1}.model"
+        lo, hi = lo_all[k], hi_all[k]
+        for part_name, solid, filament in parts:
+            part_id, next_id = next_id, next_id + 1
+            mesh = solid.to_mesh()
+            verts = np.asarray(mesh.vert_properties)[:, :3]
+            tris = np.asarray(mesh.tri_verts)
+            vx = "\n".join(f'     <vertex x="{x:.4f}" y="{y:.4f}" z="{z:.4f}"/>' for x, y, z in verts)
+            tx = "\n".join(f'     <triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in tris)
+            sub.append(f'  <object id="{part_id}" p:UUID="{uuid.uuid4()}" type="model">\n   <mesh>\n    <vertices>\n{vx}\n    </vertices>\n    <triangles>\n{tx}\n    </triangles>\n   </mesh>\n  </object>')
+            comps.append(f'    <component p:path="{sub_path}" objectid="{part_id}" p:UUID="{uuid.uuid4()}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>')
+            part_cfg.append(
+                f'    <part id="{part_id}" subtype="normal_part">\n'
+                f'      <metadata key="name" value="{part_name}"/>\n'
+                f'      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n'
+                f'      <metadata key="extruder" value="{filament}"/>\n'
+                "    </part>"
+            )  # fmt: skip
+        files[sub_path] = sub
+        oid = 1000 + k
+        root_objs.append(f'  <object id="{oid}" p:UUID="{uuid.uuid4()}" type="model">\n   <components>\n' + "\n".join(comps) + "\n   </components>\n  </object>")
+        r, c = divmod(k, cols)
+        tx_, ty_ = x0 + c * step - (lo[0] + hi[0]) / 2, y0 - r * step - (lo[1] + hi[1]) / 2
+        items.append(f'  <item objectid="{oid}" p:UUID="{uuid.uuid4()}" transform="1 0 0 0 1 0 0 0 1 {tx_:.3f} {ty_:.3f} {0.0 - lo[2]:.3f}" printable="1"/>')
+        instances.append(f'    <model_instance>\n      <metadata key="object_id" value="{oid}"/>\n      <metadata key="instance_id" value="0"/>\n    </model_instance>')
+        settings.append(f'  <object id="{oid}">\n    <metadata key="name" value="{name}"/>\n    <metadata key="extruder" value="1"/>\n' + "\n".join(part_cfg) + "\n  </object>")
+    ns = 'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"'
+    head = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    root = (
+        f'{head}<model unit="millimeter" xml:lang="en-US" {ns}>\n'
+        # Bambu Studio only reads the per-part filaments from files it thinks it wrote.
+        ' <metadata name="Application">BambuStudio-02.08.02.61</metadata>\n <metadata name="BambuStudio:3mfVersion">1</metadata>\n <resources>\n'
+        + "\n".join(root_objs) + f'\n </resources>\n <build p:UUID="{uuid.uuid4()}">\n' + "\n".join(items) + "\n </build>\n</model>\n"
+    )  # fmt: skip
+    rel = '<Relationship Target="{}" Id="rel-{}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
+    rels = head + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n {}\n</Relationships>\n'
+    types = (
+        f'{head}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+        ' <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+        ' <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
+        " <Default Extension=\"config\" ContentType=\"text/xml\"/>\n</Types>\n"
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", types)
+        z.writestr("_rels/.rels", rels.format(rel.format("/3D/3dmodel.model", 1)))
+        z.writestr("3D/_rels/3dmodel.model.rels", rels.format("\n ".join(rel.format(f, i) for i, f in enumerate(files, 1))))
+        z.writestr("3D/3dmodel.model", root)
+        for f, sub in files.items():
+            z.writestr(f[1:], f'{head}<model unit="millimeter" xml:lang="en-US" {ns}>\n <resources>\n' + "\n".join(sub) + "\n </resources>\n <build/>\n</model>\n")
+        plate = '  <plate>\n    <metadata key="plater_id" value="1"/>\n' + "\n".join(instances) + "\n  </plate>"
+        z.writestr("Metadata/model_settings.config", f"{head}<config>\n" + "\n".join(settings) + f"\n{plate}\n</config>\n")
 
 
 def write_stl(path, solid):
@@ -375,8 +481,17 @@ def build_tiles(cfg, hf, out_dir, write_board):
             tiles.append({"file": name, "row": i, "col": j, "origin_mm": [x0, y0], "size_mm": [tw, th]})
             print(f"  {name}: {n:,} triangles")
     if cfg["markers"]["enabled"]:
-        write_stl(out_dir / "marker_holder.stl", build_holder(cfg))
-        print("  marker_holder.stl: print 4")
+        holder = build_holder(cfg)
+        write_stl(out_dir / "marker_holder.stl", holder)
+        if cfg["markers"]["printed"]:
+            objects = []
+            for name, rot, _ in corners(cfg):
+                inlay = marker_inlay(cfg, CORNER_IDS[name], rot)
+                objects.append((f"holder_{name}", [("white", holder - inlay, 1), (f"marker {CORNER_IDS[name]}", inlay, 2)]))
+            write_3mf(out_dir / "marker_holders.3mf", objects, t["bed_mm"])
+            print("  marker_holders.3mf: the four corner holders, white body (filament 1) + black marker (filament 2)")
+        else:
+            print("  marker_holder.stl: print 4")
     return tiles
 
 
@@ -481,7 +596,8 @@ def main():
         markers = {
             "holder_file": "marker_holder.stl",
             "marker_size_mm": mk["size_mm"],
-            "marker_top_z_mm": m["base_mm"] - mk["depth_mm"],
+            "printed": mk["printed"],
+            "marker_top_z_mm": float(m["base_mm"] if mk["printed"] else m["base_mm"] - mk["depth_mm"]),
             "pin_length_mm": mk["arm_width_mm"] + cfg["tiles"]["pins"]["depth_mm"],
             "note": "Centres are outside the terrain, so map coords fall outside the grid.",
             "corners": [],

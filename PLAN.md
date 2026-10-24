@@ -362,7 +362,7 @@ The 3D prints start the day before the competition, so everything that affects t
 - **Keep the relief low** (about 3–4 cm max) to limit projection parallax.
 - **Build registration into the prints:**
   - alignment pins between tiles
-  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. One L-shaped holder STL (print 4) pins into the board's outer walls with the same filament pins, so they never move
+  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. L-shaped holders pin into the board's outer walls with the same filament pins, so they never move. The marker is printed into each holder's top in black on white (`marker_holders.3mf`, two colours on the AMS), so there's no paper to glue on crooked
 - **Matte white or light-gray PLA,** which is essential for projection.
 - **Tokens:** print them with flat tops, then laminate and attach the ArUco markers.
 - **Toolchain:** Rust, Node, and Python environments installed and building on every laptop.
