@@ -3,7 +3,7 @@
 
 import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
-import type { ClientMessage, EngineMessage, Hello, ScenarioState, Token } from "./protocol";
+import type { ClientMessage, EngineMessage, Hello, RouteInfo, ScenarioState, Token } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
 const RECONNECT_MS = 1000;
@@ -29,6 +29,8 @@ export interface EngineState {
   simGrid: BinaryFrame | null;
   /** Latest forecast_grid frame, split into one grid per horizon. */
   forecast: ForecastGrids | null;
+  /** Every town's evacuation route, replanned after each forecast. */
+  routes: RouteInfo[];
 }
 
 let state: EngineState = {
@@ -38,6 +40,7 @@ let state: EngineState = {
   tokens: [],
   simGrid: null,
   forecast: null,
+  routes: [],
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -58,6 +61,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "tokens":
       setState({ tokens: msg.tokens });
+      break;
+    case "routes":
+      setState({ routes: msg.routes });
       break;
   }
 }

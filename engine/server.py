@@ -30,6 +30,8 @@ from protocol import (
     client_message_adapter,
     pack_binary,
 )
+from routing.evac import Route, plan_routes, routes_message
+from routing.roads import load_network
 from scenario import load_scenario
 from sim.effects import TokenEffects
 from sim.fire import SIM_MINUTES_PER_TICK, FireSim, Wind
@@ -69,6 +71,16 @@ class Engine:
         # (N, H, W) ticks-after-.tick until each cell burns (inf = not by the
         # last horizon); .probability is float32 (len(HORIZONS_MIN), H, W).
         self.latest_forecast: Forecast | None = None
+        # Evacuation routes (PLAN.md, Evacuation routing), replanned off the
+        # tick loop whenever a forecast lands. No road layer means no routes.
+        s = self.scenario
+        self.roads = load_network(s.dir, s.width, s.height)
+        # Plan once here (no fire yet, so plain shortest paths). This also
+        # builds the graph's lazy caches before any worker thread touches it.
+        self.routes: list[Route] = plan_routes(self.roads, None) if self.roads else []
+        self._routes_tick = 0
+        self._route_job: asyncio.Task | None = None
+        self._route_pending = False
 
     def hello_msg(self) -> str:
         s = self.scenario
@@ -94,6 +106,9 @@ class Engine:
             burned_cells=burned,
         ).model_dump_json()
 
+    def routes_msg(self) -> str:
+        return routes_message(self.routes, self._routes_tick).model_dump_json()
+
     def sim_grid_frame(self) -> bytes:
         s = self.scenario
         return pack_binary(BinaryType.SIM_GRID, self.fire.tick, s.width, s.height, self.fire.state.tobytes())
@@ -116,6 +131,8 @@ class Engine:
             await ws.send(self.tokens_msg())
             await ws.send(self.sim_grid_frame())
             await ws.send(self.forecast_frame())
+            if self.roads is not None:
+                await ws.send(self.routes_msg())
             async for raw in ws:
                 try:
                     msg = client_message_adapter.validate_json(raw)
@@ -145,6 +162,7 @@ class Engine:
                 broadcast(self.clients, self.sim_grid_frame())
                 broadcast(self.clients, self.forecast_frame())
                 broadcast(self.clients, self.state_msg())
+                self.schedule_replan()
             case SetWind():
                 self.fire.set_wind(Wind(speed_ms=msg.speed_ms, from_deg=msg.from_deg % 360))
                 broadcast(self.clients, self.state_msg())
@@ -183,6 +201,35 @@ class Engine:
             return
         self.latest_forecast = job.result()
         broadcast(self.clients, self.forecast_frame())
+        self.schedule_replan()
+
+    def schedule_replan(self) -> None:
+        """Replan every town's route in a worker thread (~20 ms), one job at a
+        time. Anything that asks while a job runs gets one more run after it,
+        against whatever forecast is newest by then."""
+        if self.roads is None:
+            return
+        if self._route_job is not None and not self._route_job.done():
+            self._route_pending = True
+            return
+        self._route_pending = False
+        self._route_job = asyncio.create_task(self.replan(self._fire_epoch))
+        self._route_job.add_done_callback(lambda _: self._route_pending and self.schedule_replan())
+
+    async def replan(self, epoch: int) -> None:
+        f = self.latest_forecast
+        tick = self.fire.tick
+        first_burn = None if f is None else f.first_burn
+        elapsed = 0 if f is None else tick - f.tick
+        try:
+            routes = await asyncio.to_thread(plan_routes, self.roads, first_burn, elapsed_ticks=elapsed)
+        except Exception:
+            log.exception("route planning failed")
+            return
+        if epoch != self._fire_epoch:
+            return  # the map was reset while this was running
+        self.routes, self._routes_tick = routes, tick
+        broadcast(self.clients, self.routes_msg())
 
     async def run(self) -> None:
         period = 1 / TICK_HZ

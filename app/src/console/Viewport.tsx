@@ -4,7 +4,7 @@
 import { useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
-import type { Token } from "../shared/protocol";
+import type { RouteInfo, Token } from "../shared/protocol";
 import { elevationAt, latLonAt, type Scenario } from "../shared/scenario";
 import { TOKEN_STYLE } from "../shared/tokens";
 import type { PlaceType } from "../shared/virtualTokens";
@@ -24,6 +24,7 @@ interface Props {
   tokens: Token[];
   simGrid: BinaryFrame | null;
   forecast: ForecastGrids | null;
+  routes: RouteInfo[];
   layers: Layers;
   onToggleLayer: (k: keyof Layers) => void;
   placeType: PlaceType;
@@ -38,6 +39,7 @@ const LAYER_LABELS: Record<keyof Layers, string> = {
   contours: "Contours",
   labels: "Labels",
   grid: "Grid",
+  routes: "Routes",
 };
 
 const IGNITE_COLOR = "#f97316";
@@ -52,6 +54,7 @@ export default function Viewport(props: Props) {
     tokens: props.tokens,
     simGrid: props.simGrid,
     forecast: props.forecast,
+    routes: props.routes,
     layers,
     placeType,
     selectedId: props.selectedId,

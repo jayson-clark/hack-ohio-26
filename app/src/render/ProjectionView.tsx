@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
-import type { Token } from "../shared/protocol";
+import type { RouteInfo, Token } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import type { PlaceType } from "../shared/virtualTokens";
 import MapOverlay from "./MapOverlay";
@@ -21,6 +21,7 @@ export interface ViewProps {
   tokens: Token[];
   simGrid: BinaryFrame | null;
   forecast: ForecastGrids | null;
+  routes: RouteInfo[];
   layers: Layers;
   placeType: PlaceType;
   selectedId: string | null;

@@ -4,10 +4,11 @@
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
-import type { Token } from "../shared/protocol";
+import type { RouteInfo, Token } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { HALO_RADIUS, TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { drawLabels } from "./labels";
+import { createRoutesCanvas, drawRoutes } from "./routes";
 import { MAX_TOKENS, fragmentShader, vertexShader } from "./shaders";
 
 export interface Layers {
@@ -15,9 +16,10 @@ export interface Layers {
   contours: boolean;
   labels: boolean;
   grid: boolean;
+  routes: boolean;
 }
 
-export const DEFAULT_LAYERS: Layers = { tint: true, contours: true, labels: true, grid: false };
+export const DEFAULT_LAYERS: Layers = { tint: true, contours: true, labels: true, grid: false, routes: true };
 
 // sim_grid cell states, in PLAN.md order. Switch to the generated enum once
 // the sim defines it in protocol.py.
@@ -56,6 +58,7 @@ export interface Projection {
   setLayers(layers: Layers): void;
   setFire(frame: BinaryFrame | null): void;
   setForecast(forecast: ForecastGrids | null): void;
+  setRoutes(routes: RouteInfo[]): void;
   update(timeSec: number): void;
   dispose(): void;
 }
@@ -80,6 +83,13 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
   labelsTex.minFilter = THREE.LinearMipmapLinearFilter;
   labelsTex.anisotropy = 4;
 
+  const routesCanvas = createRoutesCanvas(s);
+  const routesTex = new THREE.CanvasTexture(routesCanvas);
+  routesTex.flipY = false;
+  routesTex.generateMipmaps = true;
+  routesTex.minFilter = THREE.LinearMipmapLinearFilter;
+  routesTex.anisotropy = 4;
+
   const fireData = new Uint8Array(width * height * 4);
   const fireTex = new THREE.DataTexture(fireData, width, height, THREE.RGBAFormat);
   fireTex.magFilter = fireTex.minFilter = THREE.LinearFilter;
@@ -98,6 +108,8 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     uniforms: {
       uHeight: { value: heightTex },
       uLabels: { value: labelsTex },
+      uRoutes: { value: routesTex },
+      uShowRoutes: { value: 1 },
       uFire: { value: fireTex },
       uGrid: { value: new THREE.Vector2(width, height) },
       uCellM: { value: info.grid.cell_size_m },
@@ -137,6 +149,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
 
     setLayers(l) {
       (u.uLayers.value as THREE.Vector4).set(+l.tint, +l.contours, +l.labels, +l.grid);
+      u.uShowRoutes.value = +l.routes;
     },
 
     setFire(frame) {
@@ -170,6 +183,11 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       fireTex.needsUpdate = true;
     },
 
+    setRoutes(routes) {
+      drawRoutes(routesCanvas, s, routes);
+      routesTex.needsUpdate = true;
+    },
+
     update(timeSec) {
       u.uTime.value = timeSec;
     },
@@ -177,6 +195,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     dispose() {
       heightTex.dispose();
       labelsTex.dispose();
+      routesTex.dispose();
       fireTex.dispose();
       material.dispose();
     },
