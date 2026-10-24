@@ -3,6 +3,7 @@
 // works in the browser, in `tauri dev`, and in a built app.
 
 import { useEffect, useState } from "react";
+import { useEngine } from "./engine";
 import { parseNpy } from "./npy";
 
 /** The parts of terrain.json the UI uses. Written by tools/dem_to_assets.py. */
@@ -154,4 +155,12 @@ export function latLonAt(s: Scenario, x: number, y: number): { lat: number; lon:
 
 export function inMap(s: Scenario, x: number, y: number): boolean {
   return x >= 0 && y >= 0 && x <= s.width && y <= s.height;
+}
+
+/** The scenario the engine is running (hello.scenario), so every window
+ * follows a load_scenario switch (#57). Until hello arrives, the URL's
+ * ?scenario or the env default. */
+export function useEngineScenario(): { scenario: Scenario | null; error: string | null } {
+  const { hello } = useEngine();
+  return useScenario(hello?.scenario ?? DEFAULT_SCENARIO);
 }
