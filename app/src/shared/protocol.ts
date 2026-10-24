@@ -1,13 +1,23 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
-export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus;
+export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus | Score;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
 export type EventKind = "road_cut" | "route_changed" | "no_safe_route";
 export type CameraState = "off" | "no_signal" | "ok";
+export type RoundPhase = "sandbox" | "running" | "ended";
+export type EndReason = "time" | "contained" | "stopped";
 export type ClientMessage =
-  VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind | AcceptRecommendation;
+  | VirtualTokenAdd
+  | VirtualTokenMove
+  | VirtualTokenRemove
+  | Ignite
+  | Reset
+  | SetWind
+  | AcceptRecommendation
+  | StartRound
+  | EndRound;
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -126,6 +136,43 @@ export interface VisionStatus {
   corners_seen: string[];
   board_found: boolean;
 }
+/**
+ * The game layer's state. Sent once a second, immediately when the round
+ * starts or ends, and when a token goes over or back under its limit.
+ */
+export interface Score {
+  type: "score";
+  tick: number;
+  phase: RoundPhase;
+  end_reason: EndReason | null;
+  elapsed_min: number;
+  duration_min: number;
+  resources: ResourceUse[];
+  inactive_tokens: string[];
+  water_cooldowns: WaterCooldown[];
+  people_total: number;
+  people_evacuated: number;
+  structures_total: number;
+  structures_lost: number;
+  acres_burned: number;
+  towns: TownScore[];
+}
+export interface ResourceUse {
+  token_type: TokenType;
+  limit: number | null;
+  used: number;
+}
+export interface WaterCooldown {
+  id: string;
+  ready_in_min: number;
+}
+export interface TownScore {
+  name: string;
+  population: number;
+  evacuated: number;
+  structures: number;
+  structures_lost: number;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -150,7 +197,8 @@ export interface Ignite {
   y: number;
 }
 /**
- * Put the fire out and unburn the map. Tokens stay where they are.
+ * Put the fire out and unburn the map. Tokens stay where they are. Also
+ * abandons any round and returns to the sandbox.
  */
 export interface Reset {
   type: "reset";
@@ -166,4 +214,17 @@ export interface SetWind {
 export interface AcceptRecommendation {
   type: "accept_recommendation";
   id: string;
+}
+/**
+ * Reset the map and start a timed, limited round, igniting at the
+ * scenario's ignition point if it has one.
+ */
+export interface StartRound {
+  type: "start_round";
+}
+/**
+ * End the running round now, freezing the fire and the score.
+ */
+export interface EndRound {
+  type: "end_round";
 }

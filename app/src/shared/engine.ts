@@ -11,6 +11,7 @@ import type {
   Recommendation,
   RouteInfo,
   ScenarioState,
+  Score,
   Token,
   VisionStatus,
 } from "./protocol";
@@ -51,6 +52,8 @@ export interface EngineState {
   vision: VisionStatus | null;
   /** Latest camera_frame (a JPEG with the vision overlay), while a camera is on. */
   cameraFrame: BinaryFrame | null;
+  /** Round phase, resource limits and score (scoreboard: #47). */
+  score: Score | null;
 }
 
 let state: EngineState = {
@@ -65,6 +68,7 @@ let state: EngineState = {
   recommendations: [],
   vision: null,
   cameraFrame: null,
+  score: null,
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -97,6 +101,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "vision_status":
       setState({ vision: msg });
+      break;
+    case "score":
+      setState({ score: msg });
       break;
   }
 }
