@@ -5,6 +5,7 @@ windows are views that can connect and disconnect at any time.
 """
 
 import asyncio
+import itertools
 import logging
 import os
 import time
@@ -18,6 +19,7 @@ import numpy as np
 
 from commander.agent import Commander
 from commander.briefings import BriefingQueue, ForecastWatcher
+from commander.voice import MacVoice, speakable
 from commander.tools import CommanderTools
 from forecast.recommend import Rec, Recommender, TownInfo, describe
 from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
@@ -27,6 +29,7 @@ from protocol import (
     CommanderKind,
     CommanderMessage,
     CommanderQuery,
+    CommanderSpeech,
     CameraState,
     EndRound,
     Event,
@@ -41,11 +44,13 @@ from protocol import (
     Score,
     SetRunning,
     SetSpeed,
+    SetVoice,
     SetWind,
     StartRound,
     StepOnce,
     Token,
     TokenType,
+    VoiceMode,
     Tokens,
     TokenSource,
     VirtualTokenAdd,
@@ -166,6 +171,10 @@ class Engine:
         self.briefings = BriefingQueue()
         self.commander = Commander(self.tools)
         self._query_task: asyncio.Task | None = None
+        # Voice is off until a console turns it on (commander/voice.py).
+        self.voice_mode = VoiceMode.OFF
+        self.mac_voice = MacVoice()
+        self._utterances = itertools.count(1)
 
     def hello_msg(self) -> str:
         s = self.scenario
@@ -331,6 +340,10 @@ class Engine:
                 self.accept_recommendation(msg.id)
             case CommanderQuery():
                 self.ask(msg.text)
+            case SetVoice():
+                self.voice_mode = msg.mode
+                if msg.mode != VoiceMode.MAC:
+                    self.mac_voice.interrupt()
             case SetWind():
                 self.fire.set_wind(Wind(speed_ms=msg.speed_ms, from_deg=msg.from_deg % 360))
                 broadcast(self.clients, self.state_msg())
@@ -353,6 +366,7 @@ class Engine:
         self.commander.reset()
         if self._query_task is not None:
             self._query_task.cancel()
+        self.mac_voice.interrupt()
         self.recs = []
         self._rec_started = -RECOMMEND_MIN_TICKS
         broadcast(self.clients, self.recs_msg())
@@ -514,8 +528,19 @@ class Engine:
             self._query_task.cancel()
         self._query_task = asyncio.create_task(self._answer(question))
 
+    def speak(self, utterance: str, kind: CommanderKind, text: str, urgent: bool = False) -> None:
+        """Send text to whichever voice is on. Sentences of one answer share an utterance id."""
+        if self.voice_mode == VoiceMode.CONSOLE:
+            msg = CommanderSpeech(utterance=utterance, kind=kind, text=speakable(text), urgent=urgent)
+            broadcast(self.clients, msg.model_dump_json())
+        elif self.voice_mode == VoiceMode.MAC:
+            self.mac_voice.speak(utterance, kind.value, speakable(text))
+
     async def _answer(self, question: str) -> None:
-        ans = await self.commander.answer(question)
+        utterance = f"a{next(self._utterances)}"
+        ans = await self.commander.answer(
+            question, on_sentence=lambda s: self.speak(utterance, CommanderKind.ANSWER, s)
+        )
         msg = CommanderMessage(
             kind=CommanderKind.ANSWER,
             tick=self.fire.tick,
@@ -583,6 +608,8 @@ class Engine:
             self.tick_fire()
             if (briefing := self.briefings.next(time.monotonic())) is not None:
                 broadcast(self.clients, briefing.model_dump_json())
+                urgent = briefing.event in (EventKind.NO_SAFE_ROUTE, EventKind.TOWN_THREATENED)
+                self.speak(f"b{next(self._utterances)}", CommanderKind.BRIEFING, briefing.text, urgent)
             if self.tick % TICK_HZ == 0:
                 broadcast(self.clients, self.state_msg())
                 broadcast(self.clients, self.vision_status_msg())

@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 9
+PROTOCOL_VERSION = 10
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -289,8 +289,21 @@ class CommanderMessage(Model):
     event: EventKind | None  # what triggered a briefing
 
 
+class CommanderSpeech(Model):
+    """Text for the console to speak (voice mode "console"). An answer
+    streams as several of these with the same `utterance`, one per sentence;
+    a briefing is one. Already rewritten for speech ("Highway 70")."""
+
+    type: Literal["commander_speech"] = "commander_speech"
+    utterance: str  # sentences with the same id belong to one answer or briefing
+    kind: CommanderKind
+    text: str
+    urgent: bool  # a briefing worth a radio tone first (threatened town, no way out)
+
+
 EngineMessage = Annotated[
-    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage],
+    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
+          CommanderSpeech],
     Field(discriminator="type"),
 ]
 
@@ -365,6 +378,19 @@ class CommanderQuery(Model):
     text: str = Field(min_length=1, max_length=500)
 
 
+class VoiceMode(StrEnum):
+    OFF = "off"
+    CONSOLE = "console"  # the console window speaks commander_speech (Web Speech API)
+    MAC = "mac"  # the engine speaks with macOS `say` (fallback if the webview's voices are poor)
+
+
+class SetVoice(Model):
+    """How the commander speaks. Off by default; the console sends its saved choice on connect."""
+
+    type: Literal["set_voice"] = "set_voice"
+    mode: VoiceMode
+
+
 class AcceptRecommendation(Model):
     """Place the recommended token (as a virtual token) where it was recommended."""
 
@@ -390,6 +416,7 @@ ClientMessage = Annotated[
         VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation,
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
+        SetVoice,
     ],
     Field(discriminator="type"),
 ]
