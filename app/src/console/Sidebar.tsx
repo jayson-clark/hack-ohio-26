@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { send } from "../shared/engine";
-import type { Score, Token, TokenType, WindState } from "../shared/protocol";
+import { orderText, unitFor, UNIT_STATUS } from "../shared/dispatch";
+import { send, useEngine } from "../shared/engine";
+import type { Score, Token, TokenType, UnitInfo, WindState } from "../shared/protocol";
 import { formatSimMinutes, limitFor } from "../shared/round";
 import { elevationAt, type Scenario } from "../shared/scenario";
 import { TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
@@ -8,6 +9,7 @@ import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { CloseIcon, PinIcon } from "./icons";
 import CommanderPanel from "./CommanderPanel";
 import ProjectorControls from "./ProjectorControls";
+import StationsPanel from "./StationsPanel";
 import RecommendationsPanel from "./RecommendationsPanel";
 import { EventLogPanel } from "./EventLog";
 import RoundPanel from "./RoundPanel";
@@ -34,6 +36,7 @@ export default function Sidebar(props: Props) {
       <FirePanel {...props} />
       <CommanderPanel />
       <TokensPanel {...props} />
+      <StationsPanel onFocus={props.onFocusPlace} />
       <RecommendationsPanel onFocus={props.onFocusPlace} />
       <EventLogPanel />
       {props.scenario && <PlacesPanel scenario={props.scenario} onFocus={props.onFocusPlace} />}
@@ -189,6 +192,8 @@ function TokensPanel({ scenario, score, tokens, selectedId, onSelect }: Props) {
   // Over a round's limit these do nothing; water drops show their cooldown.
   const inactive = new Set(score?.inactive_tokens ?? []);
   const cooldown = new Map((score?.water_cooldowns ?? []).map((c) => [c.id, c.ready_in_min]));
+  // With dispatch on (#104), a token is an order: show what its unit is doing.
+  const { units } = useEngine();
   return (
     <Panel
       title="On the table"
@@ -217,6 +222,7 @@ function TokensPanel({ scenario, score, tokens, selectedId, onSelect }: Props) {
                       {t.x.toFixed(0)}, {t.y.toFixed(0)}
                       {scenario && ` · ${Math.round(elevationAt(scenario, t.x, t.y))} m`}
                       {inactive.has(t.id) && <span className="text-red-400"> · over limit, no effect</span>}
+                      {!inactive.has(t.id) && <OrderStatus token={t} units={units} />}
                       {!inactive.has(t.id) && (cooldown.get(t.id) ?? 0) > 0 && (
                         <span className="text-sky-300"> · refills in {formatSimMinutes(cooldown.get(t.id)!)}</span>
                       )}
@@ -278,5 +284,16 @@ function PlacesPanel({ scenario, onFocus }: { scenario: Scenario; onFocus: (x: n
         })}
       </ul>
     </Panel>
+  );
+}
+
+function OrderStatus({ token, units }: { token: Token; units: UnitInfo[] }) {
+  const u = unitFor(token, units);
+  if (!u) return null;
+  return (
+    <span style={{ color: UNIT_STATUS[u.status].color }}>
+      {" · "}
+      {u.station}: {orderText(u)}
+    </span>
   );
 }
