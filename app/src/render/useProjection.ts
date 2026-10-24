@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from "react";
 import type { BinaryFrame } from "../shared/binary";
-import type { ForecastGrids } from "../shared/engine";
+import { useEngine, type ForecastGrids } from "../shared/engine";
 import type { RouteInfo, Token } from "../shared/protocol";
 import type { Layers, Projection } from "./projection";
 
@@ -24,4 +24,8 @@ export function useProjectionSync(
   useEffect(() => ref.current?.setFire(simGrid), [ref, simGrid, generation]);
   useEffect(() => ref.current?.setForecast(forecast), [ref, forecast, generation]);
   useEffect(() => ref.current?.setRoutes(routes), [ref, routes, generation]);
+  // Read straight from the store rather than threaded through every view's
+  // props: every projection shows the same recommendations.
+  const { recommendations } = useEngine();
+  useEffect(() => ref.current?.setRecommendations(recommendations), [ref, recommendations, generation]);
 }
