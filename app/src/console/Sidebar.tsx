@@ -6,6 +6,7 @@ import { TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { CloseIcon, PinIcon } from "./icons";
 import ProjectorControls from "./ProjectorControls";
+import RecommendationsPanel from "./RecommendationsPanel";
 import { Kbd, Panel } from "./ui";
 
 interface Props {
@@ -25,6 +26,7 @@ export default function Sidebar(props: Props) {
       <DeployPanel {...props} />
       <FirePanel {...props} />
       <TokensPanel {...props} />
+      <RecommendationsPanel onFocus={props.onFocusPlace} />
       {props.scenario && <PlacesPanel scenario={props.scenario} onFocus={props.onFocusPlace} />}
       <Panel title="Projector">
         <ProjectorControls />
