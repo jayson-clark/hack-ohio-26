@@ -221,6 +221,8 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 - The road network is a networkx graph built from the scenario's roads.
 - Edge cost is `length × (1 + λ · P(burn at the moment the bus reaches it))`. **The arrival-time-aware cost is the key idea:** routes avoid roads that *will* burn, not only roads burning now.
 - Routes are recomputed whenever the forecast updates, and drawn as glowing paths.
+- **Data:** `roads.json` and `towns.json` per scenario, from OpenStreetMap via `tools/osm_to_layers.py` (see the `generate-road-layers` skill). Towns carry approximate population and structure counts; `safe_zones` are the map-edge exits (Paradise: Skyway toward Chico, Clark Rd and Hwy 70 toward Oroville). The scenario layout above lists `roads.geojson`; it's `roads.json` in map coords instead.
+- **Approximation** (`engine/routing/evac.py`): per-edge P(burn by t) is precomputed at 5-sim-minute bins in one vectorized pass over the forecast's `first_burn`, then a label-setting Dijkstra carries the bus's free-flow arrival time along each label's path and reads the bin at each edge's midpoint. Edges at P ≥ 0.9 by arrival are impassable. Not an exact time-dependent shortest path, but a replan of every town is tens of milliseconds.
 
 ### Crew recommendations
 

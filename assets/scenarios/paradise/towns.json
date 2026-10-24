@@ -1,0 +1,74 @@
+{
+  "generated_by": "tools/osm_to_layers.py",
+  "note": "Populations and structure counts are approximate 2018 figures, for scoring only.",
+  "towns": [
+    {
+      "name": "Paradise",
+      "x": 48.78,
+      "y": 114.27,
+      "radius": 34.1,
+      "population": 26800,
+      "structures": 12000
+    },
+    {
+      "name": "Magalia",
+      "x": 88.53,
+      "y": 52.0,
+      "radius": 21.3,
+      "population": 11300,
+      "structures": 5200
+    },
+    {
+      "name": "Concow",
+      "x": 148.05,
+      "y": 94.81,
+      "radius": 17.1,
+      "population": 700,
+      "structures": 450
+    },
+    {
+      "name": "Butte Creek Canyon",
+      "x": 18.34,
+      "y": 80.94,
+      "radius": 12.8,
+      "population": 1100,
+      "structures": 500
+    },
+    {
+      "name": "Yankee Hill",
+      "x": 139.67,
+      "y": 180.8,
+      "radius": 8.5,
+      "population": 330,
+      "structures": 200
+    },
+    {
+      "name": "Pulga",
+      "x": 206.76,
+      "y": 65.52,
+      "radius": 4.3,
+      "population": 50,
+      "structures": 30
+    }
+  ],
+  "safe_zones": [
+    {
+      "name": "Chico (Skyway)",
+      "x": 0.043,
+      "y": 145.991,
+      "road": "Skyway"
+    },
+    {
+      "name": "Oroville (Clark Rd)",
+      "x": 55.445,
+      "y": 191.784,
+      "road": "Clark Road"
+    },
+    {
+      "name": "Oroville (Hwy 70)",
+      "x": 130.854,
+      "y": 191.857,
+      "road": "CA 70"
+    }
+  ]
+}
