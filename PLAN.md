@@ -221,9 +221,24 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 |---|---|---|---|
 | 3 m/s | 5,343 ac | 331 ac, 92% out | 3,281 ac |
 | 8 m/s | 6,336 ac | 2,449 ac, 58% out (was 100%) | 5,845 ac |
-| 13 m/s | 14,044 ac | 10,920 ac, 0% out (was 100%) | 13,188 ac |
+| 13 m/s | 20,839 ac (14,044 before spotting) | 17,624 ac, 17% out (was 100%) | 19,435 ac |
 
 The top recommendation's realized benefit fell from 985 to 708 (steady wind). It still beats a random front spot 19 of 32 times, and its prediction stays calibrated (689 predicted).
+
+**Ember spotting.** In wind over `SPOT_MIN_WIND` (9 m/s), burning cells throw embers downwind (`_spot` in `engine/sim/fire.py`). Each ember flies an exponential distance (mean 12 cells, about 1.1 km, at 10 m/s, capped at 6.6 km) and lights fuel where it lands, less so under suppression. That lets a wind-driven fire outrun the one-cell-per-tick limit, as the Camp Fire did. Calm and moderate days are unchanged, and ember draws are shared across paired what-ifs.
+
+**Checked against the real Camp Fire (#15).** `eval.campfire` replays the 2018 fire from its NIST origin near Pulga, with a 19 m/s ENE wind easing to 6 m/s by the afternoon. It scores the replay against real data in `assets/scenarios/paradise/real/`:
+- 2,105 NIST TN 2135 observations ("fire was here by time t");
+- NIFC and NASA FEDS perimeters at 7.1 h and 11.5 h.
+
+| First 12 h | Without spotting | With spotting |
+|---|---|---|
+| NIST-observed cells reached in time (±30 min) | 80% | **87%** |
+| Lateness at the 75th-percentile observation | 15 min | **0 min** |
+| IoU with the 7.1 h / 11.5 h perimeters | 0.54 / 0.63 | 0.55 / 0.64 |
+| Burned area vs the perimeters | 1.73x / 1.53x | 1.71x / 1.51x |
+
+The known gap: the replay burns about 1.5–1.7x the real area, because flanks spread too wide. A higher `C2` (0.3–0.4) fits the perimeters better (IoU 0.67/0.79, area 1.27x/1.12x). But it also starves backing and flank spread at every wind: at 3–8 m/s fires came out under half the size, and instant attack contained them again. One extreme-wind event isn't enough evidence for that, so `C2` stays at 0.22 until a second fire (Marshall, #107) agrees.
 
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
