@@ -43,6 +43,7 @@ const LAYER_LABELS: Record<keyof Layers, string> = {
   labels: "Labels",
   grid: "Grid",
   routes: "Routes",
+  forecast: "Forecast",
 };
 
 const IGNITE_COLOR = "#f97316";
