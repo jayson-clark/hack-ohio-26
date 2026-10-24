@@ -1,3 +1,4 @@
+import math
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -6,6 +7,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import sim.fire as fire_mod
 from forecast import burn_probability, rollout
 from forecast.runner import HORIZONS_MIN, run_forecast
 from protocol import Token, TokenSource, TokenType
@@ -229,3 +231,28 @@ def test_firebreak_holds_against_wind(from_deg):
     sim.ignite(W / 2, H / 2)
     run(sim, 60)
     assert not burned_mask(sim)[d >= 10].any()
+
+
+def _crossings(wind_from: float, speed: float, seeds=range(6)) -> float:
+    """Share of fires that get past a crew-strength (0.9) band at x = 44-57,
+    lit at x = 30 so the band sees head fire (wind from the west) or backing
+    fire (wind from the east)."""
+    crossed = 0
+    for seed in seeds:
+        sim = FireSim(flat(), seed=seed)
+        sup = np.zeros((H, W), np.float32)
+        sup[:, 44:58] = 0.9
+        sim.set_suppression(sup)
+        sim.set_wind(Wind(speed, wind_from))
+        sim.ignite(30, 32, radius=3)
+        run(sim, 150)
+        crossed += burned_mask(sim)[:, 60:].any()
+    return crossed / len(seeds)
+
+
+def test_crews_hold_flanks_and_backing_fire_but_not_a_wind_driven_head(monkeypatch):
+    assert _crossings(270, 13) >= 0.8  # the head runs through a crew's line
+    assert _crossings(90, 13) == 0  # backing fire into the same line is held
+    assert _crossings(270, 0) == 0  # and so is calm fire
+    monkeypatch.setattr(fire_mod, "HOLD_P", math.inf)
+    assert _crossings(270, 13) == 0  # without HOLD_P the line held the head too

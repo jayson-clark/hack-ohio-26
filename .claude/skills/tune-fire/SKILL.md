@@ -15,5 +15,6 @@ Constants live at the top of `engine/sim/fire.py` (`P_H`, `C1`, `C2`, `SLOPE_A`,
 
 Gotchas:
 - Speed also changes the forecast: `SIM_MINUTES_PER_TICK` and the horizons in `engine/forecast/runner.py` assume a fire moving at most one cell per tick.
+- `HOLD_P` decides how much partial suppression (crews, wet patches) weakens against intense spread. Raise it and crews hold head fire again; lower it and they only hold backing fire. Check with `uv run python -m eval.early_attack` (model-eval skill).
 - `SLOPE_A` is per degree of real slope (metres, not the print's relief). Paradise's canyon walls hit 25–40°, so small changes matter a lot downhill.
 - `rollout` timing grows with the fire's bounding box. Check `rollout(snapshot, 32, 60)` on a large fire stays well under a second.
