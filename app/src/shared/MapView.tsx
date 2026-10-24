@@ -22,7 +22,9 @@ interface Props {
 
 export default function MapView({ placeType, showGrid = false, className }: Props) {
   const { hello, tokens } = useEngine();
-  const size = hello?.map_size ?? 256;
+  // The map isn't square (Paradise is 256 x 192); size comes from the engine.
+  const width = hello?.map_width ?? 256;
+  const height = hello?.map_height ?? 192;
   const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef<string | null>(null);
   const pendingMove = useRef<{ id: string; x: number; y: number } | null>(null);
@@ -71,14 +73,15 @@ export default function MapView({ placeType, showGrid = false, className }: Prop
   return (
     <svg
       ref={svgRef}
-      viewBox={`0 0 ${size} ${size}`}
+      viewBox={`0 0 ${width} ${height}`}
       className={className}
+      style={{ aspectRatio: `${width} / ${height}` }}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <rect width={size} height={size} fill="#111" onPointerDown={onBackgroundDown} />
-      {showGrid && <Grid size={size} />}
+      <rect width={width} height={height} fill="#111" onPointerDown={onBackgroundDown} />
+      {showGrid && <Grid width={width} height={height} />}
       {tokens.map((t) => {
         const style = TOKEN_STYLE[t.token_type];
         return (
@@ -109,16 +112,18 @@ export default function MapView({ placeType, showGrid = false, className }: Prop
   );
 }
 
-function Grid({ size }: { size: number }) {
-  const step = size / 8;
-  const lines = Array.from({ length: 7 }, (_, i) => (i + 1) * step);
+// Grid lines every 32 cells.
+function Grid({ width, height }: { width: number; height: number }) {
+  const step = 32;
+  const xs = Array.from({ length: Math.ceil(width / step) - 1 }, (_, i) => (i + 1) * step);
+  const ys = Array.from({ length: Math.ceil(height / step) - 1 }, (_, i) => (i + 1) * step);
   return (
     <g stroke="#262626" strokeWidth={0.5} className="pointer-events-none">
-      {lines.map((p) => (
-        <g key={p}>
-          <line x1={p} y1={0} x2={p} y2={size} />
-          <line x1={0} y1={p} x2={size} y2={p} />
-        </g>
+      {xs.map((x) => (
+        <line key={`x${x}`} x1={x} y1={0} x2={x} y2={height} />
+      ))}
+      {ys.map((y) => (
+        <line key={`y${y}`} x1={0} y1={y} x2={width} y2={y} />
       ))}
     </g>
   );

@@ -21,11 +21,13 @@ from protocol import (
     VirtualTokenRemove,
     client_message_adapter,
 )
+from scenario import load_scenario
 from vision.tokens import TokenTracker
 from vision.virtual import VirtualTable
 
 HOST = os.environ.get("ENGINE_HOST", "localhost")
 PORT = int(os.environ.get("ENGINE_PORT", "8765"))
+SCENARIO = os.environ.get("SCENARIO", "paradise")
 TICK_HZ = 10
 
 log = logging.getLogger("engine")
@@ -35,9 +37,14 @@ class Engine:
     def __init__(self) -> None:
         self.clients: set[ServerConnection] = set()
         self.tick = 0
+        self.scenario = load_scenario(SCENARIO)
         self.tracker = TokenTracker()
-        self.virtual = VirtualTable(self.tracker)
+        self.virtual = VirtualTable(self.tracker, self.scenario.width, self.scenario.height)
         self._sent_token_version = -1
+
+    def hello_msg(self) -> str:
+        s = self.scenario
+        return Hello(scenario=s.name, map_width=s.width, map_height=s.height).model_dump_json()
 
     def tokens_msg(self) -> str:
         return Tokens(tokens=self.tracker.tokens).model_dump_json()
@@ -49,7 +56,7 @@ class Engine:
         self.clients.add(ws)
         log.info("client connected (%d total)", len(self.clients))
         try:
-            await ws.send(Hello().model_dump_json())
+            await ws.send(self.hello_msg())
             await ws.send(self.state_msg())
             await ws.send(self.tokens_msg())
             async for raw in ws:

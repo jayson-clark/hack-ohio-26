@@ -7,8 +7,9 @@ JSON messages are discriminated on `type`. Binary frames start with the
 12-byte header described by BINARY_HEADER (mirrored by hand in
 app/src/shared/binary.ts).
 
-All positions are in map-grid coordinates: x and y run from 0 to MAP_SIZE,
-origin at the top-left of the map, in cell units (floats allowed).
+All positions are in map-grid coordinates, in cell units (floats allowed):
+x runs from 0 to the map width, y from 0 to the map height, origin at the
+top-left (north-west) of the map. The map isn't square; Hello carries its size.
 """
 
 import struct
@@ -17,8 +18,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 1
-MAP_SIZE = 256
+PROTOCOL_VERSION = 2
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -71,7 +71,9 @@ class Token(Model):
 class Hello(Model):
     type: Literal["hello"] = "hello"
     protocol_version: int = PROTOCOL_VERSION
-    map_size: int = MAP_SIZE
+    scenario: str
+    map_width: int
+    map_height: int
 
 
 class ScenarioState(Model):
