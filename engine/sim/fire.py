@@ -110,11 +110,10 @@ def wind_factors(wind: Wind) -> np.ndarray:
 def load_fuel(scenario: Scenario) -> np.ndarray:
     """Fuel multiplier per cell, float32 (H, W); 0 means unburnable.
 
-    There's no real fuel map yet, so the default is uniform fuel everywhere
-    (the river canyon included: its walls are brush, and at 94 m cells the
-    river itself is narrower than a cell). If the scenario ever ships a
-    grayscale fuel.png, black is unburnable and white is 1.5x fuel. Roads
-    from roads.json, if present, are a partial fuel break.
+    Scenarios ship a grayscale fuel.png from tools/osm_to_fuel.py (OSM land
+    cover): black is unburnable and white is 1.5x fuel, with forest at 1.0.
+    Without one, fuel is uniform everywhere. Roads from roads.json, if
+    present, are a partial fuel break.
     """
     h, w = scenario.height, scenario.width
     fuel = np.ones((h, w), np.float32)
