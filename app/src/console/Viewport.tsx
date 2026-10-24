@@ -1,20 +1,21 @@
-// The console's main view: the 3D virtual table or the flat projection, with
-// floating toolbars and a cursor readout.
+// The console's main view: the 3D virtual table, the flat projection, or the
+// camera feed, with floating toolbars and a cursor readout.
 
 import { useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
-import type { RouteInfo, Token } from "../shared/protocol";
+import type { RouteInfo, Token, VisionStatus } from "../shared/protocol";
 import { elevationAt, latLonAt, type Scenario } from "../shared/scenario";
 import { TOKEN_STYLE } from "../shared/tokens";
 import type { PlaceType } from "../shared/virtualTokens";
 import type { Layers } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
 import TableView, { type CameraCommand, type CameraPreset } from "../render/TableView";
-import { CubeIcon, ProjectorIcon } from "./icons";
+import CameraView, { VisionReadout } from "./CameraView";
+import { CameraIcon, CubeIcon, ProjectorIcon } from "./icons";
 import { Chip, Segmented, ToggleGroup } from "./ui";
 
-export type ViewMode = "table" | "projection";
+export type ViewMode = "table" | "projection" | "camera";
 
 interface Props {
   scenario: Scenario | null;
@@ -25,6 +26,8 @@ interface Props {
   simGrid: BinaryFrame | null;
   forecast: ForecastGrids | null;
   routes: RouteInfo[];
+  vision: VisionStatus | null;
+  cameraFrame: BinaryFrame | null;
   layers: Layers;
   onToggleLayer: (k: keyof Layers) => void;
   placeType: PlaceType;
@@ -64,7 +67,9 @@ export default function Viewport(props: Props) {
 
   return (
     <div className="relative h-full overflow-hidden rounded-xl border border-edge bg-black">
-      {viewProps ? (
+      {mode === "camera" ? (
+        <CameraView frame={props.cameraFrame} vision={props.vision} />
+      ) : viewProps ? (
         mode === "table" ? (
           <TableView {...viewProps} camera={props.camera} />
         ) : (
@@ -86,6 +91,7 @@ export default function Viewport(props: Props) {
             options={[
               { value: "table", label: "Virtual table", icon: <CubeIcon /> },
               { value: "projection", label: "Projection", icon: <ProjectorIcon /> },
+              { value: "camera", label: "Camera", icon: <CameraIcon /> },
             ]}
           />
         </div>
@@ -104,40 +110,50 @@ export default function Viewport(props: Props) {
               ]}
             />
           )}
-          <ToggleGroup
-            items={(Object.keys(LAYER_LABELS) as (keyof Layers)[]).map((k) => ({
-              key: k,
-              label: LAYER_LABELS[k],
-              on: layers[k],
-            }))}
-            onToggle={props.onToggleLayer}
-          />
+          {mode !== "camera" && (
+            <ToggleGroup
+              items={(Object.keys(LAYER_LABELS) as (keyof Layers)[]).map((k) => ({
+                key: k,
+                label: LAYER_LABELS[k],
+                on: layers[k],
+              }))}
+              onToggle={props.onToggleLayer}
+            />
+          )}
         </div>
       </div>
 
       <div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-end justify-between gap-3">
-        <Chip className="font-mono tabular-nums">
-          {scenario && hover ? <Readout scenario={scenario} x={hover.x} y={hover.y} /> : <span>—</span>}
-        </Chip>
-        <Chip className="hidden items-center gap-2 md:flex">
-          <span
-            className="h-2 w-2 rounded-full"
-            style={{ background: placeType === "ignite" ? IGNITE_COLOR : TOKEN_STYLE[placeType].color }}
-          />
-          <span>
-            {placeType === "ignite" ? (
-              <>
-                Click to <span className="text-fg">ignite</span>
-              </>
-            ) : (
-              <>
-                Click to place <span className="text-fg">{TOKEN_STYLE[placeType].label.toLowerCase()}</span>
-              </>
-            )}{" "}
-            · drag to move · right-click to remove
-            {mode === "table" && " · drag empty space to orbit"}
-          </span>
-        </Chip>
+        {mode === "camera" ? (
+          <Chip className="font-mono tabular-nums">
+            <VisionReadout vision={props.vision} />
+          </Chip>
+        ) : (
+          <Chip className="font-mono tabular-nums">
+            {scenario && hover ? <Readout scenario={scenario} x={hover.x} y={hover.y} /> : <span>—</span>}
+          </Chip>
+        )}
+        {mode !== "camera" && (
+          <Chip className="hidden items-center gap-2 md:flex">
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ background: placeType === "ignite" ? IGNITE_COLOR : TOKEN_STYLE[placeType].color }}
+            />
+            <span>
+              {placeType === "ignite" ? (
+                <>
+                  Click to <span className="text-fg">ignite</span>
+                </>
+              ) : (
+                <>
+                  Click to place <span className="text-fg">{TOKEN_STYLE[placeType].label.toLowerCase()}</span>
+                </>
+              )}{" "}
+              · drag to move · right-click to remove
+              {mode === "table" && " · drag empty space to orbit"}
+            </span>
+          </Chip>
+        )}
       </div>
     </div>
   );

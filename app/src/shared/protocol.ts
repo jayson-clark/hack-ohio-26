@@ -1,10 +1,11 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
-export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events | Recommendations;
+export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
 export type EventKind = "road_cut" | "route_changed" | "no_safe_route";
+export type CameraState = "off" | "no_signal" | "ok";
 export type ClientMessage =
   VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind | AcceptRecommendation;
 
@@ -110,6 +111,20 @@ export interface TownEffect {
 export interface TownShare {
   town: string;
   share: number;
+}
+/**
+ * Sent once a second, and on connect.
+ */
+export interface VisionStatus {
+  type: "vision_status";
+  camera: CameraState;
+  source: string;
+  fps: number;
+  frame_width: number;
+  frame_height: number;
+  markers_seen: number;
+  corners_seen: string[];
+  board_found: boolean;
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";

@@ -95,17 +95,17 @@ Define the schemas once as Pydantic models in `engine/protocol.py`, then generat
 **Binary frames** (engine → UI), with a 12-byte little-endian header (`type: u8`, 3 pad bytes, `tick: u32`, `width: u16`, `height: u16`). The header is mirrored by hand in `app/src/shared/binary.ts`:
 - `sim_grid`: `uint8` cell states (0 unburnable, 1 fuel, 2 burning, 3 burned), 256×192 is 48 KB, every tick (10 Hz)
 - `forecast_grid`: `uint8` burn probability (0–255), one `width×height` grid per horizon stacked in the order of `Hello.forecast_horizons_min` (T+30, T+60), in one frame. The header's tick is the sim tick the forecast started from. Sent each time a forecast lands, and all-zero on reset
-- `camera_frame`: JPEG, console only, low rate
+- `camera_frame`: JPEG of the webcam with the vision overlay drawn in (960 px wide, 6 fps, only while `CAMERA` is set). The header's width/height are the JPEG's and its tick counts feed frames. It's broadcast to every window; the projector ignores it
 
 **JSON messages:**
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
 
-Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, and the `sim_grid` and `forecast_grid` binary frames. Add the rest as each phase needs them.
+Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `vision_status` (camera state, fps, corner markers seen, board locked), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
 
 **Wind convention** everywhere (protocol, sim, commander tools): `speed_ms` in m/s and `from_deg` meteorological, the direction the wind blows *from*, degrees clockwise from north (map up, −y). 270 is a west wind that pushes fire east.
 
-**Token path.** Real vision and virtual table mode both report full per-source snapshots to `TokenTracker` (`engine/vision/tokens.py`); the rest of the engine only reads `tracker.tokens`. Virtual tokens come from `engine/vision/virtual.py`.
+**Token path.** Real vision and virtual table mode both report full per-source snapshots to `TokenTracker` (`engine/vision/tokens.py`); the rest of the engine only reads `tracker.tokens`. Virtual tokens come from `engine/vision/virtual.py`. Camera tokens come from `engine/vision/camera.py`, a thread that reads frames, detects markers, solves `H_cam→map` from the corner markers and debounces (`engine/vision/tracking.py`). The main loop only picks up its latest snapshot each tick. It's off unless `CAMERA` is set in `.env` (see the `vision-camera` skill).
 
 **Windows.** One React bundle; `?view=console` or `?view=projector` picks the view. In Tauri the console is the `main` window from `tauri.conf.json`, and the projector is created on demand by `app/src/platform/tauri.ts` on the chosen monitor, then made fullscreen. Closing the console quits the app. In a browser, the projector is a popup (press F to fullscreen). Both windows render with `app/src/render/` (see [The Two Windows](#the-two-windows)).
 
@@ -181,9 +181,10 @@ Looks polished and native, on the laptop screen.
 
 ### Token tracking
 
-- Each token carries an ArUco marker, and its marker ID determines its type.
-- **Debounce:** a token counts as placed only after it's seen steadily for N frames, and as removed after M frames missing.
-- **Smoothing:** filter positions to avoid jitter.
+- Each token carries an ArUco marker (`DICT_4X4_50`), and its marker ID determines its type: corners 0–3 (NW, NE, SE, SW), crew 10–19, firebreak 20–29, water 30–39, bus 40–49 (`engine/vision/markers.py`). On the wire a token's id is `m<marker id>`, so sim effects survive brief dropouts.
+- **Board homography:** `H_cam→map` is re-solved from the four corner-marker centres on every frame where all four are visible, and the last good one is kept while a corner is covered. So a bumped table or camera fixes itself.
+- **Debounce:** a token counts as placed after 3 frames in a row, and as removed after 15 frames missing (~0.5 s).
+- **Smoothing:** positions and angles are low-passed, with a small deadband so still tokens don't re-broadcast. A jump of more than 3 cells is taken at once.
 - **White halo:** the projector draws a solid white ring under each known token so its marker stays high-contrast under colored fire light. It doubles as a "selected" visual.
 
 | Token | Effect |
