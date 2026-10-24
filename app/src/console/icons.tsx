@@ -34,6 +34,13 @@ export const ProjectorIcon = () => (
   </Icon>
 );
 
+export const CameraIcon = () => (
+  <Icon>
+    <path d="M1.75 5.25c0-.83.67-1.5 1.5-1.5h1.5l1-1.5h4.5l1 1.5h1.5c.83 0 1.5.67 1.5 1.5v6.5c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5z" />
+    <circle cx="8" cy="8.25" r="2.5" />
+  </Icon>
+);
+
 export const PinIcon = () => (
   <Icon size={13}>
     <path d="M8 14.25s4.75-4.1 4.75-8A4.75 4.75 0 0 0 3.25 6.25c0 3.9 4.75 8 4.75 8Z" />

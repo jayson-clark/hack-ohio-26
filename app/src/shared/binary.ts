@@ -6,6 +6,8 @@
 // - ForecastGrid: one width*height uint8 grid per Hello.forecast_horizons_min
 //   entry, stacked in that order; P(burned by the horizon) as 0-255. The
 //   header's tick is the sim tick the forecast started from.
+// - CameraFrame: one JPEG of the webcam with the vision overlay drawn in;
+//   width/height are the JPEG's, tick counts feed frames.
 
 export const BinaryType = {
   SimGrid: 1,

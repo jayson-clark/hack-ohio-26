@@ -20,6 +20,7 @@ from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
 from protocol import (
     AcceptRecommendation,
     BinaryType,
+    CameraState,
     Event,
     EventKind,
     Events,
@@ -30,9 +31,11 @@ from protocol import (
     SetWind,
     TokenType,
     Tokens,
+    TokenSource,
     VirtualTokenAdd,
     VirtualTokenMove,
     VirtualTokenRemove,
+    VisionStatus,
     WindState,
     client_message_adapter,
     Recommendation,
@@ -47,12 +50,14 @@ from routing.roads import load_network
 from scenario import load_scenario
 from sim.effects import TokenEffects
 from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
+from vision import camera
 from vision.tokens import TokenTracker
 from vision.virtual import VirtualTable
 
 HOST = os.environ.get("ENGINE_HOST", "localhost")
 PORT = int(os.environ.get("ENGINE_PORT", "8765"))
 SCENARIO = os.environ.get("SCENARIO", "paradise")
+CAMERA = os.environ.get("CAMERA", "")  # see vision/camera.py; empty = virtual table only
 TICK_HZ = 10
 # Don't restart the forecaster more often than this, or a map with no fire
 # (where a forecast is instant) would round-trip the worker every tick.
@@ -72,6 +77,8 @@ class Engine:
         self.tracker = TokenTracker()
         self.virtual = VirtualTable(self.tracker, self.scenario.width, self.scenario.height)
         self._sent_token_version = -1
+        self.camera = camera.from_env(CAMERA, self.scenario)
+        self._sent_feed_seq = 0
         self.fire = FireSim(self.scenario)
         self.effects = TokenEffects(self.scenario.width, self.scenario.height)
         self.forecaster = Forecaster()
@@ -142,6 +149,32 @@ class Engine:
 
     def recs_msg(self) -> str:
         return Recommendations(tick=self._recs_tick, recommendations=self.recs).model_dump_json()
+    def vision_status_msg(self) -> str:
+        if self.camera is None:
+            status = VisionStatus(
+                camera=CameraState.OFF,
+                source="",
+                fps=0,
+                frame_width=0,
+                frame_height=0,
+                markers_seen=0,
+                corners_seen=[],
+                board_found=False,
+            )
+        else:
+            status = self.camera.snapshot().status
+        return status.model_dump_json()
+
+    def poll_vision(self) -> None:
+        """Pick up the camera thread's latest tokens and feed frame."""
+        if self.camera is None:
+            return
+        snap = self.camera.snapshot()
+        self.tracker.update(TokenSource.VISION, snap.tokens)
+        if snap.feed_seq != self._sent_feed_seq and snap.feed_jpeg:
+            self._sent_feed_seq = snap.feed_seq
+            w, h = snap.feed_size
+            broadcast(self.clients, pack_binary(BinaryType.CAMERA_FRAME, snap.feed_seq, w, h, snap.feed_jpeg))
 
     def sim_grid_frame(self) -> bytes:
         s = self.scenario
@@ -163,6 +196,7 @@ class Engine:
             await ws.send(self.hello_msg())
             await ws.send(self.state_msg())
             await ws.send(self.tokens_msg())
+            await ws.send(self.vision_status_msg())
             await ws.send(self.sim_grid_frame())
             await ws.send(self.forecast_frame())
             if self.roads is not None:
@@ -373,10 +407,12 @@ class Engine:
         next_tick = loop.time()
         while True:
             self.tick += 1
+            self.poll_vision()
             self.flush_tokens()
             self.step_fire()
             if self.tick % TICK_HZ == 0:
                 broadcast(self.clients, self.state_msg())
+                broadcast(self.clients, self.vision_status_msg())
             next_tick += period
             await asyncio.sleep(max(0.0, next_tick - loop.time()))
 
@@ -391,6 +427,8 @@ async def main() -> None:
     finally:
         engine.forecaster.shutdown()
         engine.recommender.shutdown()
+        if engine.camera is not None:
+            engine.camera.stop()
 
 
 if __name__ == "__main__":
