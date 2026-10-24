@@ -22,10 +22,15 @@ import numpy as np
 
 from protocol import CommanderKind, CommanderMessage, EndReason, Event, EventKind, Score
 from sim.fire import SIM_MINUTES_PER_TICK
+from uq.mc import wilson
 
-THREAT_ON = 0.6  # share of simulations with fire in the town within 30 min
-THREAT_OFF = 0.4
-SAFE_CONFIRMATIONS = 2  # forecasts in a row below THREAT_OFF before "safe"
+# A town is threatened once the *lower* end of the 90% interval on "fire
+# reaches it within 30 min" is at least 50%: more likely than not, even
+# allowing for having only N simulations (#11). It's safe again once the
+# *upper* end is under 50% for SAFE_CONFIRMATIONS forecasts in a row. The gap
+# between the two is the hysteresis.
+THREAT_LEVEL = 0.5
+SAFE_CONFIRMATIONS = 2
 SHIFT_IOU = 0.6  # next-hour burn envelope overlap below this counts as a shift
 SHIFT_MIN_TICKS = 30  # at most one shift event per this many ticks
 SHIFT_TOWARD = 0.25  # a town's 60-min reach share has to grow this much to be named
@@ -62,6 +67,13 @@ def round_summary(score: Score) -> str:
         f"{score.structures_lost:,} of {score.structures_total:,} structures lost, "
         f"and {round(score.acres_burned):,} acres burned."
     )
+
+
+def _interval(reach: dict | None) -> tuple[float, float]:
+    """90% Wilson interval on a reach count; (0, 0) when there's no forecast."""
+    if not reach or not reach["of"]:
+        return 0.0, 0.0
+    return wilson(reach["simulations"], reach["of"])
 
 
 def _share(reach: dict | None) -> float:
@@ -103,15 +115,15 @@ class ForecastWatcher:
         events = []
         for row in towns:
             name = row["town"]
-            p30 = _share(row.get("fire_reaches_within_30_min"))
+            lo, hi = _interval(row.get("fire_reaches_within_30_min"))
             hot = row.get("fire_inside_town_now", False)
             if name not in self.threatened:
-                if p30 >= THREAT_ON or hot:
+                if lo >= THREAT_LEVEL or hot:
                     self.threatened.add(name)
                     self._calm.pop(name, None)
-                    text = f"Fire is inside {name}." if hot and p30 < THREAT_ON else threatened_text(row)
+                    text = f"Fire is inside {name}." if hot and lo < THREAT_LEVEL else threatened_text(row)
                     events.append(Event(kind=EventKind.TOWN_THREATENED, tick=tick, town=name, text=text))
-            elif p30 < THREAT_OFF and not hot:
+            elif hi < THREAT_LEVEL and not hot:
                 self._calm[name] = self._calm.get(name, 0) + 1
                 if self._calm[name] >= SAFE_CONFIRMATIONS:
                     self.threatened.discard(name)

@@ -577,7 +577,7 @@ class Engine:
 
     def rec_message(self, r: Rec, rec_id: str, acres_per_cell: float, from_place: str | None = None) -> Recommendation:
         def effects(es):
-            return [TownEffectInfo(town=e.town, hits=e.hits, n=e.n) for e in es]
+            return [TownEffectInfo(town=e.town, hits=e.hits, n=e.n, lo=round(e.lo, 3), hi=round(e.hi, 3)) for e in es]
 
         moving = next((t for t in self.tracker.tokens if t.id == r.move_id), None) if r.move_id else None
         return Recommendation(
@@ -585,7 +585,8 @@ class Engine:
             action=RecAction.MOVE if r.move_id else RecAction.PLACE,
             move_token=r.move_id, from_x=r.from_x, from_y=r.from_y,
             auto=r.move_id is None or (moving is not None and moving.source == "virtual"),
-            benefit=round(r.benefit, 2), acres_saved=round(r.cells_saved * acres_per_cell, 1),
+            benefit=round(r.benefit, 2), benefit_lo=round(r.benefit_lo, 2), benefit_hi=round(r.benefit_hi, 2),
+            confidence=r.confidence, acres_saved=round(r.cells_saved * acres_per_cell, 1),
             saves=effects(r.saves), worsens=effects(r.worsens),
             protects=[TownShareInfo(town=p.town, share=p.share) for p in r.protects],
             text=describe(r, acres_per_cell, from_place),

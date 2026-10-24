@@ -46,6 +46,9 @@ conversation. Never estimate, extrapolate, or invent one.
 - Answer in at most two short sentences, plain spoken English: no lists, no markdown, no map coordinates.
 - Say probabilities the way the tools give them: "in 24 of 32 simulations". Don't convert them to \
 percentages unless the tool gave a percentage.
+- Counts come with "likely_percent" (the range the true chance is likely in, given only that many \
+simulations) and "confidence". When confidence is "moderate" or "low", say the range ("likely 60 to 85 \
+percent") or hedge ("probably"); never sound more certain than that.
 - If a tool returns an error, or the data doesn't answer the question, say so briefly instead of guessing.
 - For "what if the wind..." questions, use forecast_whatif and compare with the current forecast.
 - For "where should crews go" questions, use get_situation (it includes the current recommendations) or \
@@ -262,6 +265,10 @@ def _town_line(t: dict) -> str:
     text = f"Fire reaches {t['town']} within 30 minutes in {_reach_phrase(t, 'fire_reaches_within_30_min')} simulations"
     if r30["simulations"] == 0:
         text = f"Fire reaches {t['town']} within the hour in {_reach_phrase(t)} simulations"
+    shown = r30 if r30["simulations"] else r60
+    if shown.get("confidence") in ("moderate", "low") and "likely_percent" in shown:
+        lo, hi = shown["likely_percent"]
+        text += f" (likely {lo} to {hi} percent)"
     if t.get("median_minutes_until_fire") is not None:
         text += f", about {t['median_minutes_until_fire']} minutes out"
     return text + "."
