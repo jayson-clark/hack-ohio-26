@@ -191,7 +191,7 @@ export default function TableView(props: ViewProps & { camera: CameraCommand | n
       if (d.button === 0 && !d.tokenId) {
         const m = pickMap(e);
         if (m) {
-          place(live.current.placeType, m.x, m.y, s);
+          if (live.current.placeType) place(live.current.placeType, m.x, m.y, s);
           live.current.onSelect?.(null);
         }
       } else if (d.button === 2 && d.tokenId) {

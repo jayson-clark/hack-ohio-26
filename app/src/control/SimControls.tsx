@@ -4,7 +4,7 @@
 import { useEffect, useRef } from "react";
 import { send } from "../shared/engine";
 import type { ScenarioState } from "../shared/protocol";
-import { PauseIcon, PlayIcon, StepIcon } from "./icons";
+import { PauseIcon, PlayIcon, StepIcon } from "../console/icons";
 
 const SPEEDS = [0.5, 1, 2, 4];
 

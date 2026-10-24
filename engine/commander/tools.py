@@ -21,7 +21,7 @@ import numpy as np
 
 from forecast.recommend import TownInfo, evaluate_spots
 from forecast.rollout import rollout
-from protocol import TokenType
+from protocol import KofN, TokenType, TownThreat
 from sim.fire import BURNED, BURNING, SIM_MINUTES_PER_TICK, FireSnapshot, Wind
 from uq.mc import confidence_word, wilson
 
@@ -238,6 +238,49 @@ class CommanderTools:
                 row["evacuation"] = {"status": r.status, "exit": r.safe_zone, "drive_minutes": r.eta_min}
             rows.append(row)
         return rows
+
+    def town_threats(self) -> list[TownThreat]:
+        """The console's town board (#122): the same numbers as _town_table,
+        as protocol models, plus the 10th-percentile arrival."""
+        e = self.e
+        f = e.latest_forecast
+        routes = {r.town: r for r in e.routes}
+        burnt = (e.fire.state == BURNING) | (e.fire.state == BURNED)
+        arrivals = None
+        if f is not None and len(e.towns):
+            arrivals = _town_arrivals(f.first_burn, self.masks, e.fire.tick - f.tick)
+        structures = {t.name: t.structures for t in e.roads.towns} if e.roads else {}
+        out = []
+        for i, t in enumerate(e.towns):
+            within = [None, None]
+            median = soonest = None
+            if arrivals is not None:
+                a = arrivals[:, i] * SIM_MINUTES_PER_TICK
+                n = len(a)
+                for j, minutes in enumerate((30, 60)):
+                    k = int((a <= minutes).sum())
+                    lo, hi = wilson(k, n)
+                    within[j] = KofN(k=k, n=n, lo=round(float(lo), 3), hi=round(float(hi), 3))
+                reached = np.sort(a[np.isfinite(a)])
+                if len(reached) * 2 >= n:
+                    median = round(float(np.median(reached)), 1)
+                if len(reached) * 10 >= n and len(reached):
+                    soonest = round(float(np.quantile(a, 0.1)), 1)
+            r = routes.get(t.name)
+            out.append(TownThreat(
+                town=t.name,
+                population=t.population,
+                structures=structures.get(t.name, 0),
+                fire_inside=bool(burnt[self.masks[i]].any()),
+                within_30=within[0],
+                within_60=within[1],
+                median_min=median,
+                soonest_min=soonest,
+                route_status=None if r is None else r.status,
+                exit=None if r is None else r.safe_zone,
+                drive_min=None if r is None or r.safe_zone is None else round(r.eta_min, 1),
+            ))
+        return out
 
     @staticmethod
     def _reach(a: np.ndarray) -> dict:

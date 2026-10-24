@@ -9,7 +9,7 @@ import { TOKEN_TYPES } from "../shared/tokens";
 import type { PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
-import { RoundSummaryProjected } from "../console/RoundSummary";
+import { RoundSummaryProjected } from "../control/RoundSummary";
 import AttractMode, { useAttract } from "./AttractMode";
 
 export default function Projector() {
