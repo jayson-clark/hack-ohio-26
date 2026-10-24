@@ -23,7 +23,8 @@ export type ClientMessage =
   | EndRound
   | SetRunning
   | SetSpeed
-  | StepOnce;
+  | StepOnce
+  | CommanderQuery;
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -267,4 +268,12 @@ export interface SetSpeed {
  */
 export interface StepOnce {
   type: "step_once";
+}
+/**
+ * A question for the incident commander, typed or transcribed. A new
+ * question cancels one still being answered.
+ */
+export interface CommanderQuery {
+  type: "commander_query";
+  text: string;
 }
