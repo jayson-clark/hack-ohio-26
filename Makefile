@@ -2,7 +2,7 @@
 -include .env
 export
 
-.PHONY: install engine web app dev types test
+.PHONY: install engine web app dev types test board
 
 install:
 	cd engine && uv sync
@@ -33,3 +33,7 @@ types:
 test:
 	cd engine && uv run pytest -q
 	cd app && pnpm exec tsc --noEmit
+
+# Agent message board on http://localhost:8790 (BOARD_HOST=0.0.0.0 to share on the LAN)
+board:
+	python3 tools/agent_board/server.py
