@@ -46,7 +46,9 @@ TOOL_SPECS = [
         "description": (
             "The current fire picture: wind, acres burning and burned, and for every town how many of the "
             "forecast's simulations have the fire reaching it within 30 and 60 minutes, the median time until "
-            "it does, and the town's evacuation route. Call this before any briefing or status answer."
+            "it does, and the town's evacuation route. Also the round: whether one is running, minutes left, "
+            "people evacuated, structures lost, acres burned, and resources used and left. Call this before "
+            "any briefing, status or 'how are we doing' answer."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
     },
@@ -176,7 +178,36 @@ class CommanderTools:
             "towns": self._town_table(),
             "crews_on_table": sum(1 for t in e.tracker.tokens if t.token_type == "crew"),
             "recommendations": [r.text for r in e.recs],
+            "round": self._round(),
         }
+        return out
+
+    def _round(self) -> dict:
+        """The game layer's state (#68), in the same terms as the scoreboard."""
+        s = self.e.score()
+        if s.phase == "sandbox":
+            return {"phase": "no round running (free play: no limits, no timer)"}
+        out = {
+            "phase": "running" if s.phase == "running" else "ended",
+            "minutes_elapsed": round(s.elapsed_min),
+        }
+        if s.phase == "running":
+            out["minutes_left"] = round(max(0.0, s.duration_min - s.elapsed_min))
+        else:
+            out["ended_because"] = {"time": "time ran out", "contained": "the fire is out",
+                                    "stopped": "it was stopped"}.get(s.end_reason or "", "it ended")
+        out.update({
+            "people_evacuated": s.people_evacuated,
+            "people_total": s.people_total,
+            "structures_lost": s.structures_lost,
+            "structures_total": s.structures_total,
+            "acres_burned": round(s.acres_burned),
+            "resources": [
+                {"type": str(r.token_type), "used": r.used, "limit": r.limit,
+                 "left": None if r.limit is None else max(0, r.limit - r.used)}
+                for r in s.resources
+            ],
+        })
         return out
 
     def _town_table(self) -> list[dict]:

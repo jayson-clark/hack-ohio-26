@@ -50,7 +50,8 @@ percentages unless the tool gave a percentage.
 - For "what if the wind..." questions, use forecast_whatif and compare with the current forecast.
 - For "where should crews go" questions, use get_situation (it includes the current recommendations) or \
 evaluate_placement for a specific spot.
-- For evacuation questions, use get_routes."""
+- For evacuation questions, use get_routes.
+- For "how are we doing", time left, score or resources, use get_situation (its "round" part)."""
 
 def has_credentials() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
@@ -235,6 +236,23 @@ def _reach_phrase(row: dict, key: str = "fire_reaches_within_60_min") -> str:
     return f"{r['simulations']} of {r['of']}"
 
 
+def _round_line(r: dict) -> str:
+    if "minutes_elapsed" not in r:
+        return "No round is running, so there's no clock or score yet."
+    names = {"crew": ("crew", "crews"), "water": ("water drop", "water drops"),
+             "firebreak": ("firebreak", "firebreaks"), "bus": ("bus", "buses")}
+    left = [f"{x['left']} {names.get(x['type'], (x['type'], x['type'] + 's'))[x['left'] != 1]}"
+            for x in r["resources"] if x["left"] is not None]
+    score = (f"{r['people_evacuated']:,} of {r['people_total']:,} people are out and "
+             f"{r['structures_lost']:,} of {r['structures_total']:,} structures lost")
+    if r["phase"] == "ended":
+        return f"The round is over because {r['ended_because']}: {score}, with {r['acres_burned']:,} acres burned."
+    text = f"{r['minutes_left']} minutes left: {score}."
+    if left:
+        text += f" You have {', '.join(left[:-1]) + ' and ' + left[-1] if len(left) > 1 else left[0]} left."
+    return text
+
+
 def _town_line(t: dict) -> str:
     r30, r60 = t["fire_reaches_within_30_min"], t["fire_reaches_within_60_min"]
     if t.get("fire_inside_town_now"):
@@ -256,6 +274,13 @@ async def rule_based_answer(tools: CommanderTools, question: str) -> Answer:
     q = question.lower()
     town_names = [t.name for t in tools.e.towns]
     place = _named(q, [v[2] for v in tools.places.values()])
+
+    # Round questions first: "how many crews do I have left" is about the round, not placement.
+    if any(w in q for w in ("how are we doing", "score", "time left", "how long is left", "how much time",
+                            "minutes left", "resources", "left to", "crews left", "do we have left",
+                            "do i have left", "round")):
+        out = await tools.call("get_situation", {})
+        return Answer(_round_line(out["round"]), ["get_situation"], [out], "rules")
 
     if "wind" in q:
         direction, speed = _wind_direction(q), _wind_speed(q)

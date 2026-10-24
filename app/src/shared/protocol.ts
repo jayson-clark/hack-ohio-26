@@ -16,7 +16,7 @@ export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
 export type EventKind =
-  "road_cut" | "route_changed" | "no_safe_route" | "town_threatened" | "town_safe" | "forecast_shift";
+  "road_cut" | "route_changed" | "no_safe_route" | "town_threatened" | "town_safe" | "forecast_shift" | "round_ended";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";

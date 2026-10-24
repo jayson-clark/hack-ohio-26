@@ -10,6 +10,7 @@ export const EVENT_STYLE: Record<EventKind, { label: string; color: string; aler
   route_changed: { label: "Reroute", color: "#facc15", alert: false },
   forecast_shift: { label: "Forecast", color: "#38bdf8", alert: false },
   town_safe: { label: "Safe", color: "#4ade80", alert: false },
+  round_ended: { label: "Round over", color: "#a1a1aa", alert: false },
 };
 
 /** Towns under threat now: the last threatened/safe event per town decides. */
