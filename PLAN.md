@@ -210,6 +210,16 @@ p_wind  = exp(c1·V) · exp(c2·V·(cos θ − 1))   # θ = angle between wind a
 p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhill slower
 ```
 
+**Crews hold flanks, not the head.** Partial suppression (a crew's line, a wet patch) is scaled by `1 / (1 + (p / HOLD_P)²)`, where `p` is the strongest single-neighbour spread chance into the cell. So it holds backing fire, flanks and calm fire, but barely slows a wind-driven head. Full suppression (a firebreak, the tick a water drop lands) still stops anything. Measured with `eval.early_attack` (three crews ordered onto each eval ignition, acres burned after 3 h):
+
+| Wind | No crews | Instant crews (old exploit) | Crews dispatched from stations |
+|---|---|---|---|
+| 3 m/s | 5,343 ac | 331 ac, 92% out | 3,281 ac |
+| 8 m/s | 6,336 ac | 2,449 ac, 58% out (was 100%) | 5,845 ac |
+| 13 m/s | 14,044 ac | 10,920 ac, 0% out (was 100%) | 13,188 ac |
+
+The top recommendation's realized benefit fell from 985 to 708 (steady wind). It still beats a random front spot 19 of 32 times, and its prediction stays calibrated (689 predicted).
+
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
 - **Vectorized:** 8 shifted-array operations per tick (one per neighbor direction), restricted to the bounding box of the burning cells. A step on Paradise takes well under 1 ms.

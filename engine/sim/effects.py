@@ -5,7 +5,9 @@ multiplied as (1 - s) into p_burn, with s = 1 also putting out cells that are
 already burning (see sim.fire.advance). So:
 
 - crew: suppression that ramps up over CREW_RAMP_TICKS within CREW_RADIUS,
-  to CREW_MAX (< 1, so a crew holds a line but doesn't snuff flames).
+  to CREW_MAX (< 1, so a crew holds a line but doesn't snuff flames). Being
+  partial, it holds flanks and backing fire but not a wind-driven head
+  (sim.fire.HOLD_P).
 - water: when dropped, s = 1 within WATER_RADIUS (instant knockdown), then a
   wet patch that dries out over WATER_WET_TICKS. Each token can drop again
   once WATER_COOLDOWN_TICKS have passed, but only after it has been moved.
