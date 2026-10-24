@@ -20,7 +20,8 @@ export type ClientMessage =
   | SetWind
   | AcceptRecommendation
   | StartRound
-  | EndRound;
+  | EndRound
+  | CommanderQuery;
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -241,4 +242,12 @@ export interface StartRound {
  */
 export interface EndRound {
   type: "end_round";
+}
+/**
+ * A question for the incident commander, typed or transcribed. A new
+ * question cancels one still being answered.
+ */
+export interface CommanderQuery {
+  type: "commander_query";
+  text: string;
 }
