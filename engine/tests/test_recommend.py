@@ -78,7 +78,8 @@ def test_accepting_a_recommendation_places_a_virtual_crew():
     async def run_engine():
         engine = Engine()
         try:
-            engine.recs = [Recommendation(id="r5-0", token_type=TokenType.CREW, x=120.5, y=80.5, benefit=3.0,
+            engine.recs = [Recommendation(id="r5-0", token_type=TokenType.CREW, action="place", x=120.5, y=80.5,
+                                          move_token=None, from_x=None, from_y=None, auto=True, benefit=3.0,
                                           acres_saved=10.0, saves=[], worsens=[], protects=[], text="")]
             engine.accept_recommendation("r5-0")
             [crew] = engine.tracker.tokens

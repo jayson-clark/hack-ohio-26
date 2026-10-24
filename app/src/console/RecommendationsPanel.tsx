@@ -59,8 +59,13 @@ function Card({ rank, rec, onFocus }: { rank: number; rec: Recommendation; onFoc
         )}
       </div>
       <div className="mt-2 flex gap-1.5 pl-7">
-        <Button variant="primary" className="h-7 flex-1" onClick={() => acceptRecommendation(rec.id)}>
-          Place crew
+        <Button
+          variant="primary"
+          className={`h-7 flex-1 ${rec.auto ? "" : "cursor-not-allowed opacity-50"}`}
+          title={rec.auto ? undefined : "A physical crew on the table: move it there by hand"}
+          onClick={rec.auto ? () => acceptRecommendation(rec.id) : undefined}
+        >
+          {rec.action === "move" ? (rec.auto ? "Move crew" : "Move it by hand") : "Place crew"}
         </Button>
         <Button variant="ghost" className="h-7" title="Fly to" onClick={() => onFocus(rec.x, rec.y)}>
           <PinIcon />
