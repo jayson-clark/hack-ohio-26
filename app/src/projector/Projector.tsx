@@ -9,9 +9,10 @@ import { TOKEN_TYPES } from "../shared/tokens";
 import type { PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
+import { RoundSummaryProjected } from "../console/RoundSummary";
 
 export default function Projector() {
-  const { tokens, simGrid, forecast, routes } = useEngine();
+  const { tokens, simGrid, forecast, routes, score } = useEngine();
   const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
 
@@ -33,7 +34,7 @@ export default function Projector() {
   return (
     // Ignite mode shows only as a different cursor: anything drawn here would
     // land on the table.
-    <div className={`h-full bg-black ${placeType === "ignite" ? "cursor-cell" : "cursor-crosshair"}`}>
+    <div className={`relative h-full bg-black ${placeType === "ignite" ? "cursor-cell" : "cursor-crosshair"}`}>
       {scenario ? (
         <ProjectionView
           scenario={scenario}
@@ -48,6 +49,7 @@ export default function Projector() {
       ) : (
         error && <p className="p-6 font-mono text-sm text-red-400">{error}</p>
       )}
+      <RoundSummaryProjected score={score} />
     </div>
   );
 }
