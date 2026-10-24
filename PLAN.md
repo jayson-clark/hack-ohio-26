@@ -93,15 +93,17 @@ Inside the engine:
 Define the schemas once as Pydantic models in `engine/protocol.py`, then generate TypeScript types for React with `make types` (Pydantic JSON schema → `json-schema-to-typescript` → `app/src/shared/protocol.ts`). JSON messages are discriminated on a `type` field.
 
 **Binary frames** (engine → UI), with a 12-byte little-endian header (`type: u8`, 3 pad bytes, `tick: u32`, `width: u16`, `height: u16`). The header is mirrored by hand in `app/src/shared/binary.ts`:
-- `sim_grid`: `uint8` cell states, 256×256 is 64 KB, at about 10 Hz
-- `forecast_grid`: `uint8` burn probability (0–255) per horizon
+- `sim_grid`: `uint8` cell states (0 unburnable, 1 fuel, 2 burning, 3 burned), 256×192 is 48 KB, every tick (10 Hz)
+- `forecast_grid`: `uint8` burn probability (0–255), one `width×height` grid per horizon stacked in the order of `Hello.forecast_horizons_min` (T+30, T+60), in one frame. The header's tick is the sim tick the forecast started from. Sent each time a forecast lands, and all-zero on reset
 - `camera_frame`: JPEG, console only, low rate
 
 **JSON messages:**
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
 
-Implemented so far (Phase 0): `hello` (protocol version, scenario name, map width and height), `scenario_state`, `tokens`, and `virtual_token_add/move/remove`. Add the rest as each phase needs them.
+Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, and the `sim_grid` and `forecast_grid` binary frames. Add the rest as each phase needs them.
+
+**Wind convention** everywhere (protocol, sim, commander tools): `speed_ms` in m/s and `from_deg` meteorological, the direction the wind blows *from*, degrees clockwise from north (map up, −y). 270 is a west wind that pushes fire east.
 
 **Token path.** Real vision and virtual table mode both report full per-source snapshots to `TokenTracker` (`engine/vision/tokens.py`); the rest of the engine only reads `tracker.tokens`. Virtual tokens come from `engine/vision/virtual.py`.
 
@@ -200,13 +202,18 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
-- **Vectorized:** 8 shifted-array operations per tick (one per neighbor direction). A 256×256 grid runs well over real time in plain NumPy.
+- **Vectorized:** 8 shifted-array operations per tick (one per neighbor direction), restricted to the bounding box of the burning cells. A step on Paradise takes well under 1 ms.
 - Wind comes from the physical knob (Arduino potentiometer → pyserial) or the console dial.
+- **Time scale:** one tick is one sim-minute (`SIM_MINUTES_PER_TICK` in `engine/sim/fire.py`), so 10 Hz is 10 sim-minutes per second and T+60 is 60 ticks. A fire can move at most one 94 m cell per tick (≈5.6 km/h), about the Camp Fire's run through Paradise.
+- **Constants are tuned for the table, not the paper:** `p_h` is lower (cells burn for 8 ticks, so neighbors get 8 tries), the wind terms are about 3× Alexandridis' so the wind visibly steers the fire, and the slope term is softened because Paradise's real canyon walls made the paper's value impassable downhill. Slope uses the real heightmap in metres, not the print's exaggerated relief. See the `tune-fire` skill.
+- **Fuel:** uniform until a fuel map exists. `fuel.png` (grayscale, black = unburnable) and `roads.json` (roads are a partial fuel break) are loaded if present.
+- **Suppression** is the one knob for every intervention (`engine/sim/effects.py` turns tokens into it each tick). Suppression of exactly 1 also puts out burning cells, which is how water knockdowns and firebreaks laid over flames work. Crews top out at 0.9, so they hold a line but don't snuff fire.
 
 ### Forecasting
 
 - **Batched stochastic rollouts:** stack N copies of the state into an array of shape `(N, H, W)` and advance them all with one vectorized step.
 - Record the first time each cell burns in each rollout, giving `P(burn by t)` for each horizon.
+- `forecast.rollout(snapshot, n, ticks, wind=..., extra_suppression=...)` returns that first-burn time as `(n, H, W)` float32, with optional wind and crew what-ifs; `forecast.burn_probability` turns it into `P(burn by horizon)`. The live forecast (32 rollouts to T+60) runs in a worker process, one at a time, and lands on `Engine.latest_forecast` for routing and the commander. Suppression is frozen at its current level for the whole rollout.
 - The projector shows a translucent ghost with 50% and 90% contours at T+30 and T+60 sim-minutes.
 
 ### Evacuation routing
