@@ -14,8 +14,10 @@ from websockets.exceptions import ConnectionClosed
 
 import numpy as np
 
+from forecast.recommend import Rec, Recommender, TownInfo, describe
 from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
 from protocol import (
+    AcceptRecommendation,
     BinaryType,
     Event,
     EventKind,
@@ -32,8 +34,12 @@ from protocol import (
     VirtualTokenRemove,
     WindState,
     client_message_adapter,
+    Recommendation,
+    Recommendations,
     pack_binary,
 )
+from protocol import TownEffect as TownEffectInfo
+from protocol import TownShare as TownShareInfo
 from routing.evac import Route, burning_edges, plan_routes, replan_routes, routes_message
 from routing.tracker import RouteTracker
 from routing.roads import load_network
@@ -50,6 +56,9 @@ TICK_HZ = 10
 # Don't restart the forecaster more often than this, or a map with no fire
 # (where a forecast is instant) would round-trip the worker every tick.
 FORECAST_MIN_TICKS = 3
+# Recommendations rerun at most this often (a run is ~0.3 s in its own worker).
+RECOMMEND_MIN_TICKS = 20
+SQ_M_PER_ACRE = 4046.86
 
 log = logging.getLogger("engine")
 
@@ -93,6 +102,13 @@ class Engine:
         # road the fire reaches between forecasts closes immediately.
         self._closed = np.zeros(len(self.roads.edges) if self.roads else 0, bool)
         self._bus_signature: tuple = ()
+        # Crew recommendations, from their own worker after a forecast lands.
+        self.recommender = Recommender()
+        self.towns = [TownInfo(t.name, t.x, t.y, t.radius, t.population) for t in self.roads.towns] if self.roads else []
+        self.recs: list[Recommendation] = []
+        self._recs_tick = 0
+        self._rec_job: asyncio.Future[list[Rec]] | None = None
+        self._rec_started = -RECOMMEND_MIN_TICKS
 
     def hello_msg(self) -> str:
         s = self.scenario
@@ -121,6 +137,9 @@ class Engine:
     def routes_msg(self) -> str:
         return routes_message(self.routes, self._routes_tick).model_dump_json()
 
+    def recs_msg(self) -> str:
+        return Recommendations(tick=self._recs_tick, recommendations=self.recs).model_dump_json()
+
     def sim_grid_frame(self) -> bytes:
         s = self.scenario
         return pack_binary(BinaryType.SIM_GRID, self.fire.tick, s.width, s.height, self.fire.state.tobytes())
@@ -145,6 +164,7 @@ class Engine:
             await ws.send(self.forecast_frame())
             if self.roads is not None:
                 await ws.send(self.routes_msg())
+            await ws.send(self.recs_msg())
             async for raw in ws:
                 try:
                     msg = client_message_adapter.validate_json(raw)
@@ -173,10 +193,15 @@ class Engine:
                 self.latest_forecast = None
                 self.route_tracker.reset()
                 self._closed[:] = False
+                self.recs = []
+                self._rec_started = -RECOMMEND_MIN_TICKS
+                broadcast(self.clients, self.recs_msg())
                 broadcast(self.clients, self.sim_grid_frame())
                 broadcast(self.clients, self.forecast_frame())
                 broadcast(self.clients, self.state_msg())
                 self.schedule_replan()
+            case AcceptRecommendation():
+                self.accept_recommendation(msg.id)
             case SetWind():
                 self.fire.set_wind(Wind(speed_ms=msg.speed_ms, from_deg=msg.from_deg % 360))
                 broadcast(self.clients, self.state_msg())
@@ -249,6 +274,54 @@ class Engine:
         self.latest_forecast = job.result()
         broadcast(self.clients, self.forecast_frame())
         self.schedule_replan()
+        self.maybe_recommend()
+
+    def maybe_recommend(self) -> None:
+        """Start a recommendation run if none is going and the last is a few
+        seconds old. Uses the newest forecast's T+30 layer to find the front."""
+        f = self.latest_forecast
+        if f is None or not self.towns:
+            return
+        if self._rec_job is not None and not self._rec_job.done():
+            return
+        if self.fire.tick - self._rec_started < RECOMMEND_MIN_TICKS:
+            return
+        self._rec_started = tick = self.fire.tick
+        epoch = self._fire_epoch
+        job = self._rec_job = self.recommender.submit(self.fire.snapshot(), f.probability[0], self.towns, seed=tick)
+        job.add_done_callback(lambda j: self.recommend_done(j, epoch, tick))
+
+    def recommend_done(self, job: asyncio.Future[list[Rec]], epoch: int, tick: int) -> None:
+        if job.cancelled() or epoch != self._fire_epoch:
+            return
+        if (e := job.exception()) is not None:
+            log.error("recommendation failed: %r", e)
+            return
+        acres_per_cell = self.scenario.cell_size_m**2 / SQ_M_PER_ACRE
+        self.recs = [self.rec_message(r, f"r{tick}-{i}", acres_per_cell) for i, r in enumerate(job.result())]
+        self._recs_tick = tick
+        broadcast(self.clients, self.recs_msg())
+
+    @staticmethod
+    def rec_message(r: Rec, rec_id: str, acres_per_cell: float) -> Recommendation:
+        def effects(es):
+            return [TownEffectInfo(town=e.town, hits=e.hits, n=e.n) for e in es]
+
+        return Recommendation(
+            id=rec_id, token_type=TokenType.CREW, x=r.x, y=r.y,
+            benefit=round(r.benefit, 2), acres_saved=round(r.cells_saved * acres_per_cell, 1),
+            saves=effects(r.saves), worsens=effects(r.worsens),
+            protects=[TownShareInfo(town=p.town, share=p.share) for p in r.protects],
+            text=describe(r, acres_per_cell),
+        )
+
+    def accept_recommendation(self, rec_id: str) -> None:
+        rec = next((r for r in self.recs if r.id == rec_id), None)
+        if rec is None:
+            return  # stale card: a newer run replaced it
+        self.virtual.handle(VirtualTokenAdd(token_type=rec.token_type, x=rec.x, y=rec.y))
+        self.recs = [r for r in self.recs if r.id != rec_id]
+        broadcast(self.clients, self.recs_msg())
 
     def schedule_replan(self) -> None:
         """Replan every town's route in a worker thread (~20 ms), one job at a
@@ -311,6 +384,7 @@ async def main() -> None:
             await engine.run()
     finally:
         engine.forecaster.shutdown()
+        engine.recommender.shutdown()
 
 
 if __name__ == "__main__":
