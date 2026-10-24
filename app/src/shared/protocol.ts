@@ -1,7 +1,16 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
 export type EngineMessage =
-  Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus | Score | CommanderMessage;
+  | Hello
+  | ScenarioState
+  | Tokens
+  | Routes
+  | Events
+  | Recommendations
+  | VisionStatus
+  | Score
+  | CommanderMessage
+  | CommanderSpeech;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -24,7 +33,9 @@ export type ClientMessage =
   | SetRunning
   | SetSpeed
   | StepOnce
-  | CommanderQuery;
+  | CommanderQuery
+  | SetVoice;
+export type VoiceMode = "off" | "console" | "mac";
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -194,6 +205,18 @@ export interface CommanderMessage {
   grounded: boolean;
   event: EventKind | null;
 }
+/**
+ * Text for the console to speak (voice mode "console"). An answer
+ * streams as several of these with the same `utterance`, one per sentence;
+ * a briefing is one. Already rewritten for speech ("Highway 70").
+ */
+export interface CommanderSpeech {
+  type: "commander_speech";
+  utterance: string;
+  kind: CommanderKind;
+  text: string;
+  urgent: boolean;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -276,4 +299,11 @@ export interface StepOnce {
 export interface CommanderQuery {
   type: "commander_query";
   text: string;
+}
+/**
+ * How the commander speaks. Off by default; the console sends its saved choice on connect.
+ */
+export interface SetVoice {
+  type: "set_voice";
+  mode: VoiceMode;
 }
