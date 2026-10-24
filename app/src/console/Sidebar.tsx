@@ -94,7 +94,9 @@ function FirePanel({ wind, placeType, onPlaceType }: Props) {
               : "border-edge bg-surface-2 text-fg hover:border-edge-strong"
           }`}
         >
-          Ignite
+          <span className="flex items-center justify-center gap-1.5">
+            Ignite <Kbd>I</Kbd>
+          </span>
         </button>
         <button
           onClick={() => send({ type: "reset" })}

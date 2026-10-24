@@ -25,7 +25,7 @@ export default function Console() {
     if (selectedId && !tokens.some((t) => t.id === selectedId)) setSelectedId(null);
   }, [tokens, selectedId]);
 
-  // Keyboard: 1-4 pick a token type, Delete removes the selection, Esc clears it.
+  // Keyboard: 1-4 pick a token type, I picks ignite, Delete removes the selection, Esc clears it.
   const live = useRef({ tokens, selectedId });
   live.current = { tokens, selectedId };
   useEffect(() => {
@@ -33,6 +33,7 @@ export default function Console() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const index = Number(e.key) - 1;
       if (index >= 0 && index < TOKEN_TYPES.length) setPlaceType(TOKEN_TYPES[index]);
+      if (e.key === "i") setPlaceType("ignite");
       if (e.key === "Escape") setSelectedId(null);
       if (e.key === "Delete" || e.key === "Backspace") {
         const t = live.current.tokens.find((tk) => tk.id === live.current.selectedId);
