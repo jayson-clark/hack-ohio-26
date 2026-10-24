@@ -12,7 +12,8 @@
   "dependencies": {
     "@tauri-apps/api": "^2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -20,6 +21,7 @@
     "@types/node": "^26.6.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^6.0.2",
     "json-schema-to-typescript": "^16.0.0",
     "tailwindcss": "^4.3.3",

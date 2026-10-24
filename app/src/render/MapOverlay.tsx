@@ -1,0 +1,100 @@
+// Transparent SVG over a flat projection view. Handles virtual table input in
+// map coordinates (via the viewBox), and optionally draws token glyphs for the
+// console. The projector window keeps it invisible: the shader draws halos.
+//
+// Click empty map to add a token, drag a virtual token to move it, right-click
+// it to remove it.
+
+import { useMemo, useRef } from "react";
+import type { Token, TokenType } from "../shared/protocol";
+import { HALO_RADIUS, TOKEN_RADIUS, TOKEN_STYLE } from "../shared/tokens";
+import { addToken, createMover, removeToken, type MapSize } from "../shared/virtualTokens";
+
+interface Props {
+  map: MapSize;
+  tokens: Token[];
+  placeType: TokenType;
+  showGlyphs?: boolean;
+  onSelect?: (id: string | null) => void;
+  onHover?: (p: { x: number; y: number } | null) => void;
+}
+
+export default function MapOverlay({ map, tokens, placeType, showGlyphs = false, onSelect, onHover }: Props) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const dragging = useRef<string | null>(null);
+  const move = useMemo(() => createMover(map), [map]);
+
+  function toMap(e: React.PointerEvent | React.MouseEvent) {
+    const svg = svgRef.current!;
+    const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM()!.inverse());
+    return { x: pt.x, y: pt.y };
+  }
+
+  function onBackgroundDown(e: React.PointerEvent) {
+    if (e.button !== 0) return;
+    const { x, y } = toMap(e);
+    addToken(placeType, x, y, map);
+    onSelect?.(null);
+  }
+
+  function onTokenDown(e: React.PointerEvent, token: Token) {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    onSelect?.(token.id);
+    if (token.source !== "virtual") return;
+    dragging.current = token.id;
+    svgRef.current!.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    const p = toMap(e);
+    onHover?.(p);
+    if (dragging.current) move(dragging.current, p.x, p.y);
+  }
+
+  function onTokenContextMenu(e: React.MouseEvent, token: Token) {
+    e.preventDefault();
+    if (token.source === "virtual") removeToken(token.id);
+  }
+
+  return (
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${map.width} ${map.height}`}
+      preserveAspectRatio="none"
+      className="absolute inset-0 h-full w-full"
+      onPointerMove={onPointerMove}
+      onPointerUp={() => (dragging.current = null)}
+      onPointerLeave={() => onHover?.(null)}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <rect width={map.width} height={map.height} fill="transparent" onPointerDown={onBackgroundDown} />
+      {tokens.map((t) => (
+        <g
+          key={t.id}
+          transform={`translate(${t.x} ${t.y})`}
+          className={t.source === "virtual" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
+          onPointerDown={(e) => onTokenDown(e, t)}
+          onContextMenu={(e) => onTokenContextMenu(e, t)}
+        >
+          <circle r={HALO_RADIUS + 1.6} fill="transparent" />
+          {showGlyphs && (
+            <>
+              <circle r={TOKEN_RADIUS} fill="#0b0c0e" opacity={0.85} />
+              <text
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={7}
+                fontWeight={700}
+                fill={TOKEN_STYLE[t.token_type].color}
+                className="pointer-events-none select-none"
+              >
+                {TOKEN_STYLE[t.token_type].letter}
+              </text>
+            </>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
