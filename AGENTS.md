@@ -5,6 +5,7 @@ Guidelines for anyone working in this repo, human or agent. Four people are buil
 ## Start here
 
 - **`PLAN.md` is the design doc.** Read it before starting non-trivial work. It covers the architecture, the phases, and who owns what.
+- **The software is the product; the physical table is a demo extra.** It stands in for drone or aerial footage of a real incident. Keep improving it, but judge work by whether it helps an operator using only the console.
 - When a design decision changes, update `PLAN.md` in the same PR. Keep it matching reality.
 - Everyone is on macOS. Don't add Windows or Linux workarounds.
 

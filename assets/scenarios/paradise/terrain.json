@@ -39,7 +39,8 @@
   "markers": {
     "holder_file": "marker_holder.stl",
     "marker_size_mm": 30.0,
-    "marker_top_z_mm": 5.0,
+    "printed": true,
+    "marker_top_z_mm": 6.0,
     "pin_length_mm": 14.0,
     "note": "Centres are outside the terrain, so map coords fall outside the grid.",
     "corners": [
@@ -265,6 +266,8 @@
     "markers": {
       "enabled": true,
       "size_mm": 30.0,
+      "printed": true,
+      "inlay_mm": 0.6,
       "clearance_mm": 0.4,
       "depth_mm": 1.0,
       "rim_mm": 3.0,
