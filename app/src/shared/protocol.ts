@@ -17,6 +17,7 @@ export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
 export type EventKind =
   "road_cut" | "route_changed" | "no_safe_route" | "town_threatened" | "town_safe" | "forecast_shift" | "round_ended";
+export type RecAction = "place" | "move";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
@@ -129,8 +130,13 @@ export interface Recommendations {
 export interface Recommendation {
   id: string;
   token_type: TokenType;
+  action: RecAction;
   x: number;
   y: number;
+  move_token: string | null;
+  from_x: number | null;
+  from_y: number | null;
+  auto: boolean;
   benefit: number;
   acres_saved: number;
   saves: TownEffect[];

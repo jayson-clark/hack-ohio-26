@@ -70,6 +70,20 @@ class Rec:
     saves: list[TownEffect] = field(default_factory=list)  # baseline reaches the town, crew stops it
     worsens: list[TownEffect] = field(default_factory=list)  # the reverse (fire deflected onto it)
     protects: list[TownShare] = field(default_factory=list)  # towns where less burns, biggest first
+    # Set when every crew is already placed (#77): move this crew here instead.
+    move_id: str | None = None
+    from_x: float | None = None
+    from_y: float | None = None
+
+
+@dataclass(frozen=True)
+class PlacedCrew:
+    """A crew on the table, and the snapshot as it would be without it."""
+
+    id: str
+    x: float
+    y: float
+    without: FireSnapshot  # same fire, suppression computed without this crew
 
 
 def candidates(snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], k: int = N_CANDIDATES) -> list[tuple[float, float]]:
@@ -107,11 +121,19 @@ def evaluate_spots(snapshot, spots, towns, n=N_ROLLOUTS, seed=0) -> list[Rec]:
     return _evaluate(snapshot, spots, towns, _town_masks(towns, h, w), n, seed)
 
 
-def _evaluate(snapshot, spots, towns, masks, n, seed) -> list[Rec]:
-    """Paired run of the baseline plus a crew at each spot."""
+def _evaluate(snapshot, spots, towns, masks, n, seed, keep: np.ndarray | None = None) -> list[Rec]:
+    """Paired run of the baseline plus a crew at each spot.
+
+    With `keep` (a suppression grid), the comparison baseline is instead
+    "snapshot plus keep": that's how a move is scored, as the snapshot without
+    the crew, then either the crew where it is (keep) or at the new spot."""
     h, w = snapshot.state.shape
     variants = np.stack([crew_footprint(w, h, x, y) for x, y in spots])
+    if keep is not None:
+        variants = np.concatenate([keep[None].astype(np.float32), variants])
     first = rollout_paired(snapshot, n, HORIZON_TICKS, variants, seed=seed)
+    if keep is not None:
+        first = first[1:]  # index 0 is now "crew where it is"
     burned = np.isfinite(first).reshape(len(spots) + 1, n, h * w).astype(np.float32)
     area = masks.reshape(len(towns), -1).sum(axis=1)
     frac = burned @ masks.reshape(len(towns), -1).T / np.maximum(area, 1.0)  # (V, n, T)
@@ -161,17 +183,68 @@ def recommend(
     return [r for r in sorted(held_out, key=lambda r: r.benefit, reverse=True) if r.benefit > 0]
 
 
-def describe(rec: Rec, acres_per_cell: float) -> str:
-    """One sentence for a recommendation card or a briefing."""
+def recommend_moves(
+    crews: list[PlacedCrew],
+    current: np.ndarray,
+    p30: np.ndarray,
+    towns: list[TownInfo],
+    *,
+    k: int = N_CANDIDATES - 2,
+    n: int = N_ROLLOUTS,
+    top: int = TOP,
+    seed: int = 0,
+) -> list[Rec]:
+    """When every crew is placed (#77): the best `top` moves of one crew to a
+    new spot, best first. For each crew, one paired batch runs the fire
+    without it, then with it where it is, then with it at each candidate;
+    a move's benefit is "where it is" minus "at the new spot". The best moves
+    are re-run on fresh seeds and only ones that still help are kept.
+
+    `current` is the live suppression grid (all crews in place). A moved crew
+    is scored at full strength, though in the sim it digs in again over
+    CREW_RAMP_TICKS, so short-horizon gains are a little optimistic."""
+    if not crews or not towns:
+        return []
+    h, w = p30.shape
+    masks = _town_masks(towns, h, w)
+    found: list[tuple[PlacedCrew, Rec]] = []
+    for i, crew in enumerate(crews):
+        spots = [s for s in candidates(crew.without, p30, towns, k)
+                 if all(np.hypot(s[0] - c.x, s[1] - c.y) >= 2 * CREW_RADIUS for c in crews)]
+        if not spots:
+            continue
+        for r in _evaluate(crew.without, spots, towns, masks, n, seed + i, keep=current):
+            found.append((crew, r))
+    # Distinct moves: each crew moves at most once, and no two crews go to the same spot.
+    best: list[tuple[PlacedCrew, Rec]] = []
+    for crew, r in sorted(found, key=lambda cr: cr[1].benefit, reverse=True):
+        if len(best) == top:
+            break
+        if any(c.id == crew.id or np.hypot(r.x - o.x, r.y - o.y) < 2 * CREW_RADIUS for c, o in best):
+            continue
+        best.append((crew, r))
+    out = []
+    for j, (crew, r) in enumerate(best):
+        [again] = _evaluate(crew.without, [(r.x, r.y)], towns, masks, n, seed + 7919 + j, keep=current)
+        if again.benefit > 0:
+            again.move_id, again.from_x, again.from_y = crew.id, crew.x, crew.y
+            out.append(again)
+    return sorted(out, key=lambda r: r.benefit, reverse=True)
+
+
+def describe(rec: Rec, acres_per_cell: float, from_place: str | None = None) -> str:
+    """One sentence for a recommendation card or a briefing. For a move,
+    `from_place` names where the crew is now ("near Pulga")."""
     acres = rec.cells_saved * acres_per_cell
+    who = "A crew here" if rec.move_id is None else f"Moving the crew {from_place or 'you placed'} here"
     if rec.saves:
         best = max(rec.saves, key=lambda e: e.hits)
-        text = f"A crew here keeps the fire out of {best.town} in {best.hits} of {best.n} simulations"
+        text = f"{who} keeps the fire out of {best.town} in {best.hits} of {best.n} simulations"
     elif rec.protects:
         top = rec.protects[0]
-        text = f"A crew here shields {top.town}: about {round(top.share * 100)}% less of it burns in the next hour"
+        text = f"{who} shields {top.town}: about {round(top.share * 100)}% less of it burns in the next hour"
     else:
-        text = f"A crew here holds back about {_round_acres(acres)} acres over the next hour"
+        text = f"{who} holds back about {_round_acres(acres)} acres over the next hour"
     if rec.worsens:
         worst = max(rec.worsens, key=lambda e: e.hits)
         text += f", but pushes it into {worst.town} in {worst.hits} of {worst.n}"
@@ -194,6 +267,10 @@ class Recommender:
     def submit(self, snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
         return self.run(_recommend_job, snapshot, p30, towns, seed)
 
+    def submit_moves(self, crews: list[PlacedCrew], current: np.ndarray, p30: np.ndarray,
+                     towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
+        return self.run(_moves_job, crews, current, p30, towns, seed)
+
     def run(self, fn, *args) -> asyncio.Future:
         """Any other picklable analysis job (the commander's what-ifs), on
         the same worker so it never competes with the live forecast."""
@@ -215,3 +292,7 @@ def _noop() -> None:
 
 def _recommend_job(snapshot, p30, towns, seed):
     return recommend(snapshot, p30, towns, seed=seed)
+
+
+def _moves_job(crews, current, p30, towns, seed):
+    return recommend_moves(crews, current, p30, towns, seed=seed)
