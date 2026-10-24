@@ -177,11 +177,21 @@ def advance(
     wind: Wind,
     suppression: np.ndarray,
     rng: np.random.Generator,
+    *,
+    group: int = 1,
+    wind_rows: np.ndarray | None = None,
 ) -> tuple[np.ndarray, int, int] | None:
     """One tick, in place, on a batch: state/burn_left are (N, H, W).
 
     Returns (ignited, y0, x0): the (N, h, w) mask of cells that caught this
     tick and the top-left of the crop it covers. None if nothing is burning.
+
+    `group` > 1 splits the batch into that many equal blocks that share their
+    random draws: row i of every block sees the same uniforms. That is how
+    forecast.rollout_paired compares "crew here" with "no crew" on identical
+    luck (common random numbers). `wind_rows`, float32 (8, N), replaces
+    wind_factors(wind) with per-row factors, for an ensemble with wind spread.
+    The defaults draw exactly what they always did, so the live sim is unchanged.
     """
     burning = state == BURNING
     # Union bounding box over the batch, plus the one-cell ring fire can reach.
@@ -200,14 +210,17 @@ def advance(
     b = np.zeros((state.shape[0], h + 2, w + 2), np.float32)
     b[:, 1:-1, 1:-1] = burning[:, y0:y1, x0:x1]
 
-    pw = wind_factors(wind)
+    pw = wind_factors(wind)[:, None, None, None] if wind_rows is None else wind_rows[:, :, None, None]
     no_ignite = np.ones((state.shape[0], h, w), np.float32)
     for d, (dy, dx) in enumerate(NEIGHBOURS):
         p = np.minimum(layers.spread[d, y0:y1, x0:x1] * pw[d], 1.0)
         no_ignite *= 1.0 - p * b[:, 1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
     p_ignite = (1.0 - no_ignite) * (1.0 - sup)
 
-    ignite = (st == FUEL) & (rng.random(st.shape, dtype=np.float32) < p_ignite)
+    u = rng.random((st.shape[0] // group, h, w), dtype=np.float32)
+    if group > 1:
+        u = np.tile(u, (group, 1, 1))
+    ignite = (st == FUEL) & (u < p_ignite)
 
     # Burning cells count down and char; fully suppressed ones (a water drop
     # or a firebreak laid over the flames) go straight out.

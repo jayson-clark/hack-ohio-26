@@ -218,6 +218,8 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 - **Batched stochastic rollouts:** stack N copies of the state into an array of shape `(N, H, W)` and advance them all with one vectorized step.
 - Record the first time each cell burns in each rollout, giving `P(burn by t)` for each horizon.
 - `forecast.rollout(snapshot, n, ticks, wind=..., extra_suppression=...)` returns that first-burn time as `(n, H, W)` float32, with optional wind and crew what-ifs; `forecast.burn_probability` turns it into `P(burn by horizon)`. The live forecast (32 rollouts to T+60) runs in a worker process, one at a time, and lands on `Engine.latest_forecast` for routing and the commander. Suppression is frozen at its current level for the whole rollout.
+- **Paired what-ifs:** `forecast.rollout_paired(snapshot, n, ticks, variants)` runs a baseline plus K suppression variants (e.g. a crew at each candidate spot) in one batch, as `(K+1, n, H, W)`. Rollout i of every variant shares its random draws (`advance(..., group=K+1)`), so the difference between a variant and the baseline is the intervention's effect, not luck. Recommendations rely on this.
+- **Wind spread (optional):** `WindSpread(speed_frac, dir_deg)` gives each rollout its own wind (`advance(..., wind_rows=...)`). It's off for the live forecast (`forecast.runner.WIND_SPREAD = None`), and when it's on, `Forecast.wind_spread` records it.
 - The projector shows a translucent ghost with 50% and 90% contours at T+30 and T+60 sim-minutes.
 
 ### Evacuation routing
