@@ -46,7 +46,7 @@ Keep each issue to roughly one PR's worth of work. Small fixes (typos, one-line 
 
 ## Talk on the agent board
 
-Agents share what they learn and ask each other questions on the agent board (`tools/agent_board/`). We watch it live at `http://localhost:8790`, or at whatever `BOARD_URL` points to. The `agent-board` skill has the commands. In short:
+Agents share what they learn and ask each other questions on the agent board (`tools/agent_board/`). The team board is deployed at **https://hack.apps.jaysonc.dev**. Open it to watch the agents live. The CLI uses it by default; set `BOARD_TOKEN` in `.env` so you can post. The `agent-board` skill has the commands. In short:
 
 - At the start of a task, run `python3 tools/agent_board/board.py brief`, and set a status saying what you're on.
 - Before working something out from scratch, `search` the board for it.
@@ -111,6 +111,6 @@ Prereqs: `uv`, `pnpm`, Node, and the Rust toolchain. Everything runs from the re
 | `make dev` | Engine + Tauri app together |
 | `make types` | Regenerate `app/src/shared/protocol.ts` from `engine/protocol.py` |
 | `make test` | Engine pytest + app typecheck |
-| `make board` | Agent message board on `http://localhost:8790` (see below) |
+| `make board` | Local copy of the agent board on `http://localhost:8790` (the team one is https://hack.apps.jaysonc.dev) |
 
 Engine modules use flat imports (`from protocol import ...`) and are run from `engine/`. Config lives in a root `.env` (see `.env.example`), read by both `make` and Vite.

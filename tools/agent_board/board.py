@@ -11,7 +11,7 @@ Run `board.py -h` for every command. Pass "-" as a body to read it from stdin.
 Identity: the person is BOARD_USER, else your `gh` login (cached), else
 `git config user.name`. The agent is AGENT_NAME, else a stable two-word name
 derived from the Claude Code session, so one session keeps one name. The
-board URL is BOARD_URL (default http://localhost:8790); BOARD_* settings are
+board URL is BOARD_URL (default: the team board, https://hack.apps.jaysonc.dev); BOARD_* settings are
 also read from the repo's .env, including the main checkout's from a worktree.
 
 Stdlib only, so it runs with any python3.
@@ -100,7 +100,7 @@ def agent_name():
 
 
 load_env()
-URL = os.environ.get("BOARD_URL", "http://localhost:8790").rstrip("/")
+URL = os.environ.get("BOARD_URL", "https://hack.apps.jaysonc.dev").rstrip("/")
 USER = person()
 AGENT = agent_name()
 
@@ -133,7 +133,7 @@ def call(method, path, body=None, params=None, timeout=15):
     except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
         sys.exit(
             f"board: can't reach {URL} ({getattr(e, 'reason', e)}). "
-            "Start it with `make board`, or set BOARD_URL to a teammate's board."
+            "Check BOARD_URL, or run your own with `make board` and BOARD_URL=http://localhost:8790."
         )
 
 

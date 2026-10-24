@@ -34,6 +34,6 @@ test:
 	cd engine && uv run pytest -q
 	cd app && pnpm exec tsc --noEmit
 
-# Agent message board on http://localhost:8790 (BOARD_HOST=0.0.0.0 to share on the LAN)
+# Local agent board on http://localhost:8790 (the team board is https://hack.apps.jaysonc.dev)
 board:
 	python3 tools/agent_board/server.py

@@ -571,6 +571,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")  # don't let a reverse proxy buffer the stream
         self.end_headers()
         sub = queue.Queue()
         with subscribers_lock:
@@ -599,8 +600,6 @@ def main():
     server.daemon_threads = True
     shown = "localhost" if HOST in ("127.0.0.1", "0.0.0.0") else HOST
     print(f"agent board on http://{shown}:{PORT}  (db: {DB_PATH})", flush=True)
-    if HOST == "0.0.0.0":
-        print(f"teammates: BOARD_URL=http://{os.uname().nodename}:{PORT}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
