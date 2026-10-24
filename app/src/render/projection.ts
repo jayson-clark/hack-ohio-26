@@ -3,6 +3,7 @@
 
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
+import type { ForecastGrids } from "../shared/engine";
 import type { Token } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { HALO_RADIUS, TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
@@ -54,6 +55,7 @@ export interface Projection {
   setTokens(tokens: Token[], selectedId: string | null): void;
   setLayers(layers: Layers): void;
   setFire(frame: BinaryFrame | null): void;
+  setForecast(forecast: ForecastGrids | null): void;
   update(timeSec: number): void;
   dispose(): void;
 }
@@ -156,6 +158,16 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       }
       fireTex.needsUpdate = true;
       u.uHasFire.value = 1;
+    },
+
+    // P(burned by horizon) into b (nearest) and a (next); unused channels stay 0.
+    setForecast(forecast) {
+      const ok = forecast && forecast.width === width && forecast.height === height;
+      for (let h = 0; h < 2; h++) {
+        const grid = ok ? forecast.horizons[h] : undefined;
+        for (let i = 0; i < width * height; i++) fireData[i * 4 + 2 + h] = grid ? grid[i] : 0;
+      }
+      fireTex.needsUpdate = true;
     },
 
     update(timeSec) {

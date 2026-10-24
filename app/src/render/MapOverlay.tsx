@@ -6,14 +6,14 @@
 // it to remove it.
 
 import { useMemo, useRef } from "react";
-import type { Token, TokenType } from "../shared/protocol";
+import type { Token } from "../shared/protocol";
 import { HALO_RADIUS, TOKEN_RADIUS, TOKEN_STYLE } from "../shared/tokens";
-import { addToken, createMover, removeToken, type MapSize } from "../shared/virtualTokens";
+import { createMover, place, removeToken, type MapSize, type PlaceType } from "../shared/virtualTokens";
 
 interface Props {
   map: MapSize;
   tokens: Token[];
-  placeType: TokenType;
+  placeType: PlaceType;
   showGlyphs?: boolean;
   onSelect?: (id: string | null) => void;
   onHover?: (p: { x: number; y: number } | null) => void;
@@ -33,7 +33,7 @@ export default function MapOverlay({ map, tokens, placeType, showGlyphs = false,
   function onBackgroundDown(e: React.PointerEvent) {
     if (e.button !== 0) return;
     const { x, y } = toMap(e);
-    addToken(placeType, x, y, map);
+    place(placeType, x, y, map);
     onSelect?.(null);
   }
 

@@ -5,9 +5,9 @@ reports them through the same TokenTracker path real vision uses.
 """
 
 import itertools
+import math
 
 from protocol import (
-    MAP_SIZE,
     Token,
     TokenSource,
     VirtualTokenAdd,
@@ -17,15 +17,20 @@ from protocol import (
 from vision.tokens import TokenTracker
 
 
-def _clamp(v: float) -> float:
-    return min(max(v, 0.0), float(MAP_SIZE))
-
-
 class VirtualTable:
-    def __init__(self, tracker: TokenTracker) -> None:
+    def __init__(self, tracker: TokenTracker, width: int, height: int) -> None:
         self._tracker = tracker
+        # Clamp just inside the far edge, so int(x) is always a valid cell index.
+        self._max_x = math.nextafter(float(width), 0.0)
+        self._max_y = math.nextafter(float(height), 0.0)
         self._tokens: dict[str, Token] = {}
         self._ids = itertools.count(1)
+
+    def _clamp_x(self, v: float) -> float:
+        return min(max(v, 0.0), self._max_x)
+
+    def _clamp_y(self, v: float) -> float:
+        return min(max(v, 0.0), self._max_y)
 
     def handle(self, msg: VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove) -> None:
         match msg:
@@ -34,15 +39,15 @@ class VirtualTable:
                 self._tokens[token_id] = Token(
                     id=token_id,
                     token_type=msg.token_type,
-                    x=_clamp(msg.x),
-                    y=_clamp(msg.y),
+                    x=self._clamp_x(msg.x),
+                    y=self._clamp_y(msg.y),
                     angle=msg.angle,
                     source=TokenSource.VIRTUAL,
                 )
             case VirtualTokenMove():
                 if (token := self._tokens.get(msg.id)) is None:
                     return
-                update = {"x": _clamp(msg.x), "y": _clamp(msg.y)}
+                update = {"x": self._clamp_x(msg.x), "y": self._clamp_y(msg.y)}
                 if msg.angle is not None:
                     update["angle"] = msg.angle
                 self._tokens[msg.id] = token.model_copy(update=update)

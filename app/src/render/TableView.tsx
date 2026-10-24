@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Token } from "../shared/protocol";
 import { inMap } from "../shared/scenario";
-import { addToken, createMover, removeToken } from "../shared/virtualTokens";
+import { createMover, place, removeToken } from "../shared/virtualTokens";
 import { cornerHolders, makeBoard, makePuck, restingHeight, terrainGeometry, wallGeometry } from "./models";
 import { createProjection, type Projection } from "./projection";
 import type { ViewProps } from "./ProjectionView";
@@ -191,7 +191,7 @@ export default function TableView(props: ViewProps & { camera: CameraCommand | n
       if (d.button === 0 && !d.tokenId) {
         const m = pickMap(e);
         if (m) {
-          addToken(live.current.placeType, m.x, m.y, s);
+          place(live.current.placeType, m.x, m.y, s);
           live.current.onSelect?.(null);
         }
       } else if (d.button === 2 && d.tokenId) {

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
 import { useEngine } from "../shared/engine";
-import type { TokenType } from "../shared/protocol";
 import { useScenario, type Scenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
-import { removeToken } from "../shared/virtualTokens";
+import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import type { CameraCommand } from "../render/TableView";
 import { FlameMark } from "./icons";
@@ -12,9 +11,9 @@ import Sidebar from "./Sidebar";
 import Viewport, { type ViewMode } from "./Viewport";
 
 export default function Console() {
-  const { status, scenario: state, tokens, simGrid } = useEngine();
+  const { status, scenario: state, tokens, simGrid, forecast } = useEngine();
   const { scenario, error } = useScenario();
-  const [placeType, setPlaceType] = useState<TokenType>("crew");
+  const [placeType, setPlaceType] = useState<PlaceType>("crew");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<ViewMode>("table");
   const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
@@ -72,6 +71,7 @@ export default function Console() {
             onModeChange={setMode}
             tokens={tokens}
             simGrid={simGrid}
+            forecast={forecast}
             layers={layers}
             onToggleLayer={(k) => setLayers((l) => ({ ...l, [k]: !l[k] }))}
             placeType={placeType}
@@ -83,6 +83,7 @@ export default function Console() {
         </main>
         <Sidebar
           scenario={scenario}
+          wind={state?.wind ?? null}
           tokens={tokens}
           placeType={placeType}
           onPlaceType={setPlaceType}

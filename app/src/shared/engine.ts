@@ -8,6 +8,18 @@ import type { ClientMessage, EngineMessage, Hello, ScenarioState, Token } from "
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
 const RECONNECT_MS = 1000;
 
+// Cell states in a sim_grid frame (sim.fire in the engine).
+export const Cell = { Unburnable: 0, Fuel: 1, Burning: 2, Burned: 3 } as const;
+
+export interface ForecastGrids {
+  tick: number; // sim tick the forecast started from
+  width: number;
+  height: number;
+  // One width*height grid per Hello.forecast_horizons_min entry, in order:
+  // P(burned by that horizon) scaled to 0-255.
+  horizons: Uint8Array[];
+}
+
 export interface EngineState {
   status: "connecting" | "open" | "closed";
   hello: Hello | null;
@@ -15,9 +27,18 @@ export interface EngineState {
   tokens: Token[];
   /** Latest sim_grid frame (cell states), once the sim sends them. */
   simGrid: BinaryFrame | null;
+  /** Latest forecast_grid frame, split into one grid per horizon. */
+  forecast: ForecastGrids | null;
 }
 
-let state: EngineState = { status: "connecting", hello: null, scenario: null, tokens: [], simGrid: null };
+let state: EngineState = {
+  status: "connecting",
+  hello: null,
+  scenario: null,
+  tokens: [],
+  simGrid: null,
+  forecast: null,
+};
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
 let started = false;
@@ -41,6 +62,23 @@ function handleMessage(msg: EngineMessage) {
   }
 }
 
+function handleBinary(buf: ArrayBuffer) {
+  const frame = parseBinaryFrame(buf);
+  switch (frame.type) {
+    case BinaryType.SimGrid:
+      setState({ simGrid: frame });
+      break;
+    case BinaryType.ForecastGrid: {
+      const { tick, width, height, payload } = frame;
+      const cells = width * height;
+      const n = Math.floor(payload.length / cells);
+      const horizons = Array.from({ length: n }, (_, i) => payload.subarray(i * cells, (i + 1) * cells));
+      setState({ forecast: { tick, width, height, horizons } });
+      break;
+    }
+  }
+}
+
 function connect() {
   setState({ status: "connecting" });
   const socket = new WebSocket(ENGINE_URL);
@@ -57,8 +95,7 @@ function connect() {
     if (typeof ev.data === "string") {
       handleMessage(JSON.parse(ev.data) as EngineMessage);
     } else {
-      const frame = parseBinaryFrame(ev.data as ArrayBuffer);
-      if (frame.type === BinaryType.SimGrid) setState({ simGrid: frame });
+      handleBinary(ev.data as ArrayBuffer);
     }
   };
 }

@@ -34,7 +34,8 @@ varying vec3 vWorldPos;
 
 uniform sampler2D uHeight; // elevation normalized to 0..1
 uniform sampler2D uLabels; // static overlay: towns and names
-uniform sampler2D uFire;   // r = burning, g = burned (linear filtered masks)
+uniform sampler2D uFire;   // r = burning, g = burned (linear filtered masks),
+                           // b, a = forecast P(burned) at the first two horizons
 uniform vec2 uGrid;        // map size in cells
 uniform float uCellM;      // cell size in meters
 uniform float uElevMin;
@@ -132,6 +133,11 @@ vec3 terrain(vec2 uv, vec2 cell) {
 vec3 fire(vec3 col, vec2 uv, vec2 cell) {
   vec4 f = texture2D(uFire, uv);
   float t = uTime;
+
+  // Forecast ghost on unburned ground: further horizon in yellow, nearer in orange on top.
+  float unburned = 1.0 - clamp(f.r + f.g, 0.0, 1.0);
+  col = mix(col, vec3(0.98, 0.82, 0.31), f.a * 0.3 * unburned);
+  col = mix(col, vec3(1.0, 0.47, 0.16), f.b * 0.55 * unburned);
 
   // Burned ground: dark char with a few glowing embers.
   float burned = smoothstep(0.3, 0.6, f.g + (noise(cell * 0.3) - 0.5) * 0.3);

@@ -3,9 +3,11 @@
 
 import { useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
-import type { Token, TokenType } from "../shared/protocol";
+import type { ForecastGrids } from "../shared/engine";
+import type { Token } from "../shared/protocol";
 import { elevationAt, latLonAt, type Scenario } from "../shared/scenario";
 import { TOKEN_STYLE } from "../shared/tokens";
+import type { PlaceType } from "../shared/virtualTokens";
 import type { Layers } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
 import TableView, { type CameraCommand, type CameraPreset } from "../render/TableView";
@@ -21,9 +23,10 @@ interface Props {
   onModeChange: (m: ViewMode) => void;
   tokens: Token[];
   simGrid: BinaryFrame | null;
+  forecast: ForecastGrids | null;
   layers: Layers;
   onToggleLayer: (k: keyof Layers) => void;
-  placeType: TokenType;
+  placeType: PlaceType;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   camera: CameraCommand | null;
@@ -37,6 +40,8 @@ const LAYER_LABELS: Record<keyof Layers, string> = {
   grid: "Grid",
 };
 
+const IGNITE_COLOR = "#f97316";
+
 export default function Viewport(props: Props) {
   const { scenario, error, mode, layers, placeType } = props;
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
@@ -46,6 +51,7 @@ export default function Viewport(props: Props) {
     scenario,
     tokens: props.tokens,
     simGrid: props.simGrid,
+    forecast: props.forecast,
     layers,
     placeType,
     selectedId: props.selectedId,
@@ -111,10 +117,21 @@ export default function Viewport(props: Props) {
           {scenario && hover ? <Readout scenario={scenario} x={hover.x} y={hover.y} /> : <span>—</span>}
         </Chip>
         <Chip className="hidden items-center gap-2 md:flex">
-          <span className="h-2 w-2 rounded-full" style={{ background: TOKEN_STYLE[placeType].color }} />
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ background: placeType === "ignite" ? IGNITE_COLOR : TOKEN_STYLE[placeType].color }}
+          />
           <span>
-            Click to place <span className="text-fg">{TOKEN_STYLE[placeType].label.toLowerCase()}</span> · drag to
-            move · right-click to remove
+            {placeType === "ignite" ? (
+              <>
+                Click to <span className="text-fg">ignite</span>
+              </>
+            ) : (
+              <>
+                Click to place <span className="text-fg">{TOKEN_STYLE[placeType].label.toLowerCase()}</span>
+              </>
+            )}{" "}
+            · drag to move · right-click to remove
             {mode === "table" && " · drag empty space to orbit"}
           </span>
         </Chip>
