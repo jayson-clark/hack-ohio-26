@@ -139,7 +139,7 @@ async def main(model: str | None, effort: str | None, out: str | None, only: int
         r = await run_case(case, model, effort)
         print(f"[{i}/{len(cases)}] {'pass' if r.passed else 'FAIL'} {r.source} {r.total_s:.2f}s  {case.question}")
         results.append(r)
-    name = model or Commander.__init__.__defaults__ and agent_mod.os.environ.get("COMMANDER_MODEL") or agent_mod.DEFAULT_MODEL
+    name = model or agent_mod.os.environ.get("COMMANDER_MODEL") or agent_mod.DEFAULT_MODEL
     text = report(results, name if has_credentials() else "rules only (no API key)", effort or agent_mod.EFFORT)
     if out:
         with open(out, "w") as f:
@@ -151,7 +151,7 @@ async def main(model: str | None, effort: str | None, out: str | None, only: int
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--model", help="defaults to COMMANDER_MODEL, then claude-opus-5-5")
+    p.add_argument("--model", help="defaults to COMMANDER_MODEL, then claude-haiku-5-5")
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--out", help="write the markdown report here instead of printing it")
     p.add_argument("--only", type=int, help="run just the first N cases")

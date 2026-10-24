@@ -7,7 +7,7 @@ Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop a
 
 ## Answers (LLM)
 - Put `ANTHROPIC_API_KEY` in the root `.env`. `make engine` exports it. Without a key, the commander answers from templates, and briefings never need one.
-- `COMMANDER_MODEL` (default `claude-opus-5-5`) and `COMMANDER_EFFORT` (default `low`) are also read from `.env`.
+- `COMMANDER_MODEL` (default `claude-haiku-5-5`, about a tenth of a cent per question) and `COMMANDER_EFFORT` (default `low`) are also read from `.env`. Haiku has no server-side refusal fallback, so a refusal falls back to the templates. Opus and Sonnet get `fallbacks="default"`.
 - Try one question without the UI: `cd engine && uv run python -m commander.ask "What if the wind shifts west?"`. It prints LLM or rules, grounded or not, the tools used, time to first sentence, and total time.
 - Measure before changing the model or effort: `cd engine && uv run python -m commander.eval.run --effort low --out report.md`. That's 20 scripted questions, so with a key it makes real API calls.
 - An answer with `grounded: false` never happens on purpose. The guard retries once, then falls back to templates. If answers keep falling back, check the engine log for `ungrounded numbers`.

@@ -167,3 +167,15 @@ def test_engine_answers_and_a_newer_question_cancels_the_older(engine, monkeypat
     run(go())
     answers = [m for m in sent if m["type"] == "commander_message"]
     assert len(answers) == 1 and answers[0]["kind"] == "answer" and answers[0]["grounded"] is True
+
+
+def test_default_model_is_haiku_without_server_fallbacks(engine, monkeypatch):
+    monkeypatch.delenv("COMMANDER_MODEL", raising=False)
+    client = FakeClient(text_msg("No round is running."))
+    cmd = Commander(CommanderTools(engine), client=client)
+    assert cmd.model == "claude-haiku-5-5"
+    run(cmd.answer("Status?"))
+    [req] = client.requests
+    assert req["model"] == "claude-haiku-5-5" and req["max_tokens"] == 1500
+    assert "fallbacks" not in req and "betas" not in req  # Haiku has no server-side fallback
+    assert req["output_config"] == {"effort": "low"}
