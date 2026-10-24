@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 7
+PROTOCOL_VERSION = 9
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -99,11 +99,14 @@ class WindState(Model):
 
 
 class ScenarioState(Model):
-    """Sent once a second, and immediately after ignite, reset or set_wind."""
+    """Sent once a second, and immediately after ignite, reset, set_wind,
+    set_running and set_speed."""
 
     type: Literal["scenario_state"] = "scenario_state"
     tick: int
-    running: bool
+    running: bool  # false while paused, and once a round has ended
+    paused: bool
+    speed: float  # sim steps per engine tick (1 = SIM_MINUTES_PER_TICK sim-minutes every 0.1 s)
     wind: WindState
     burning_cells: int
     burned_cells: int
@@ -143,6 +146,9 @@ class EventKind(StrEnum):
     ROAD_CUT = "road_cut"  # fire reached a road on a town's current route
     ROUTE_CHANGED = "route_changed"  # a town was rerouted to another way out
     NO_SAFE_ROUTE = "no_safe_route"  # a town has no reachable safe zone
+    TOWN_THREATENED = "town_threatened"  # most simulations have fire in the town within 30 min
+    TOWN_SAFE = "town_safe"  # a threatened town has dropped out of the fire's 30-min path
+    FORECAST_SHIFT = "forecast_shift"  # the next hour's likely burn area moved a lot
 
 
 class Event(Model):
@@ -213,8 +219,78 @@ class VisionStatus(Model):
     board_found: bool
 
 
+class RoundPhase(StrEnum):
+    SANDBOX = "sandbox"  # free play: no limits, no timer
+    RUNNING = "running"
+    ENDED = "ended"  # the fire is frozen and the score is final
+
+
+class EndReason(StrEnum):
+    TIME = "time"  # the round timer ran out
+    CONTAINED = "contained"  # nothing is burning any more
+    STOPPED = "stopped"  # the operator ended it
+
+
+class ResourceUse(Model):
+    token_type: TokenType
+    limit: int | None  # None = unlimited (always, in the sandbox)
+    used: int  # tokens of this type that are taking effect
+
+
+class WaterCooldown(Model):
+    id: str  # water token id
+    ready_in_min: float  # sim minutes until it can drop again (0 = ready once moved)
+
+
+class TownScore(Model):
+    name: str
+    population: int
+    evacuated: int
+    structures: int
+    structures_lost: int
+
+
+class Score(Model):
+    """The game layer's state. Sent once a second, immediately when the round
+    starts or ends, and when a token goes over or back under its limit."""
+
+    type: Literal["score"] = "score"
+    tick: int
+    phase: RoundPhase
+    end_reason: EndReason | None
+    elapsed_min: float  # sim minutes since the round started (0 in the sandbox)
+    duration_min: float
+    resources: list[ResourceUse]
+    inactive_tokens: list[str]  # ids over their type's limit, which do nothing
+    water_cooldowns: list[WaterCooldown]
+    people_total: int
+    people_evacuated: int
+    structures_total: int
+    structures_lost: int
+    acres_burned: float
+    towns: list[TownScore]
+
+
+class CommanderKind(StrEnum):
+    BRIEFING = "briefing"  # unprompted, from an event
+    ANSWER = "answer"  # a reply to commander_query
+
+
+class CommanderMessage(Model):
+    """Something the incident commander says. Short enough to speak aloud."""
+
+    type: Literal["commander_message"] = "commander_message"
+    kind: CommanderKind
+    tick: int
+    text: str
+    # Every number in `text` came from a simulation tool (always true for
+    # templated briefings; checked for LLM answers).
+    grounded: bool
+    event: EventKind | None  # what triggered a briefing
+
+
 EngineMessage = Annotated[
-    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus],
+    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage],
     Field(discriminator="type"),
 ]
 
@@ -249,7 +325,8 @@ class Ignite(Model):
 
 
 class Reset(Model):
-    """Put the fire out and unburn the map. Tokens stay where they are."""
+    """Put the fire out and unburn the map. Tokens stay where they are. Also
+    abandons any round and returns to the sandbox."""
 
     type: Literal["reset"] = "reset"
 
@@ -260,6 +337,34 @@ class SetWind(Model):
     from_deg: float
 
 
+class SetRunning(Model):
+    """Pause (false) or resume (true) the fire. A paused round's clock stops too."""
+
+    type: Literal["set_running"] = "set_running"
+    running: bool
+
+
+class SetSpeed(Model):
+    """How many sim steps run per engine tick; fractions spread steps out."""
+
+    type: Literal["set_speed"] = "set_speed"
+    speed: float = Field(ge=0.25, le=8)
+
+
+class StepOnce(Model):
+    """Advance the fire one tick while paused (ignored while running)."""
+
+    type: Literal["step_once"] = "step_once"
+
+
+class CommanderQuery(Model):
+    """A question for the incident commander, typed or transcribed. A new
+    question cancels one still being answered."""
+
+    type: Literal["commander_query"] = "commander_query"
+    text: str = Field(min_length=1, max_length=500)
+
+
 class AcceptRecommendation(Model):
     """Place the recommended token (as a virtual token) where it was recommended."""
 
@@ -267,8 +372,25 @@ class AcceptRecommendation(Model):
     id: str
 
 
+class StartRound(Model):
+    """Reset the map and start a timed, limited round, igniting at the
+    scenario's ignition point if it has one."""
+
+    type: Literal["start_round"] = "start_round"
+
+
+class EndRound(Model):
+    """End the running round now, freezing the fire and the score."""
+
+    type: Literal["end_round"] = "end_round"
+
+
 ClientMessage = Annotated[
-    Union[VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation],
+    Union[
+        VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation,
+        StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
+        CommanderQuery,
+    ],
     Field(discriminator="type"),
 ]
 

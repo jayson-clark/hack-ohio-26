@@ -5,12 +5,14 @@ import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
 import type {
   ClientMessage,
+  CommanderMessage,
   EngineMessage,
   Event,
   Hello,
   Recommendation,
   RouteInfo,
   ScenarioState,
+  Score,
   Token,
   VisionStatus,
 } from "./protocol";
@@ -19,6 +21,8 @@ const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
 const RECONNECT_MS = 1000;
 // How many recent events (road cuts, reroutes) the store keeps for the event log.
 const MAX_EVENTS = 50;
+// How much of the commander transcript the store keeps.
+const MAX_TRANSCRIPT = 40;
 
 // Cell states in a sim_grid frame (sim.fire in the engine).
 export const Cell = { Unburnable: 0, Fuel: 1, Burning: 2, Burned: 3 } as const;
@@ -51,6 +55,10 @@ export interface EngineState {
   vision: VisionStatus | null;
   /** Latest camera_frame (a JPEG with the vision overlay), while a camera is on. */
   cameraFrame: BinaryFrame | null;
+  /** Round phase, resource limits and score (scoreboard: #47). */
+  score: Score | null;
+  /** What the commander has said (briefings and answers), oldest first. For #29. */
+  transcript: CommanderMessage[];
 }
 
 let state: EngineState = {
@@ -65,6 +73,8 @@ let state: EngineState = {
   recommendations: [],
   vision: null,
   cameraFrame: null,
+  score: null,
+  transcript: [],
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -92,11 +102,17 @@ function handleMessage(msg: EngineMessage) {
     case "recommendations":
       setState({ recommendations: msg.recommendations });
       break;
+    case "commander_message":
+      setState({ transcript: [...state.transcript, msg].slice(-MAX_TRANSCRIPT) });
+      break;
     case "events":
       setState({ events: [...state.events, ...msg.events].slice(-MAX_EVENTS) });
       break;
     case "vision_status":
       setState({ vision: msg });
+      break;
+    case "score":
+      setState({ score: msg });
       break;
   }
 }
@@ -144,6 +160,12 @@ function connect() {
 
 export function send(msg: ClientMessage) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+/** Ask the incident commander a question; the answer arrives as a commander_message. */
+export function askCommander(text: string) {
+  const q = text.trim();
+  if (q) send({ type: "commander_query", text: q.slice(0, 500) });
 }
 
 /** Place a recommended crew where the engine suggested it. */
