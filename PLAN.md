@@ -90,9 +90,9 @@ Inside the engine:
 
 ### Message protocol
 
-Define the schemas once as Pydantic models in Python, then generate TypeScript types for React.
+Define the schemas once as Pydantic models in `engine/protocol.py`, then generate TypeScript types for React with `make types` (Pydantic JSON schema → `json-schema-to-typescript` → `app/src/shared/protocol.ts`). JSON messages are discriminated on a `type` field.
 
-**Binary frames** (engine → UI), with a small header (type, tick, width, height):
+**Binary frames** (engine → UI), with a 12-byte little-endian header (`type: u8`, 3 pad bytes, `tick: u32`, `width: u16`, `height: u16`). The header is mirrored by hand in `app/src/shared/binary.ts`:
 - `sim_grid`: `uint8` cell states, 256×256 is 64 KB, at about 10 Hz
 - `forecast_grid`: `uint8` burn probability (0–255) per horizon
 - `camera_frame`: JPEG, console only, low rate
@@ -100,6 +100,12 @@ Define the schemas once as Pydantic models in Python, then generate TypeScript t
 **JSON messages:**
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
+
+Implemented so far (Phase 0): `hello` (protocol version, map size), `scenario_state`, `tokens`, and `virtual_token_add/move/remove`. Add the rest as each phase needs them.
+
+**Token path.** Real vision and virtual table mode both report full per-source snapshots to `TokenTracker` (`engine/vision/tokens.py`); the rest of the engine only reads `tracker.tokens`. Virtual tokens come from `engine/vision/virtual.py`.
+
+**Windows.** One React bundle; `?view=console` or `?view=projector` picks the view. In Tauri the console is the `main` window from `tauri.conf.json`, and the projector is created on demand by `app/src/platform/tauri.ts` on the chosen monitor, then made fullscreen. Closing the console quits the app. In a browser, the projector is a popup (press F to fullscreen). Until Phase 1's WebGL renderer, both windows draw the map with a shared SVG `MapView`.
 
 ### Repo layout
 
@@ -109,7 +115,7 @@ app/                    Tauri + React
     platform/           all Tauri API calls (with browser fallback)
     console/            command console window
     projector/          projector view (WebGL)
-    shared/             ws client, generated types, state store
+    shared/             ws client + store (engine.ts), generated types (protocol.ts), MapView
   src-tauri/            thin Rust shell
 engine/                 Python
   server.py             WebSocket server + main loop
@@ -119,6 +125,8 @@ engine/                 Python
   routing/              road graph, evac routing
   commander/            LLM tools, speech-to-text/TTS
   protocol.py           Pydantic message models
+  gen_schema.py         protocol JSON schema for `make types`
+  tests/                pytest
 assets/
   scenarios/<name>/     heightmap.npy, fuel.png, roads.geojson, towns.json, config.yaml
   stl/                  generated print files
