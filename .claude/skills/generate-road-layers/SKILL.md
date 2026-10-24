@@ -7,6 +7,7 @@ description: Regenerate a scenario's road graph and towns (roads.json, towns.jso
 uv run tools/osm_to_layers.py paradise              # uses the cached Overpass response if present
 uv run tools/osm_to_layers.py paradise --refresh    # re-download
 uv run tools/osm_to_layers.py paradise --classes motorway,trunk,primary,secondary,tertiary   # smaller graph
+uv run tools/osm_to_layers.py paradise --stations-only   # just fire stations (stations.json)
 ```
 
 - Writes `assets/scenarios/<name>/roads.json` (`nodes` [[x, y]], `edges` [[i, j, length_m, class]], map coords) and `towns.json` (`towns`, `safe_zones`). Commit both.
@@ -16,3 +17,4 @@ uv run tools/osm_to_layers.py paradise --classes motorway,trunk,primary,secondar
 - Overpass needs a User-Agent (406 otherwise) and often 502s under load; the script retries two mirrors. Responses cache in `tools/.cache/overpass/` (gitignored).
 - Check alignment by drawing the edges over `preview.png`.
 - After changing the script's dependency header run `uv lock --script tools/osm_to_layers.py`.
+- `stations.json` (`stations`: name, x, y, kind ground|air, units {token type: count}) lists the fire stations dispatch sends units from (#104). Ground stations come from OSM `amenity=fire_station` on the map; air bases are typed into `AIR_BASES` and may sit off the map. Units per station are `GROUND_UNITS` / `AIR_UNITS`.

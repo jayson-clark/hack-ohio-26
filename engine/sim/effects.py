@@ -70,7 +70,7 @@ class TimedLayer:
     digging in, a water drop drying out, or a crew still on its way (#56).
 
     level(dt) is 0 before `t_on`, then `level0 + slope * (dt - t_on)`, clipped
-    to [0, cap]. `first`, if set, overrides the level at dt == 0 (the tick a
+    to [0, cap]. `first`, if set, overrides the level at dt == t_on (the tick a
     water drop lands, when it knocks fire down completely).
     """
 
@@ -84,7 +84,7 @@ class TimedLayer:
     def level(self, dt: int) -> float:
         if dt < self.t_on:
             return 0.0
-        if dt == 0 and self.first is not None:
+        if dt == self.t_on and self.first is not None:
             return self.first
         return min(self.cap, max(0.0, self.level0 + self.slope * (dt - self.t_on)))
 
@@ -172,6 +172,20 @@ class TokenEffects:
         crew's ramp-up or water drop's timer. Recommendations use it to ask
         "what if this crew weren't here?"."""
         return self.schedule(tokens, tick).at(0)
+
+    def arrival_layer(self, t: Token, t_on: int) -> TimedLayer | None:
+        """What `t` will do once its unit arrives `t_on` ticks from now (#104):
+        a crew digging in from zero, a drop's knockdown then drying, a dozer's
+        line. Forecasts add these for units still on their way."""
+        match t.token_type:
+            case TokenType.CREW:
+                return TimedLayer(self._disk(t.x, t.y, CREW_RADIUS), 0.0, CREW_MAX / CREW_RAMP_TICKS, CREW_MAX, t_on=t_on)
+            case TokenType.WATER:
+                return TimedLayer(self._disk(t.x, t.y, WATER_RADIUS), WATER_WET, -WATER_WET / WATER_WET_TICKS,
+                                  WATER_WET, t_on=t_on, first=1.0)
+            case TokenType.FIREBREAK:
+                return TimedLayer(self._firebreak(t), 1.0, 0.0, 1.0, t_on=t_on)
+        return None
 
     def _build(self, tokens: list[Token], tick: int) -> SuppressionSchedule:
         static = np.zeros((self.height, self.width), np.float32)

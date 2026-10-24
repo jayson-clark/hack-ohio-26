@@ -105,7 +105,7 @@ def test_no_crews_left_asks_for_moves(monkeypatch):
 def rec(action, move_token=None, auto=True):
     return Recommendation(id="r1", token_type=TokenType.CREW, action=action, x=120.5, y=80.5, move_token=move_token,
                           from_x=40.0 if move_token else None, from_y=40.0 if move_token else None, auto=auto,
-                          benefit=3.0, benefit_lo=1.0, benefit_hi=5.0, confidence="moderate",
+                          benefit=3.0, benefit_lo=1.0, benefit_hi=5.0, confidence="moderate", station=None, eta_min=None,
                           acres_saved=1.0, saves=[], worsens=[], protects=[], text="")
 
 

@@ -85,8 +85,12 @@ def test_engine_snapshot_carries_the_schedule_through_the_worker():
         try:
             e.fire.ignite(217.3, 54.5)
             e.virtual.handle(VirtualTokenAdd(token_type=TokenType.CREW, x=200, y=70))
+            # One dispatch step: the crew's unit sets off from a station (#104).
+            e._acting = e.dispatcher.update(e.game.active(e.tracker.tokens), e.fire.tick, e.fire.wind.speed_ms, e._closed)
             snap = e.snapshot()
-            assert snap.schedule is not None and snap.schedule.varies  # the crew is digging in
+            assert snap.schedule is not None and snap.schedule.varies
+            [layer] = snap.schedule.layers  # the crew, from when it arrives
+            assert layer.t_on > 0 and layer.level(layer.t_on - 1) == 0
             again = pickle.loads(pickle.dumps(snap))  # what the forecaster process receives
             assert np.array_equal(again.schedule.at(10), snap.schedule.at(10))
             f = await e.forecaster.submit(snap)

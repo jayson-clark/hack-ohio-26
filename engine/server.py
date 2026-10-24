@@ -6,6 +6,7 @@ windows are views that can connect and disconnect at any time.
 
 import asyncio
 import dataclasses
+import json
 import itertools
 import logging
 import os
@@ -55,6 +56,10 @@ from protocol import (
     Token,
     TokenType,
     Transcript,
+    StationInfo,
+    UnitInfo,
+    Units,
+    UnitStatus,
     VoiceMode,
     Tokens,
     TokenSource,
@@ -82,7 +87,9 @@ from routing.roads import load_network
 from scenario import load_scenario
 from sim.effects import CREW_RADIUS, TokenEffects
 from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
+from sim.dispatch import Dispatcher
 from sim.game import Game, GameTown
+from routing.units import TURNOUT_MIN, Station, UnitRouter
 from vision import camera
 from vision.tokens import TokenTracker
 from vision.virtual import VirtualTable
@@ -164,6 +171,15 @@ class Engine:
             GameTown(t.name, t.x, t.y, t.radius, t.population, t.structures) for t in self.roads.towns
         ] if self.roads else []
         self.game = Game(self.scenario, game_towns)
+        # Fire units come from stations (#104): a crew, dozer or tanker token is
+        # an order, and acts on the fire only once its unit gets there. No
+        # stations.json (or no roads) means tokens act at once, as before.
+        path = self.scenario.dir / "stations.json"
+        self.stations = [Station(**st) for st in json.loads(path.read_text())["stations"]] if path.exists() else []
+        self.unit_router = UnitRouter(self.roads, self.scenario.cell_size_m) if self.roads and self.stations else None
+        self.dispatcher = Dispatcher(self.stations if self.unit_router else [], self.unit_router)
+        self._acting: list[Token] = []  # tokens acting on the fire (within limits, unit arrived)
+        self._units_sig: tuple = ()
         # Pause and speed (#54). Speed is sim steps per engine tick; the
         # fractional part carries over, so 0.5 steps every other tick.
         self.paused = False
@@ -197,6 +213,7 @@ class Engine:
             sim_minutes_per_tick=SIM_MINUTES_PER_TICK,
             forecast_horizons_min=list(HORIZONS_MIN),
             speech_to_text=self.listener.available,
+            stations=[StationInfo(name=s.name, x=s.x, y=s.y, kind=s.kind) for s in self.stations],
         ).model_dump_json()
 
     def tokens_msg(self) -> str:
@@ -307,6 +324,7 @@ class Engine:
             if self.roads is not None:
                 await ws.send(self.routes_msg())
             await ws.send(self.recs_msg())
+            await ws.send(self.units_msg())
             await ws.send(self.score_msg())
             async for raw in ws:
                 try:
@@ -393,7 +411,10 @@ class Engine:
             self.listener.stop()
         self.recs = []
         self._rec_started = -RECOMMEND_MIN_TICKS
+        self.dispatcher.reset()
+        self._acting = []
         broadcast(self.clients, self.recs_msg())
+        broadcast(self.clients, self.units_msg())
         broadcast(self.clients, self.sim_grid_frame())
         broadcast(self.clients, self.forecast_frame())
         broadcast(self.clients, self.state_msg())
@@ -466,11 +487,14 @@ class Engine:
             if self.game.frozen:
                 break  # the round is over; the map stays as it ended
             tokens = self.active_tokens()
-            self.fire.set_suppression(self.effects.update(tokens, self.fire.tick))
+            closed = self._closed if self.roads is not None else None
+            self._acting = self.dispatcher.update(tokens, self.fire.tick, self.fire.wind.speed_ms, closed)
+            self.fire.set_suppression(self.effects.update(self._acting, self.fire.tick))
             self.fire.step()
             self.check_road_cuts()
             self.score_step(tokens)
         broadcast(self.clients, self.sim_grid_frame())
+        self.flush_dispatch()
         self.maybe_forecast()
 
     def score_step(self, tokens: list[Token]) -> None:
@@ -538,18 +562,64 @@ class Engine:
                 others = self.effects.schedule([o for o in active if o.id != t.id], tick)
                 [keep] = self.effects.schedule([t], tick).layers  # this crew, carrying on where it is
                 without = dataclasses.replace(snapshot, suppression=others.at(0), schedule=others)
-                crews.append(PlacedCrew(t.id, t.x, t.y, without, keep))
+                eta = self.dispatcher.eta_from(t.x, t.y) if self.dispatcher.units else None
+                crews.append(PlacedCrew(t.id, t.x, t.y, without, keep, eta))
             job = self.recommender.submit_moves(crews, f.probability[0], self.towns, seed=tick)
         else:
-            job = self.recommender.submit(snapshot, f.probability[0], self.towns, seed=tick)
+            eta = self.dispatcher.eta_grid(TokenType.CREW, self.fire.wind.speed_ms) if self.dispatcher.units else None
+            job = self.recommender.submit(snapshot, f.probability[0], self.towns, seed=tick, eta=eta)
         self._rec_job = job
         job.add_done_callback(lambda j: self.recommend_done(j, epoch, tick))
 
     def snapshot(self):
-        """The fire now, plus the suppression schedule of the tokens in play, so
-        forecasts credit crews still digging in and drops drying out (#56)."""
-        tokens = self.game.active(self.tracker.tokens)
-        return dataclasses.replace(self.fire.snapshot(), schedule=self.effects.schedule(tokens, self.fire.tick))
+        """The fire now, plus the suppression schedule of the tokens acting on
+        it, so forecasts credit crews still digging in and drops drying out
+        (#56), plus units still on their way, from when they'll arrive (#104)."""
+        tick = self.fire.tick
+        sched = self.effects.schedule(self._acting, tick)
+        tokens = {t.id: t for t in self.tracker.tokens}
+        for u in self.dispatcher.pending():
+            t = tokens.get(u.token_id)
+            layer = self.effects.arrival_layer(t, max(0, u.arrive_tick - tick)) if t is not None else None
+            if layer is not None:
+                sched.layers.append(layer)
+        return dataclasses.replace(self.fire.snapshot(), schedule=sched)
+
+    def units_msg(self) -> str:
+        tick, mpt = self.fire.tick, SIM_MINUTES_PER_TICK
+        units = []
+        for u in self.dispatcher.units:
+            x, y = u.position(tick)
+            units.append(UnitInfo(
+                id=u.id, station=u.station.name, token_type=u.token_type, status=UnitStatus(u.status),
+                token_id=u.token_id, x=round(float(x), 2), y=round(float(y), 2),
+                eta_min=round((u.arrive_tick - tick) * mpt, 1) if u.status == "en_route" else None,
+                path=u.path if u.status == "en_route" else [],
+            ))
+        return Units(tick=tick, units=units).model_dump_json()
+
+    def flush_dispatch(self) -> None:
+        """Send dispatch events (arrived, blocked, grounded) and unit positions."""
+        kinds = {"arrived": EventKind.UNIT_ARRIVED, "blocked": EventKind.UNIT_BLOCKED,
+                 "grounded": EventKind.TANKERS_GROUNDED}
+        events = [Event(kind=kinds[e.kind], tick=self.fire.tick, town=None, text=e.text)
+                  for e in self.dispatcher.take_events()]
+        self.broadcast_events(events)
+        sig = tuple((u.id, u.status, u.token_id, u.arrive_tick) for u in self.dispatcher.units)
+        moving = any(u.status == "en_route" for u in self.dispatcher.units)
+        if sig != self._units_sig or (moving and self.tick % 3 == 0):
+            self._units_sig = sig
+            broadcast(self.clients, self.units_msg())
+
+    def best_station(self, token_type: TokenType, x: float, y: float) -> tuple[str | None, float | None]:
+        """Which station's free unit would reach (x, y) first, and in how many minutes."""
+        free = [u for u in self.dispatcher.units if u.token_type == token_type and u.status == "available"]
+        best = (None, None)
+        for u in free:
+            m, _ = self.dispatcher._eta(u, u.home, (x, y), self.fire.wind.speed_ms)
+            if m != float("inf") and (best[1] is None or m < best[1]):
+                best = (u.station.name, round(m + TURNOUT_MIN, 1))
+        return best
 
     def crews_left(self) -> int | None:
         """Crews that can still be placed this round, or None outside a round (no limit)."""
@@ -590,6 +660,13 @@ class Engine:
             return [TownEffectInfo(town=e.town, hits=e.hits, n=e.n, lo=round(e.lo, 3), hi=round(e.hi, 3)) for e in es]
 
         moving = next((t for t in self.tracker.tokens if t.id == r.move_id), None) if r.move_id else None
+        station = None
+        if self.dispatcher.units:
+            if r.move_id:
+                unit = next((u for u in self.dispatcher.units if u.token_id == r.move_id), None)
+                station = unit.station.name if unit else None
+            else:
+                station, _ = self.best_station(TokenType.CREW, r.x, r.y)
         return Recommendation(
             id=rec_id, token_type=TokenType.CREW, x=r.x, y=r.y,
             action=RecAction.MOVE if r.move_id else RecAction.PLACE,
@@ -599,7 +676,8 @@ class Engine:
             confidence=r.confidence, acres_saved=round(r.cells_saved * acres_per_cell, 1),
             saves=effects(r.saves), worsens=effects(r.worsens),
             protects=[TownShareInfo(town=p.town, share=p.share) for p in r.protects],
-            text=describe(r, acres_per_cell, from_place),
+            station=station, eta_min=r.eta_min,
+            text=describe(r, acres_per_cell, from_place, station),
         )
 
     def ask(self, question: str) -> None:

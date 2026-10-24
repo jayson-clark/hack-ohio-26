@@ -43,6 +43,9 @@ PRIORITY = {
     EventKind.FORECAST_SHIFT: 2,
     EventKind.TOWN_SAFE: 3,
     EventKind.ROUND_ENDED: 0,
+    EventKind.UNIT_BLOCKED: 1,
+    EventKind.TANKERS_GROUNDED: 2,
+    EventKind.UNIT_ARRIVED: 3,
 }
 MIN_GAP_S = 8.0  # wall seconds between spoken briefings
 DEDUPE_S = 45.0  # don't repeat the same kind of news about the same town
