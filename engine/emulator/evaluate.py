@@ -34,7 +34,11 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--test", default="emulator/data/test")
     p.add_argument("--json", help="write the results here")
+    p.add_argument("--device", default="auto", choices=("auto", "gpu", "cpu"))
     args = p.parse_args()
+    from emulator import device as D
+
+    dev = D.select(args.device)
     emu = load_emulator()
     if emu is None:
         raise SystemExit("no emulator: install the ml extra and train weights first")
@@ -89,6 +93,7 @@ def main() -> None:
         emu.predict(batch[i : i + 25])
     hundred = time.perf_counter() - t
     out["speed_s"] = {"one_forecast": round(one, 4), "100_variants": round(hundred, 3)}
+    out["device"] = dev
     print(json.dumps(out, indent=2))
     if args.json:
         with open(args.json, "w") as f:

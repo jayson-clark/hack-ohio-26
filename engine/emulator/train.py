@@ -1,6 +1,10 @@
 """Train the fire emulator on emulator.data shards (#113).
 
     cd engine && uv run --extra ml python -m emulator.train --epochs 15
+    cd engine && uv run --extra ml python -m emulator.train --device cpu   # force a device
+
+It trains on whatever GPU MLX finds (emulator/device.py): Metal on Apple
+silicon, or CUDA on an NVIDIA machine with mlx[cuda]; otherwise the CPU.
 
 Loss is binary cross-entropy against the Monte Carlo labels, only on the
 cells the net has to predict (features.masks): burning and burned cells are
@@ -22,6 +26,7 @@ import mlx.optimizers as optim
 import numpy as np
 from mlx.utils import tree_flatten
 
+from emulator import device as D
 from emulator import features as F
 from emulator.data import _scenario, load
 from emulator.model import WEIGHTS, FireUNet, pad_to
@@ -90,7 +95,11 @@ def main() -> None:
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--out", default=str(WEIGHTS))
+    p.add_argument("--device", default="auto", choices=("auto", "gpu", "cpu"),
+                   help="auto: Metal or CUDA GPU if MLX has one, else CPU")
     args = p.parse_args()
+    dev = D.select(args.device)
+    print(f"training on {D.describe(dev)}", flush=True)
     train = load(sorted(glob.glob(f"{args.train}/*.npz")))
     test = load(sorted(glob.glob(f"{args.test}/*.npz")))
     print(f"{len(train)} training samples, {len(test)} test", flush=True)
@@ -122,7 +131,7 @@ def main() -> None:
         print(json.dumps({**history[-1], "seconds": round(time.perf_counter() - t0)}), flush=True)
         net.save_weights(args.out)
     with open(args.out.replace(".safetensors", ".json"), "w") as f:
-        json.dump({"parameters": n_params, "train_samples": len(train), "test_samples": len(test),
+        json.dump({"parameters": n_params, "trained_on": dev, "train_samples": len(train), "test_samples": len(test),
                    "epochs": args.epochs, "history": history}, f, indent=2)
 
 

@@ -17,6 +17,10 @@ uv run --extra ml python -m emulator.evaluate                                   
 ```
 Commit the new `weights/fire_emulator.safetensors` and `.json` (training history). `emulator/data/` is gitignored.
 
+Device: training and `evaluate` print the device they use, and the `.json` records it under `trained_on`. `--device auto` (the default) picks MLX's GPU: Metal on Apple silicon, which is what PyTorch calls MPS, or CUDA on NVIDIA. With no GPU it falls back to the CPU, which is slow (`emulator/device.py`). `--device gpu` fails instead of falling back, and `--device cpu` forces the CPU.
+
+Training on an NVIDIA machine (e.g. a cluster) is optional. The repo is macOS-only, so the `ml` extra only installs on Apple silicon. On Linux, sync normally, run `uv pip install "mlx[cuda]"`, then `uv run --no-sync python -m emulator.train --device gpu`. The weights are plain safetensors, so they load on a Mac whichever GPU trained them.
+
 Gotchas:
 - Don't run data generation, training and the test suite at once. They fight over CPU and GPU, and training slowed 10x (1.6 s/step instead of 0.16 s).
 - Use `python -u` with a log file. Piping through grep buffers the output, so nothing shows for minutes.
