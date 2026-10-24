@@ -13,6 +13,7 @@ import { RoundSummaryCard } from "./RoundSummary";
 import { Segmented } from "./ui";
 import Sidebar from "./Sidebar";
 import SimControls from "./SimControls";
+import SoundToggle from "./SoundToggle";
 import Viewport, { type ViewMode } from "./Viewport";
 
 export default function Console() {
@@ -117,6 +118,7 @@ export default function Console() {
             ]}
           />
         </span>
+        <SoundToggle />
         <ConnectionBadge status={status} />
       </header>
 
