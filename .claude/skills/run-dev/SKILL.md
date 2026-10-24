@@ -7,6 +7,7 @@ From the repo root:
 
 - `make install` once (or after pulling dependency changes).
 - `make dev` runs the engine and the Tauri app together. Or run `make engine` and `make app` in two terminals.
+- Optional engine extras: set `ENGINE_EXTRAS="ml voice"` in `.env` (or `make engine ENGINE_EXTRAS=ml`). `ml` turns on the learned fire emulator (instant forecast previews, crew-spot screening); `voice` turns on push-to-talk. A plain `uv run server.py` drops extras.
 - No Tauri? `make engine` + `make web`, then open `http://localhost:1420/?view=console` and `http://localhost:1420/?view=projector`.
 
 Check it works: the console header shows "Engine connected". The console opens on the 3D virtual table; clicking the terrain adds a virtual token, and it appears in both windows. Drag a puck to move it, right-click to remove; drag empty space to orbit. Keys 1–4 pick the token type in both windows.
