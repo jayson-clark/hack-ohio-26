@@ -5,3 +5,5 @@ __pycache__/
 .pytest_cache/
 # vision.camera probe snapshots
 engine/camera-*.jpg
+# agent board database
+.agent-board/
