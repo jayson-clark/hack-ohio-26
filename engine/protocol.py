@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 7
+PROTOCOL_VERSION = 8
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -146,6 +146,9 @@ class EventKind(StrEnum):
     ROAD_CUT = "road_cut"  # fire reached a road on a town's current route
     ROUTE_CHANGED = "route_changed"  # a town was rerouted to another way out
     NO_SAFE_ROUTE = "no_safe_route"  # a town has no reachable safe zone
+    TOWN_THREATENED = "town_threatened"  # most simulations have fire in the town within 30 min
+    TOWN_SAFE = "town_safe"  # a threatened town has dropped out of the fire's 30-min path
+    FORECAST_SHIFT = "forecast_shift"  # the next hour's likely burn area moved a lot
 
 
 class Event(Model):
@@ -268,8 +271,26 @@ class Score(Model):
     towns: list[TownScore]
 
 
+class CommanderKind(StrEnum):
+    BRIEFING = "briefing"  # unprompted, from an event
+    ANSWER = "answer"  # a reply to commander_query
+
+
+class CommanderMessage(Model):
+    """Something the incident commander says. Short enough to speak aloud."""
+
+    type: Literal["commander_message"] = "commander_message"
+    kind: CommanderKind
+    tick: int
+    text: str
+    # Every number in `text` came from a simulation tool (always true for
+    # templated briefings; checked for LLM answers).
+    grounded: bool
+    event: EventKind | None  # what triggered a briefing
+
+
 EngineMessage = Annotated[
-    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score],
+    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage],
     Field(discriminator="type"),
 ]
 

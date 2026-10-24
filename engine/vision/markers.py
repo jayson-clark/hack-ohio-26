@@ -3,8 +3,8 @@
 One dictionary for everything on the table. IDs 0-3 are the four corner
 markers on the pinned board holders (their map positions are in terrain.json);
 every other ID is a token, and its ID range decides the token type. The marker
-sheets in assets/markers/ are generated from these constants, so change them
-together.
+sheets in assets/markers/ are generated from these constants by
+tools/make_markers.py, so regenerate them after changing anything here.
 """
 
 from dataclasses import dataclass
@@ -18,19 +18,22 @@ DICTIONARY = cv2.aruco.DICT_4X4_50
 
 CORNER_IDS = {"NW": 0, "NE": 1, "SE": 2, "SW": 3}
 
-# First marker ID of each token type; each type gets TOKEN_IDS_PER_TYPE IDs.
+# First marker ID of each token type. Only the first TOKENS_PER_TYPE IDs of
+# each block are printed, and only those are accepted: a misread that lands on
+# an unprinted ID (seen on a live camera as 17 and 37) is ignored rather than
+# becoming a phantom token. The rest of each block of 10 is room to grow.
 TOKEN_ID_START = {
     TokenType.CREW: 10,
     TokenType.FIREBREAK: 20,
     TokenType.WATER: 30,
     TokenType.BUS: 40,
 }
-TOKEN_IDS_PER_TYPE = 10
+TOKENS_PER_TYPE = 5
 
 
 def token_type_for(marker_id: int) -> TokenType | None:
     for kind, start in TOKEN_ID_START.items():
-        if start <= marker_id < start + TOKEN_IDS_PER_TYPE:
+        if start <= marker_id < start + TOKENS_PER_TYPE:
             return kind
     return None
 

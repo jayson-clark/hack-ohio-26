@@ -5,6 +5,7 @@ import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
 import type {
   ClientMessage,
+  CommanderMessage,
   EngineMessage,
   Event,
   Hello,
@@ -20,6 +21,8 @@ const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
 const RECONNECT_MS = 1000;
 // How many recent events (road cuts, reroutes) the store keeps for the event log.
 const MAX_EVENTS = 50;
+// How much of the commander transcript the store keeps.
+const MAX_TRANSCRIPT = 40;
 
 // Cell states in a sim_grid frame (sim.fire in the engine).
 export const Cell = { Unburnable: 0, Fuel: 1, Burning: 2, Burned: 3 } as const;
@@ -54,6 +57,8 @@ export interface EngineState {
   cameraFrame: BinaryFrame | null;
   /** Round phase, resource limits and score (scoreboard: #47). */
   score: Score | null;
+  /** What the commander has said (briefings and answers), oldest first. For #29. */
+  transcript: CommanderMessage[];
 }
 
 let state: EngineState = {
@@ -69,6 +74,7 @@ let state: EngineState = {
   vision: null,
   cameraFrame: null,
   score: null,
+  transcript: [],
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -95,6 +101,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "recommendations":
       setState({ recommendations: msg.recommendations });
+      break;
+    case "commander_message":
+      setState({ transcript: [...state.transcript, msg].slice(-MAX_TRANSCRIPT) });
       break;
     case "events":
       setState({ events: [...state.events, ...msg.events].slice(-MAX_EVENTS) });

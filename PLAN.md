@@ -134,9 +134,10 @@ assets/
   scenarios/<name>/     terrain.yaml (DEM generator input), heightmap.npy, terrain.json, preview.png,
                         fuel.png, roads.geojson, towns.json, config.yaml
   stl/<name>/           generated print tiles (gitignored, regenerate them)
-  markers/              printable ArUco/ChArUco sheets
+  markers/              printable ArUco sheets (markers.pdf, from tools/make_markers.py)
 tools/
   dem_to_assets.py      DEM → heightmap.npy + STL tiles (single source of truth)
+  make_markers.py       ArUco IDs → assets/markers/markers.pdf (vector, print at 100%)
 ```
 
 ---
@@ -181,7 +182,7 @@ Looks polished and native, on the laptop screen.
 
 ### Token tracking
 
-- Each token carries an ArUco marker (`DICT_4X4_50`), and its marker ID determines its type: corners 0–3 (NW, NE, SE, SW), crew 10–19, firebreak 20–29, water 30–39, bus 40–49 (`engine/vision/markers.py`). On the wire a token's id is `m<marker id>`, so sim effects survive brief dropouts.
+- Each token carries an ArUco marker (`DICT_4X4_50`), and its marker ID determines its type: corners 0–3 (NW, NE, SE, SW), crew 10–14, firebreak 20–24, water 30–34, bus 40–44 (`engine/vision/markers.py`). Only printed IDs are accepted, so a misread can't become a phantom token. On the wire a token's id is `m<marker id>`, so sim effects survive brief dropouts.
 - **Board homography:** `H_cam→map` is re-solved from the four corner-marker centres on every frame where all four are visible, and the last good one is kept while a corner is covered. So a bumped table or camera fixes itself.
 - **Debounce:** a token counts as placed after 3 frames in a row, and as removed after 15 frames missing (~0.5 s).
 - **Smoothing:** positions and angles are low-passed, with a small deadband so still tokens don't re-broadcast. A jump of more than 3 cells is taken at once.
