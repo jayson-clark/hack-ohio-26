@@ -2,7 +2,7 @@
 // connection; the engine holds all state, so windows can reload freely.
 
 import { useSyncExternalStore } from "react";
-import { BinaryType, parseBinaryFrame } from "./binary";
+import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
 import type { ClientMessage, EngineMessage, Hello, ScenarioState, Token } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
@@ -10,13 +10,6 @@ const RECONNECT_MS = 1000;
 
 // Cell states in a sim_grid frame (sim.fire in the engine).
 export const Cell = { Unburnable: 0, Fuel: 1, Burning: 2, Burned: 3 } as const;
-
-export interface Grid {
-  tick: number;
-  width: number;
-  height: number;
-  cells: Uint8Array; // width * height, row-major, row 0 = north
-}
 
 export interface ForecastGrids {
   tick: number; // sim tick the forecast started from
@@ -32,7 +25,9 @@ export interface EngineState {
   hello: Hello | null;
   scenario: ScenarioState | null;
   tokens: Token[];
-  simGrid: Grid | null;
+  /** Latest sim_grid frame (cell states), once the sim sends them. */
+  simGrid: BinaryFrame | null;
+  /** Latest forecast_grid frame, split into one grid per horizon. */
   forecast: ForecastGrids | null;
 }
 
@@ -69,13 +64,13 @@ function handleMessage(msg: EngineMessage) {
 
 function handleBinary(buf: ArrayBuffer) {
   const frame = parseBinaryFrame(buf);
-  const { tick, width, height, payload } = frame;
-  const cells = width * height;
   switch (frame.type) {
     case BinaryType.SimGrid:
-      setState({ simGrid: { tick, width, height, cells: payload } });
+      setState({ simGrid: frame });
       break;
     case BinaryType.ForecastGrid: {
+      const { tick, width, height, payload } = frame;
+      const cells = width * height;
       const n = Math.floor(payload.length / cells);
       const horizons = Array.from({ length: n }, (_, i) => payload.subarray(i * cells, (i + 1) * cells));
       setState({ forecast: { tick, width, height, horizons } });

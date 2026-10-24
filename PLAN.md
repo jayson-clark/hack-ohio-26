@@ -25,7 +25,7 @@ A 3D-printed terrain model sits on a table under an overhead projector and webca
 |---|---|---|
 | Desktop shell | **Tauri** (Rust, kept thin) | Launch the engine, manage windows and monitors, fullscreen projector window |
 | UI | **React + Vite + Tailwind + shadcn/ui** | Command console and projector view |
-| Projector rendering | **WebGL** (regl or raw), Three.js only if needed for 3D | Shaders for fire, terrain, forecast ghost, routes |
+| Projector rendering | **WebGL** via Three.js (one projection shader; 3D only for the virtual table) | Shaders for fire, terrain, forecast ghost, routes |
 | Engine | **Python**: OpenCV, NumPy, networkx, pyserial | Vision, simulation, forecasting, routing, LLM commander, wind knob |
 | Transport | **WebSocket** | Binary grids and JSON messages between engine and UI |
 | Commander | Claude API (tool use) + speech-to-text + TTS | Spoken briefings and what-if questions |
@@ -107,7 +107,7 @@ Implemented so far: `hello` (protocol version, scenario name, map size, sim-minu
 
 **Token path.** Real vision and virtual table mode both report full per-source snapshots to `TokenTracker` (`engine/vision/tokens.py`); the rest of the engine only reads `tracker.tokens`. Virtual tokens come from `engine/vision/virtual.py`.
 
-**Windows.** One React bundle; `?view=console` or `?view=projector` picks the view. In Tauri the console is the `main` window from `tauri.conf.json`, and the projector is created on demand by `app/src/platform/tauri.ts` on the chosen monitor, then made fullscreen. Closing the console quits the app. In a browser, the projector is a popup (press F to fullscreen). Until Phase 1's WebGL renderer, both windows draw the map with a shared SVG `MapView`.
+**Windows.** One React bundle; `?view=console` or `?view=projector` picks the view. In Tauri the console is the `main` window from `tauri.conf.json`, and the projector is created on demand by `app/src/platform/tauri.ts` on the chosen monitor, then made fullscreen. Closing the console quits the app. In a browser, the projector is a popup (press F to fullscreen). Both windows render with `app/src/render/` (see [The Two Windows](#the-two-windows)).
 
 ### Repo layout
 
@@ -116,8 +116,9 @@ app/                    Tauri + React
   src/
     platform/           all Tauri API calls (with browser fallback)
     console/            command console window
-    projector/          projector view (WebGL)
-    shared/             ws client + store (engine.ts), generated types (protocol.ts), MapView
+    projector/          projector view (fullscreen projection)
+    render/             projection shader, flat projection view, 3D virtual table
+    shared/             ws client + store (engine.ts), generated types (protocol.ts), scenario loader
   src-tauri/            thin Rust shell
 engine/                 Python
   server.py             WebSocket server + main loop
@@ -146,6 +147,8 @@ tools/
 
 Pure WebGL, no UI chrome, fullscreen on the projector monitor.
 
+**One projection shader** (`app/src/render/shaders.ts`) computes what the projector emits, per pixel in map coordinates: topo tint, hillshade, contours, labels, fire and token halos. The projector draws it on a flat quad. The console's virtual table drapes the *same* shader over the terrain mesh, so what you see in 3D is what the real projector would throw onto the print. The UI loads terrain straight from `assets/scenarios/<name>/` (`terrain.json` + `heightmap.npy`), picked by `VITE_SCENARIO` or `?scenario=`.
+
 - The sim grid is uploaded as a texture each tick. A fragment shader maps cell states to visuals: topo base, flickering flame on burning cells, char on burned ones.
 - Overlay layers include the forecast ghost (probability contours), glowing evacuation routes, pulsing recommendation markers, wind particles, town labels, and the token halos.
 - **The calibration homography is a 3×3 matrix applied in the vertex shader.** Python never warps images.
@@ -155,7 +158,8 @@ Pure WebGL, no UI chrome, fullscreen on the projector monitor.
 
 Looks polished and native, on the laptop screen.
 
-- **Live mini-map** mirroring the projection
+- **Virtual table:** a 3D view of the print on the table (true mm dimensions, tile seams, corner marker holders), with the projection draped over it and token pucks you can place, drag and remove. Camera presets and fly-to for places. Works with no hardware.
+- **Projection view:** the flat projector output, for checking exactly what gets projected
 - **Camera feed** with detected markers overlaid (for debugging, and to show judges the vision working)
 - **Calibration wizard:** a step-by-step flow with a recalibrate button
 - **Scenario controls:** ignite, reset, scenario picker, wind dial (synced with the physical knob)
