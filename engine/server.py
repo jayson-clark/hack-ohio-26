@@ -16,6 +16,7 @@ from websockets.exceptions import ConnectionClosed
 
 import numpy as np
 
+from commander.agent import Commander
 from commander.briefings import BriefingQueue, ForecastWatcher
 from commander.tools import CommanderTools
 from forecast.recommend import Rec, Recommender, TownInfo, describe
@@ -23,6 +24,9 @@ from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
 from protocol import (
     AcceptRecommendation,
     BinaryType,
+    CommanderKind,
+    CommanderMessage,
+    CommanderQuery,
     CameraState,
     EndRound,
     Event,
@@ -160,6 +164,8 @@ class Engine:
         self.tools = CommanderTools(self)
         self.watcher = ForecastWatcher()
         self.briefings = BriefingQueue()
+        self.commander = Commander(self.tools)
+        self._query_task: asyncio.Task | None = None
 
     def hello_msg(self) -> str:
         s = self.scenario
@@ -323,6 +329,8 @@ class Engine:
                     broadcast(self.clients, self.state_msg())
             case AcceptRecommendation():
                 self.accept_recommendation(msg.id)
+            case CommanderQuery():
+                self.ask(msg.text)
             case SetWind():
                 self.fire.set_wind(Wind(speed_ms=msg.speed_ms, from_deg=msg.from_deg % 360))
                 broadcast(self.clients, self.state_msg())
@@ -342,6 +350,9 @@ class Engine:
         self.recent_events.clear()
         self.watcher.reset()
         self.briefings.reset()
+        self.commander.reset()
+        if self._query_task is not None:
+            self._query_task.cancel()
         self.recs = []
         self._rec_started = -RECOMMEND_MIN_TICKS
         broadcast(self.clients, self.recs_msg())
@@ -495,6 +506,26 @@ class Engine:
             protects=[TownShareInfo(town=p.town, share=p.share) for p in r.protects],
             text=describe(r, acres_per_cell),
         )
+
+    def ask(self, question: str) -> None:
+        """Answer a question in the background. A newer question cancels an
+        older one that's still running, so the answer is always to the last ask."""
+        if self._query_task is not None and not self._query_task.done():
+            self._query_task.cancel()
+        self._query_task = asyncio.create_task(self._answer(question))
+
+    async def _answer(self, question: str) -> None:
+        ans = await self.commander.answer(question)
+        msg = CommanderMessage(
+            kind=CommanderKind.ANSWER,
+            tick=self.fire.tick,
+            text=ans.text,
+            # Templated answers are built from tool numbers; LLM answers get
+            # checked by the grounding guard (#39) and are unverified until then.
+            grounded=ans.source == "rules",
+            event=None,
+        )
+        broadcast(self.clients, msg.model_dump_json())
 
     def accept_recommendation(self, rec_id: str) -> None:
         rec = next((r for r in self.recs if r.id == rec_id), None)
