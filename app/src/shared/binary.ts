@@ -1,5 +1,11 @@
 // Binary frame header. Mirrors BINARY_HEADER in engine/protocol.py by hand:
 // type: u8, 3 pad bytes, tick: u32, width: u16, height: u16 (little-endian).
+//
+// Payloads (see the protocol.py docstring):
+// - SimGrid: width*height uint8 cell states (Cell in engine.ts), row 0 = north.
+// - ForecastGrid: one width*height uint8 grid per Hello.forecast_horizons_min
+//   entry, stacked in that order; P(burned by the horizon) as 0-255. The
+//   header's tick is the sim tick the forecast started from.
 
 export const BinaryType = {
   SimGrid: 1,
