@@ -31,12 +31,26 @@ A few things touch everyone. Treat them carefully:
 - **Tauri APIs are only called from `app/src/platform/`.** The app must always run in a plain browser too.
 - **Virtual table mode must always work.** It's how anyone can develop without the physical setup.
 
+## Track work in GitHub issues
+
+Four people (and their agents) work in parallel. To keep anyone from duplicating or clobbering work, every non-trivial task gets a GitHub issue. **Agents should do this on their own, without being asked.**
+
+1. **Check first.** Before starting, look for an existing issue: `gh issue list --state open`, or `gh issue list --search "<keywords>"`. If someone else is assigned to overlapping work, stop and tell the user instead of starting a parallel version.
+2. **Claim it.** If no issue exists, create one and assign yourself. Prefix the title with the area, matching the branch name:
+   `gh issue create --title "sim: wind and slope spread" --body "<what and why, files likely touched>" --assignee @me`
+   If an issue exists and nobody has it, assign yourself: `gh issue edit <N> --add-assignee @me`.
+3. **Keep it current.** If the plan or scope changes, or you hit a blocker, comment: `gh issue comment <N> --body "..."`.
+4. **Close the loop.** Put `Closes #<N>` in the PR description. If you abandon the work, unassign yourself and comment on where it stopped.
+
+Keep each issue to roughly one PR's worth of work. Small fixes (typos, one-line changes) don't need an issue.
+
 ## Git workflow
 
 - `main` should always run. Don't push directly to it; work on branches named like `sim/wind-slope` or `app/calibration-wizard`, prefixed with your area.
 - Keep PRs small and focused, and merge often. Long-lived branches cause painful conflicts.
 - Pull `main` before starting new work.
 - Never commit secrets. API keys go in `.env` (gitignored), with names listed in `.env.example`.
+- No AI attribution anywhere: no `Co-Authored-By` trailers for Claude or other agents, no "Generated with Claude Code" lines, and no mentions of being AI-generated in commits, PRs, issues, or comments.
 
 ## Code
 
