@@ -91,6 +91,10 @@ class FireSnapshot:
     burn_left: np.ndarray  # int16 (H, W), ticks left for burning cells
     suppression: np.ndarray  # float32 (H, W) in [0, 1]
     layers: FireLayers
+    # Suppression from now on (a sim.effects.SuppressionSchedule), if the
+    # engine knows the tokens: crews still digging in, drops drying out (#56).
+    # Forecasts use it in place of freezing `suppression`. None for a bare FireSim.
+    schedule: object | None = None
 
 
 def wind_factors(wind: Wind) -> np.ndarray:
@@ -206,6 +210,10 @@ def advance(
     st = state[:, y0:y1, x0:x1]
     bl = burn_left[:, y0:y1, x0:x1]
     sup = suppression[..., y0:y1, x0:x1]
+    if sup.ndim == 3 and sup.shape[0] != state.shape[0]:
+        # One grid per group (variant): rows are variant-major, so repeat each
+        # grid over its block of rollouts. Only the crop, so it stays cheap.
+        sup = np.repeat(sup, state.shape[0] // sup.shape[0], axis=0)
     b = np.zeros((state.shape[0], h + 2, w + 2), np.float32)
     b[:, 1:-1, 1:-1] = burning[:, y0:y1, x0:x1]
 

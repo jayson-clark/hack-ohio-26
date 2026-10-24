@@ -495,7 +495,7 @@ class Engine:
             return
         self._forecast_started = self.fire.tick
         epoch = self._fire_epoch
-        job = self._forecast_job = self.forecaster.submit(self.fire.snapshot())
+        job = self._forecast_job = self.forecaster.submit(self.snapshot())
         job.add_done_callback(lambda f: self.forecast_done(f, epoch))
 
     def forecast_done(self, job: asyncio.Future[Forecast], epoch: int) -> None:
@@ -527,20 +527,29 @@ class Engine:
             return  # the round is over; nothing to recommend
         self._rec_started = tick = self.fire.tick
         epoch = self._fire_epoch
-        snapshot = self.fire.snapshot()
+        snapshot = self.snapshot()
         if self.crews_left() == 0:
             # Every crew is out (#77): recommend moving one instead of adding one.
             active = self.game.active(self.tracker.tokens)
-            crews = [
-                PlacedCrew(t.id, t.x, t.y, dataclasses.replace(
-                    snapshot, suppression=self.effects.preview([o for o in active if o.id != t.id], tick)))
-                for t in active if t.token_type == TokenType.CREW
-            ]
-            job = self.recommender.submit_moves(crews, snapshot.suppression, f.probability[0], self.towns, seed=tick)
+            crews = []
+            for t in active:
+                if t.token_type != TokenType.CREW:
+                    continue
+                others = self.effects.schedule([o for o in active if o.id != t.id], tick)
+                [keep] = self.effects.schedule([t], tick).layers  # this crew, carrying on where it is
+                without = dataclasses.replace(snapshot, suppression=others.at(0), schedule=others)
+                crews.append(PlacedCrew(t.id, t.x, t.y, without, keep))
+            job = self.recommender.submit_moves(crews, f.probability[0], self.towns, seed=tick)
         else:
             job = self.recommender.submit(snapshot, f.probability[0], self.towns, seed=tick)
         self._rec_job = job
         job.add_done_callback(lambda j: self.recommend_done(j, epoch, tick))
+
+    def snapshot(self):
+        """The fire now, plus the suppression schedule of the tokens in play, so
+        forecasts credit crews still digging in and drops drying out (#56)."""
+        tokens = self.game.active(self.tracker.tokens)
+        return dataclasses.replace(self.fire.snapshot(), schedule=self.effects.schedule(tokens, self.fire.tick))
 
     def crews_left(self) -> int | None:
         """Crews that can still be placed this round, or None outside a round (no limit)."""

@@ -42,7 +42,7 @@ from routing.evac import BUS_SPEED_KMH, plan_routes, replan_routes
 from routing.roads import load_network
 from routing.tracker import RouteTracker
 from scenario import load_scenario
-from sim.effects import crew_footprint
+from sim.effects import crew_layer
 from sim.fire import BURNED, BURNING, FUEL, SIM_MINUTES_PER_TICK, FireSim, Wind, advance
 
 HORIZONS = (30, 60)  # sim minutes
@@ -157,15 +157,16 @@ def _future_losses(snapshot, variants, n, ticks, wind_at, start_tick, seed, town
     Index 0 is "no new crew"."""
     h, w = snapshot.state.shape
     k = len(variants)
-    sup = np.empty((k + 1, h, w), np.float32)
-    sup[0] = snapshot.suppression
-    sup[1:] = np.maximum(snapshot.suppression[None], np.asarray(variants, np.float32))
-    suppression = np.repeat(sup, n, axis=0)
     state = np.repeat(snapshot.state[None], (k + 1) * n, axis=0)
     burn_left = np.repeat(snapshot.burn_left[None], (k + 1) * n, axis=0)
     rng = np.random.default_rng(seed)
     for t in range(ticks):
-        if advance(state, burn_left, snapshot.layers, wind_at(start_tick + t), suppression, rng, group=k + 1) is None:
+        # One grid per variant (a fresh crew ramping up, #56); advance repeats it per rollout.
+        sup = np.empty((k + 1, h, w), np.float32)
+        sup[0] = snapshot.suppression
+        for i, v in enumerate(variants, start=1):
+            np.maximum(snapshot.suppression, v.level(t) * v.footprint, out=sup[i])
+        if advance(state, burn_left, snapshot.layers, wind_at(start_tick + t), sup, rng, group=k + 1) is None:
             break
     burned = ((state == BURNING) | (state == BURNED)).reshape(k + 1, n, -1).astype(np.float32)
     m = masks.reshape(len(towns), -1)
@@ -216,7 +217,7 @@ def run_episode(scenario, net, towns, sched: str, seed: int, ticks: int, every: 
                     res.recs.shown += 1
                     top = recs[0]
                     rnd = spots[int(rng.integers(len(spots)))]
-                    variants = [crew_footprint(W, H, top.x, top.y), crew_footprint(W, H, *rnd)]
+                    variants = [crew_layer(W, H, top.x, top.y), crew_layer(W, H, *rnd)]
                     loss = _future_losses(snap, variants, 8, int(horizon_ticks(60)), wind_at, tick,
                                           seed * 31 + tick, towns, masks)
                     res.recs.rec_realized.append(float((loss[0] - loss[1]).mean()))
