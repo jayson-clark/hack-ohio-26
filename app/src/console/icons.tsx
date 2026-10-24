@@ -73,6 +73,13 @@ export const StepIcon = () => (
   </Icon>
 );
 
+export const SoundIcon = ({ on }: { on: boolean }) => (
+  <Icon size={13}>
+    <path d="M2.75 6.25h2.5L8.5 3.5v9l-3.25-2.75h-2.5z" />
+    {on ? <path d="M11 5.75a3.25 3.25 0 0 1 0 4.5M12.75 4a5.75 5.75 0 0 1 0 8" /> : <path d="m11 6 3 4m0-4-3 4" />}
+  </Icon>
+);
+
 export const RefreshIcon = () => (
   <Icon size={13}>
     <path d="M13.25 8a5.25 5.25 0 1 1-1.54-3.71M13.25 2.5v2.75H10.5" />
