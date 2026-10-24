@@ -17,11 +17,15 @@ import numpy as np
 from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
 from protocol import (
     BinaryType,
+    Event,
+    EventKind,
+    Events,
     Hello,
     Ignite,
     Reset,
     ScenarioState,
     SetWind,
+    TokenType,
     Tokens,
     VirtualTokenAdd,
     VirtualTokenMove,
@@ -30,11 +34,12 @@ from protocol import (
     client_message_adapter,
     pack_binary,
 )
-from routing.evac import Route, plan_routes, routes_message
+from routing.evac import Route, burning_edges, plan_routes, replan_routes, routes_message
+from routing.tracker import RouteTracker
 from routing.roads import load_network
 from scenario import load_scenario
 from sim.effects import TokenEffects
-from sim.fire import SIM_MINUTES_PER_TICK, FireSim, Wind
+from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
 from vision.tokens import TokenTracker
 from vision.virtual import VirtualTable
 
@@ -75,12 +80,19 @@ class Engine:
         # tick loop whenever a forecast lands. No road layer means no routes.
         s = self.scenario
         self.roads = load_network(s.dir, s.width, s.height)
+        self.route_tracker = RouteTracker()
         # Plan once here (no fire yet, so plain shortest paths). This also
         # builds the graph's lazy caches before any worker thread touches it.
-        self.routes: list[Route] = plan_routes(self.roads, None) if self.roads else []
+        self.routes: list[Route] = []
+        if self.roads is not None:
+            self.routes, _ = self.route_tracker.choose(plan_routes(self.roads, None), {}, 0)
         self._routes_tick = 0
         self._route_job: asyncio.Task | None = None
         self._route_pending = False
+        # Road edges with a cell burning right now, checked every tick so a
+        # road the fire reaches between forecasts closes immediately.
+        self._closed = np.zeros(len(self.roads.edges) if self.roads else 0, bool)
+        self._bus_signature: tuple = ()
 
     def hello_msg(self) -> str:
         s = self.scenario
@@ -159,6 +171,8 @@ class Engine:
                 self._fire_epoch += 1
                 self._forecast_started = -FORECAST_MIN_TICKS
                 self.latest_forecast = None
+                self.route_tracker.reset()
+                self._closed[:] = False
                 broadcast(self.clients, self.sim_grid_frame())
                 broadcast(self.clients, self.forecast_frame())
                 broadcast(self.clients, self.state_msg())
@@ -174,11 +188,44 @@ class Engine:
         if self.tracker.version != self._sent_token_version:
             self._sent_token_version = self.tracker.version
             broadcast(self.clients, self.tokens_msg())
+            # A bus that appeared, moved a cell or left needs its route redone.
+            sig = tuple(sorted((b[0], round(b[1]), round(b[2])) for b in self.buses()))
+            if sig != self._bus_signature:
+                self._bus_signature = sig
+                self.schedule_replan()
+
+    def buses(self) -> list[tuple[str, float, float]]:
+        return [(t.id, t.x, t.y) for t in self.tracker.tokens if t.token_type == TokenType.BUS]
+
+    def broadcast_events(self, events: list[Event]) -> None:
+        if events:
+            broadcast(self.clients, Events(events=events).model_dump_json())
+
+    def check_road_cuts(self) -> None:
+        """Close roads the fire has reached since the last tick, and replan
+        right away if one is on a route that's showing."""
+        if self.roads is None:
+            return
+        hot = burning_edges(self.roads, self.fire.state, BURNING)
+        newly = hot & ~self._closed
+        self._closed = hot
+        if not newly.any():
+            return
+        hit = [r for r in self.routes if r.edges and newly[r.edges].any()]
+        if hit:
+            tick = self.fire.tick
+            self.broadcast_events([
+                Event(kind=EventKind.ROAD_CUT, tick=tick, town=r.town,
+                      text=f"Fire has reached the road from {r.town} to {r.safe_zone}.")
+                for r in hit
+            ])
+            self.schedule_replan()
 
     def step_fire(self) -> None:
         self.fire.set_suppression(self.effects.update(self.tracker.tokens, self.fire.tick))
         self.fire.step()
         broadcast(self.clients, self.sim_grid_frame())
+        self.check_road_cuts()
         self.maybe_forecast()
 
     def maybe_forecast(self) -> None:
@@ -222,14 +269,24 @@ class Engine:
         first_burn = None if f is None else f.first_burn
         elapsed = 0 if f is None else tick - f.tick
         try:
-            routes = await asyncio.to_thread(plan_routes, self.roads, first_burn, elapsed_ticks=elapsed)
+            best, rescored = await asyncio.to_thread(
+                replan_routes,
+                self.roads,
+                first_burn,
+                self.route_tracker.held(),
+                elapsed_ticks=elapsed,
+                closed=self._closed.copy(),
+                buses=self.buses(),
+            )
         except Exception:
             log.exception("route planning failed")
             return
         if epoch != self._fire_epoch:
             return  # the map was reset while this was running
-        self.routes, self._routes_tick = routes, tick
+        self.routes, events = self.route_tracker.choose(best, rescored, tick)
+        self._routes_tick = tick
         broadcast(self.clients, self.routes_msg())
+        self.broadcast_events(events)
 
     async def run(self) -> None:
         period = 1 / TICK_HZ

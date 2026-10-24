@@ -43,6 +43,8 @@ export function drawRoutes(canvas: HTMLCanvasElement, s: Scenario, routes: Route
         ctx.strokeStyle = ROUTE_COLORS[r.status];
         ctx.lineWidth = 1.1;
       }
+      // A bus's own route is dashed, so it reads apart from the town routes.
+      ctx.setLineDash(r.bus && pass === "line" ? [2, 1.4] : []);
       ctx.stroke();
     }
   }
