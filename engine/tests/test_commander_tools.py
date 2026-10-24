@@ -31,6 +31,7 @@ def with_engine(fn, ticks: int = 30):
             return await fn(e, CommanderTools(e))
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     return asyncio.run(go())
@@ -118,6 +119,7 @@ def test_no_fire_means_no_whatif():
             assert "nothing is burning" in out["error"]
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())
@@ -132,6 +134,7 @@ def test_bad_arguments_become_errors(args):
             assert "error" in out
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())

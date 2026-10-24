@@ -97,11 +97,25 @@ TOOL_SPECS = [
         "name": "get_routes",
         "description": (
             "Every town's current evacuation route: status (clear, risky or cut), which exit, drive time, "
-            "and the chance the worst road on it burns before the bus passes. Also the latest reroutes."
+            "and the chance the worst road on it burns before the bus passes. Also the latest reroutes, and "
+            "the evacuation order clock: for each town whether it's ordered out, how long it takes to get "
+            "everyone out through roads shared with other ordered towns, how long until the order has to go "
+            "out, and in how many simulations the last car gets out before the fire."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
     },
 ]
+
+
+_ORDER_ADVICE = {
+    "watch": "the order can wait",
+    "order_soon": "order within the half hour",
+    "order_now": "order now",
+    "late": "past the safe order time: order now, not everyone may get out",
+    "evacuating": "ordered out, people leaving",
+    "clear": "everyone is out",
+    "trapped": "no open way out",
+}
 
 
 # --- Worker-side jobs (picklable, run in the Recommender process) -----------
@@ -380,7 +394,36 @@ class CommanderTools:
             for r in e.routes
         ]
         changes = [ev.text for ev in e.recent_events if ev.kind != "road_cut"][-5:]
-        return {"routes": routes, "recent_changes": changes}
+        orders = [self._order_row(c) for c in e.evac_clock]
+        return {"routes": routes, "recent_changes": changes, "evacuation_orders": orders}
+
+    def _order_row(self, c) -> dict:
+        """One town's evacuation clock (#121), in the terms the commander speaks."""
+        tick = self.e.fire.tick
+        row = {
+            "town": c.town,
+            "advice": _ORDER_ADVICE[c.status],
+            "ordered_out": c.ordered_tick is not None,
+            "people_still_in_town": c.people,
+            "minutes_to_get_everyone_out": None if not np.isfinite(c.clearance_min)
+            else round(c.mobilize_min + c.clearance_min),
+            "exits": [x.safe_zone for x in c.exits],
+            "queues_with_ordered_towns": c.shares_with,
+        }
+        left = None if c.order_by_tick is None else round((c.order_by_tick - tick) * SIM_MINUTES_PER_TICK)
+        if c.order_by_bound:
+            # The fire isn't in the forecast that far out, so this is only a floor.
+            if left >= 0:
+                row["order_within_minutes"] = f"at least {left}"
+        elif left is not None:
+            row["order_within_minutes" if left >= 0 else "past_latest_safe_order_by_minutes"] = abs(left)
+        if c.n:
+            lo, hi = wilson(c.k_safe, c.n)
+            row["last_car_out_before_fire"] = {
+                "simulations": c.k_safe, "of": c.n, "likely_percent": [round(lo * 100), round(hi * 100)],
+                "confidence": confidence_word(lo, hi), "at_most": c.p_safe_bound,
+            }
+        return row
 
     # helpers ----------------------------------------------------------------
 

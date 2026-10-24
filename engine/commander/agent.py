@@ -66,7 +66,7 @@ percent") or hedge ("probably"); never sound more certain than that.
 - For "what if the wind..." questions, use forecast_whatif and compare with the current forecast.
 - For "where should crews go" questions, use get_situation (it includes the current recommendations) or \
 evaluate_placement for a specific spot.
-- For evacuation questions, use get_routes.
+- For evacuation questions, including when a town has to be ordered out, use get_routes.
 - For "how are we doing", time left, score or resources, use get_situation (its "round" part)."""
 
 def has_credentials() -> bool:

@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from protocol import CommanderKind, CommanderMessage, EndReason, Event, EventKind, Score
+from protocol import CommanderKind, CommanderMessage, EndReason, EvacStatus, Event, EventKind, Score
+from routing.clearance import TownClock
 from sim.fire import SIM_MINUTES_PER_TICK
 from uq.mc import wilson
 
@@ -46,6 +47,7 @@ PRIORITY = {
     EventKind.UNIT_BLOCKED: 1,
     EventKind.TANKERS_GROUNDED: 2,
     EventKind.UNIT_ARRIVED: 3,
+    EventKind.EVACUATE_NOW: 0,
 }
 MIN_GAP_S = 8.0  # wall seconds between spoken briefings
 DEDUPE_S = 45.0  # don't repeat the same kind of news about the same town
@@ -94,6 +96,25 @@ def threatened_text(row: dict) -> str:
         text += ". Its way out is cut"
     elif evac and evac["exit"]:
         text += f". Evacuate toward {evac['exit']}"
+    return text + "."
+
+
+def spoken_minutes(minutes: float) -> str:
+    """'45 minutes', or '7.6 hours' from 90 minutes up."""
+    return f"{round(minutes)} minutes" if minutes < 90 else f"{minutes / 60:.1f} hours"
+
+
+def evacuate_text(c: TownClock, tick: int) -> str:
+    """'Order Paradise out now: its 26,800 people need about 7.9 hours to get out, and the fire
+    could be there in 2.9 hours.' Every number is from the evacuation clock (#121)."""
+    need = f"its {c.people:,} people need about {spoken_minutes(c.mobilize_min + c.clearance_min)} to get out"
+    if c.status == EvacStatus.LATE:
+        most = "at most " if c.p_safe_bound else ""
+        return (f"{c.town} is past its safe order time: {need}, and the last car beats the fire in only "
+                f"{most}{c.k_safe} of {c.n} simulations. Order it out now.")
+    text = f"Order {c.town} out now: {need}"
+    if c.fire_tick is not None:
+        text += f", and the fire could be there in {spoken_minutes((c.fire_tick - tick) * SIM_MINUTES_PER_TICK)}"
     return text + "."
 
 

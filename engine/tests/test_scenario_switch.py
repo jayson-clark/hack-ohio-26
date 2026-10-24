@@ -34,6 +34,7 @@ def test_switch_scenario_rebuilds_the_world():
             assert engine.fire.counts() == (0, 0)
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())
@@ -49,6 +50,7 @@ def test_switch_scenario_hello_reports_the_new_map():
             assert hello.map_height == engine.scenario.height
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())
@@ -62,6 +64,7 @@ def test_switch_to_same_scenario_is_a_noop():
             assert engine.fire is fire_before  # nothing was rebuilt
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())
@@ -74,6 +77,7 @@ def test_switch_to_unknown_scenario_is_ignored():
             assert engine.scenario.name == "paradise"  # stayed put, no crash
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())
@@ -97,6 +101,7 @@ def test_switch_clears_old_map_state():
             assert {r.town for r in engine.routes if r.bus is None} <= {t.name for t in engine.towns}
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())
@@ -120,6 +125,7 @@ def test_failed_load_falls_back_to_the_previous_scenario(monkeypatch):
             assert engine.fire.state.shape == (engine.scenario.height, engine.scenario.width)
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())
@@ -147,6 +153,7 @@ def test_switch_keeps_only_the_new_maps_routes():
             assert set(held) == set(fresh) and all(e < n for _, edges in held.values() for e in edges)
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())

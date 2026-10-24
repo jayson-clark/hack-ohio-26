@@ -42,6 +42,7 @@ def test_engine_replans_when_a_forecast_lands():
             assert all(r.status == "cut" for r in engine.routes)
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
 
     asyncio.run(run())
 
@@ -58,6 +59,7 @@ def test_replan_started_before_a_reset_is_dropped():
             assert engine.routes is before
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
 
     asyncio.run(run())
 
@@ -78,5 +80,6 @@ def test_request_during_a_replan_runs_once_more_after_it():
             assert all(r.status == "cut" for r in engine.routes)
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
 
     asyncio.run(run())

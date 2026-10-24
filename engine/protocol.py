@@ -150,6 +150,57 @@ class Routes(Model):
     routes: list[RouteInfo]
 
 
+class EvacStatus(StrEnum):
+    WATCH = "watch"  # the order can wait
+    ORDER_SOON = "order_soon"  # the latest safe order time is under half an hour away
+    ORDER_NOW = "order_now"  # past it: order now and most simulations still get everyone out
+    LATE = "late"  # past it, and in most simulations the fire beats the last car
+    EVACUATING = "evacuating"  # ordered; people are leaving
+    CLEAR = "clear"  # everyone is out
+    TRAPPED = "trapped"  # no open way out
+
+
+class EvacExit(Model):
+    safe_zone: str
+    share: float  # of the town's vehicles, 0..1, in proportion to the bottleneck
+    bottleneck_vph: float  # vehicles an hour through its tightest road
+    drive_min: float  # sim minutes, free-flowing
+
+
+class TownEvac(Model):
+    town: str
+    status: EvacStatus
+    ordered_tick: int | None  # when the order went out, if it has
+    people: int  # still in town
+    vehicles: int
+    mobilize_min: float  # sim minutes from the order (or what's left of it) until cars move
+    clearance_min: float | None  # sim minutes to drain through the bottleneck; None with no way out
+    last_car_out_tick: int | None  # sim tick the last car leaves, if ordered now (or as ordered)
+    order_by_tick: int | None  # latest sim tick to order and still clear in time (unordered towns)
+    order_by_bound: bool  # order_by_tick is only a lower bound: clearing takes longer than the forecast sees
+    fire_tick: int | None  # sim tick the fire could be in town (10% of simulations by then)
+    reach: int  # simulations with fire in town within the forecast
+    n: int  # simulations
+    p_safe: float  # share of simulations where the last car gets out before the fire
+    p_safe_lo: float  # 90% Wilson interval
+    p_safe_hi: float
+    p_safe_bound: bool  # the last car leaves after the forecast ends, so p_safe is an upper bound
+    exits: list[EvacExit]
+    shares_with: list[str]  # ordered towns queueing on the same bottleneck
+
+
+class EvacClock(Model):
+    """When each town has to be ordered out (#121): fire arrival from a long
+    forecast against the time to empty the town through shared exits. Sent
+    when that forecast lands, on an order, and on connect."""
+
+    type: Literal["evac_clock"] = "evac_clock"
+    tick: int  # sim tick the numbers are for
+    forecast_tick: int | None  # sim tick the long forecast started from
+    horizon_min: float  # how far ahead it looks
+    towns: list[TownEvac]  # most urgent first
+
+
 class EventKind(StrEnum):
     ROAD_CUT = "road_cut"  # fire reached a road on a town's current route
     ROUTE_CHANGED = "route_changed"  # a town was rerouted to another way out
@@ -161,6 +212,7 @@ class EventKind(StrEnum):
     UNIT_ARRIVED = "unit_arrived"  # a dispatched crew, dozer or tanker reached its token
     UNIT_BLOCKED = "unit_blocked"  # burning roads keep a ground unit from getting through
     TANKERS_GROUNDED = "tankers_grounded"  # too windy to fly
+    EVACUATE_NOW = "evacuate_now"  # a town's latest safe order time has come (#121)
 
 
 class Event(Model):
@@ -455,7 +507,7 @@ class PlanResult(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          CommanderSpeech, Transcript, Units, Situation, PlanResult],
+          CommanderSpeech, Transcript, Units, EvacClock, Situation, PlanResult],
     Field(discriminator="type"),
 ]
 
@@ -571,6 +623,14 @@ class AcceptRecommendation(Model):
     id: str
 
 
+class OrderEvacuation(Model):
+    """Order a town out (or take the order back)."""
+
+    type: Literal["order_evacuation"] = "order_evacuation"
+    town: str
+    ordered: bool
+
+
 class StartRound(Model):
     """Reset the map and start a timed, limited round, igniting at the
     scenario's ignition point if it has one."""
@@ -607,6 +667,7 @@ ClientMessage = Annotated[
         VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, LoadScenario, SetWind, AcceptRecommendation,
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
+        OrderEvacuation,
         SetVoice,
         PttStart,
         PttStop,
