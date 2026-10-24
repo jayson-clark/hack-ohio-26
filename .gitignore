@@ -8,3 +8,6 @@ engine/camera-*.jpg
 # agent board database
 .agent-board/
 calibration.json
+
+# Fire emulator training data (regenerate with python -m emulator.data)
+engine/emulator/data/

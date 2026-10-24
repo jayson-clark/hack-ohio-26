@@ -1,6 +1,8 @@
-# Firewatch: Projection-Mapped Wildfire Command Table
+# Firewatch: Wildfire Forecasting and Response Software
 
-A 3D-printed terrain model sits on a table under an overhead projector and webcam. The projector paints a live, spreading wildfire onto the terrain, along with topo colors, wind, roads, and towns. Players place physical tokens (fire crews, water drops, firebreaks, evacuation buses) on the map. The camera tracks them, the simulation reacts in real time, and an AI incident commander forecasts the fire, plans evacuations, and recommends where to deploy resources. Everything is projected back onto the terrain.
+Firewatch is decision-support software for people forecasting and responding to a wildfire. It forecasts where the fire will go, plans evacuation routes around roads that are about to burn, dispatches crews and tankers from real stations, recommends where to put them, and gives spoken briefings through an AI incident commander. **The command console is the product.**
+
+**The physical table is a demo extra, not the product.** A 3D-printed terrain model sits under an overhead projector and webcam, and the projector paints the live fire, topo colors, roads and towns onto it. It stands in for the real world seen from above, the way drone or aerial footage shows an incident. The camera looking down at the table plays the part of a drone looking down at the fire. A real operator wouldn't stand at a table placing tokens during an incident; they'd use the software. So the table is a showpiece for the demo, and features are judged by whether they help an operator who only has the software.
 
 ---
 
@@ -83,6 +85,7 @@ Inside the engine:
 
 ### Principles
 
+- **Software first.** The console has to stand on its own as the operator's tool. Table-specific code (camera, calibration, projection) stays in `vision/` and the projector view, and no engine or console feature should depend on the table.
 - **The Python engine holds all state.** Both windows are views of it, so restarting the UI never loses the fire.
 - **One canonical coordinate frame: the map grid** (Paradise is 256×192; the size comes from the scenario's `terrain.json`, and the grid is not square). Every module speaks map coordinates. Only vision (camera→map) and the projector shader (map→projector) know about homographies.
 - **The forecaster runs in its own process,** so rollouts never stall the sim or the render.
@@ -146,6 +149,8 @@ tools/
 
 ## The Two Windows
 
+The console is what an operator uses. The projector view only exists to light up the physical table for the demo.
+
 ### Projector view
 
 Pure WebGL, no UI chrome, fullscreen on the projector monitor.
@@ -159,7 +164,7 @@ Pure WebGL, no UI chrome, fullscreen on the projector monitor.
 
 ### Command console
 
-Looks polished and native, on the laptop screen.
+The product: the operator's full view of the incident, polished and native, on the laptop screen. Everything the operator needs is here, with or without the table.
 
 - **Virtual table:** a 3D view of the print on the table (true mm dimensions, tile seams, corner marker holders), with the projection draped over it and token pucks you can place, drag and remove. Camera presets and fly-to for places. Works with no hardware.
 - **Projection view:** the flat projector output, for checking exactly what gets projected
@@ -219,9 +224,24 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 |---|---|---|---|
 | 3 m/s | 5,343 ac | 331 ac, 92% out | 3,281 ac |
 | 8 m/s | 6,336 ac | 2,449 ac, 58% out (was 100%) | 5,845 ac |
-| 13 m/s | 14,044 ac | 10,920 ac, 0% out (was 100%) | 13,188 ac |
+| 13 m/s | 20,839 ac (14,044 before spotting) | 17,624 ac, 17% out (was 100%) | 19,435 ac |
 
 The top recommendation's realized benefit fell from 985 to 708 (steady wind). It still beats a random front spot 19 of 32 times, and its prediction stays calibrated (689 predicted).
+
+**Ember spotting.** In wind over `SPOT_MIN_WIND` (9 m/s), burning cells throw embers downwind (`_spot` in `engine/sim/fire.py`). Each ember flies an exponential distance (mean 12 cells, about 1.1 km, at 10 m/s, capped at 6.6 km) and lights fuel where it lands, less so under suppression. That lets a wind-driven fire outrun the one-cell-per-tick limit, as the Camp Fire did. Calm and moderate days are unchanged, and ember draws are shared across paired what-ifs.
+
+**Checked against the real Camp Fire (#15).** `eval.campfire` replays the 2018 fire from its NIST origin near Pulga, with a 19 m/s ENE wind easing to 6 m/s by the afternoon. It scores the replay against real data in `assets/scenarios/paradise/real/`:
+- 2,105 NIST TN 2135 observations ("fire was here by time t");
+- NIFC and NASA FEDS perimeters at 7.1 h and 11.5 h.
+
+| First 12 h | Without spotting | With spotting |
+|---|---|---|
+| NIST-observed cells reached in time (±30 min) | 80% | **87%** |
+| Lateness at the 75th-percentile observation | 15 min | **0 min** |
+| IoU with the 7.1 h / 11.5 h perimeters | 0.54 / 0.63 | 0.55 / 0.64 |
+| Burned area vs the perimeters | 1.73x / 1.53x | 1.71x / 1.51x |
+
+The known gap: the replay burns about 1.5–1.7x the real area, because flanks spread too wide. A higher `C2` (0.3–0.4) fits the perimeters better (IoU 0.67/0.79, area 1.27x/1.12x). But it also starves backing and flank spread at every wind: at 3–8 m/s fires came out under half the size, and instant attack contained them again. One extreme-wind event isn't enough evidence for that, so `C2` stays at 0.22 until a second fire (Marshall, #107) agrees.
 
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
@@ -240,6 +260,12 @@ The top recommendation's realized benefit fell from 985 to 708 (steady wind). It
 - **Paired what-ifs:** `forecast.rollout_paired(snapshot, n, ticks, variants)` runs a baseline plus K suppression variants (e.g. a crew at each candidate spot) in one batch, as `(K+1, n, H, W)`. Rollout i of every variant shares its random draws (`advance(..., group=K+1)`), so the difference between a variant and the baseline is the intervention's effect, not luck. Recommendations rely on this.
 - **Wind spread (optional):** `WindSpread(speed_frac, dir_deg)` gives each rollout its own wind (`advance(..., wind_rows=...)`). It's off for the live forecast (`forecast.runner.WIND_SPREAD = None`), and when it's on, `Forecast.wind_spread` records it.
 - The projector shows a translucent ghost with 50% and 90% contours at T+30 and T+60 sim-minutes.
+- **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
+  - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
+  - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
+  - **Screening:** recommendations take 48 front spots, keep the emulator's best 8 for the paired Monte Carlo, and only Monte Carlo numbers are shown. The top recommendation's realized benefit rose by about 10% (708 → 780 in steady wind, 159 → 173 after a shift).
+  - **Not used for decisions:** routing, alerts and the commander never use it.
+  - **How it was trained:** 5,750 random fires on paradise and valley, labelled by 64-rollout forecasts. See the `fire-emulator` skill.
 
 ### Evacuation routing
 
@@ -365,7 +391,7 @@ The 3D prints start the day before the competition, so everything that affects t
 - **Keep the relief low** (about 3–4 cm max) to limit projection parallax.
 - **Build registration into the prints:**
   - alignment pins between tiles
-  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. One L-shaped holder STL (print 4) pins into the board's outer walls with the same filament pins, so they never move
+  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. L-shaped holders pin into the board's outer walls with the same filament pins, so they never move. The marker is printed into each holder's top in black on white (`marker_holders.3mf`, two colours on the AMS), so there's no paper to glue on crooked
 - **Matte white or light-gray PLA,** which is essential for projection.
 - **Tokens:** print them with flat tops, then laminate and attach the ArUco markers.
 - **Toolchain:** Rust, Node, and Python environments installed and building on every laptop.
@@ -413,6 +439,8 @@ Virtual table mode means nobody is blocked waiting for hardware.
 ---
 
 ## Demo Script
+
+Pitch the software first. The table is the demo's stand-in for the real world seen from above, like drone footage, and the console is what an operator would actually use.
 
 1. A judge walks up to the attract mode: topo-lit terrain, glowing towns, drifting wind.
 2. A lightning strike ignites a ridge.

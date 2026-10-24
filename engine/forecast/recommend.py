@@ -103,9 +103,10 @@ class PlacedCrew:
     eta: np.ndarray | None = None  # minutes for this crew to reach each cell from where it is (#104)
 
 
-def candidates(snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], k: int = N_CANDIDATES) -> list[tuple[float, float]]:
-    """Up to k (x, y) spots on the predicted front, best first, at least a
-    crew's reach (2 x CREW_RADIUS) apart."""
+def candidates(snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], k: int = N_CANDIDATES,
+               spacing: float = 2 * CREW_RADIUS) -> list[tuple[float, float]]:
+    """Up to k (x, y) spots on the predicted front, best first, at least
+    `spacing` apart (a crew's reach, 2 x CREW_RADIUS, by default)."""
     h, w = p30.shape
     lo, hi = FRONT_BAND
     band = (p30 >= lo) & (p30 <= hi) & (snapshot.state == FUEL)
@@ -123,7 +124,46 @@ def candidates(snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], k
             break
         y, x = divmod(i, w)
         picks.append((x + 0.5, y + 0.5))
-        score[np.hypot(cx - (x + 0.5), cy - (y + 0.5)) < 2 * CREW_RADIUS] = -1.0
+        score[np.hypot(cx - (x + 0.5), cy - (y + 0.5)) < spacing] = -1.0
+    return picks
+
+
+# Screening with the learned fire emulator (#113): a bigger, denser pool of
+# spots on the front, ranked by the emulator's predicted benefit, and only
+# the best N_CANDIDATES go on to the paired Monte Carlo that every shown
+# number comes from. Without the emulator, candidates() picks as before.
+SCREEN_POOL = 48
+SCREEN_SPACING = CREW_RADIUS
+
+
+def screen(snapshot, p30, towns, masks, emulator, eta=None, k: int = N_CANDIDATES) -> list[tuple[float, float]]:
+    """The k most promising spots by the emulator's predicted T+60 loss
+    reduction, at least a crew's reach apart. Falls back to candidates()."""
+    pool = _reachable(candidates(snapshot, p30, towns, SCREEN_POOL, spacing=SCREEN_SPACING), eta)
+    if len(pool) <= k:
+        return pool
+    from emulator.features import SUP_TICKS, from_snapshot
+
+    h, w = snapshot.state.shape
+    base = from_snapshot(snapshot)
+    batch = np.repeat(base[None], len(pool) + 1, axis=0)
+    for i, (x, y) in enumerate(pool, start=1):
+        layer = crew_layer(w, h, x, y, t_on=_arrival(eta, x, y)[0])
+        for j, t in enumerate(SUP_TICKS):
+            np.maximum(batch[i, 11 + j], layer.level(t) * layer.footprint, out=batch[i, 11 + j])
+    p60 = np.concatenate([emulator.predict(batch[i : i + 16]) for i in range(0, len(batch), 16)])[:, 1]
+    area = masks.reshape(len(towns), -1).sum(axis=1)
+    pop = np.array([t.population for t in towns], np.float32)
+    weight = (masks * (pop / np.maximum(area, 1.0))[:, None, None]).sum(axis=0) + ACRE_WEIGHT
+    # Burning and burned cells are certain either way, so they cancel out.
+    gain = ((p60[0] - p60[1:]) * weight).sum(axis=(1, 2))
+    picks: list[tuple[float, float]] = []
+    for i in np.argsort(-gain):
+        x, y = pool[i]
+        if all(math.hypot(x - a, y - b) >= 2 * CREW_RADIUS for a, b in picks):
+            picks.append((x, y))
+        if len(picks) == k:
+            break
     return picks
 
 
@@ -220,9 +260,13 @@ def recommend(
     top: int = TOP,
     seed: int = 0,
     eta: np.ndarray | None = None,
+    screened: bool = False,
 ) -> list[Rec]:
     """The best `top` crew placements, best first, each re-scored on fresh
     seeds (#11):
+
+    - With `screened` and the learned emulator available (#113), the k spots
+      come from screening a bigger pool (screen()); otherwise from candidates().
 
     - Only placements whose benefit is above zero at the *lower* end of its
       90% interval are kept. A mean that might be luck isn't recommended.
@@ -233,11 +277,15 @@ def recommend(
       each candidate's crew only starts digging in when it could get there,
       and spots no free crew can reach are skipped.
     """
-    spots = _reachable(candidates(snapshot, p30, towns, k), eta)
-    if not spots:
-        return []
     h, w = snapshot.state.shape
     masks = _town_masks(towns, h, w)
+    emulator = _emulator() if screened else None
+    if emulator is not None and towns:
+        spots = screen(snapshot, p30, towns, masks, emulator, eta, k)
+    else:
+        spots = _reachable(candidates(snapshot, p30, towns, k), eta)
+    if not spots:
+        return []
     first_pass = _eval_at(snapshot, spots, towns, masks, n, seed, eta)
     best = sorted(first_pass, key=lambda r: r.benefit, reverse=True)[:top]
     held_out = sorted(_eval_at(snapshot, [(r.x, r.y) for r in best], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919, eta),
@@ -362,8 +410,23 @@ def _noop() -> None:
     return None
 
 
+_EMULATOR: list = []
+
+
+def _emulator():
+    """The fire emulator, loaded once per worker process; None without MLX or weights."""
+    if not _EMULATOR:
+        try:
+            from emulator.model import load_emulator
+
+            _EMULATOR.append(load_emulator())
+        except Exception:  # a broken install shouldn't stop recommendations
+            _EMULATOR.append(None)
+    return _EMULATOR[0]
+
+
 def _recommend_job(snapshot, p30, towns, seed, eta=None):
-    return recommend(snapshot, p30, towns, seed=seed, eta=eta)
+    return recommend(snapshot, p30, towns, seed=seed, eta=eta, screened=True)
 
 
 def _moves_job(crews, p30, towns, seed):

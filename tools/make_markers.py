@@ -11,7 +11,8 @@
     uv run tools/make_markers.py                 # paradise corner size, 20 mm tokens
     uv run tools/make_markers.py --token-mm 25
 
-Page 1 has the four corner markers (two sets) for the board's corner holders;
+Page 1 has the four corner markers (two sets), only needed when the corner
+holders are printed with a paper pocket (markers.printed: false in terrain.yaml);
 page 2 has every token marker the engine accepts. IDs and the dictionary come
 from engine/vision/markers.py, and the corner size from the scenario's
 terrain.json (the holder pocket is cut for it), so regenerate after changing

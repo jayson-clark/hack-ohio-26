@@ -111,6 +111,20 @@ TICK_HZ = 10
 # Don't restart the forecaster more often than this, or a map with no fire
 # (where a forecast is instant) would round-trip the worker every tick.
 FORECAST_MIN_TICKS = 3
+PREVIEW_MIN_TICKS = 5  # engine ticks (0.5 s) between emulator previews (#113)
+
+
+def _load_emulator():
+    """The learned fire emulator, or None without the ml extra or its weights."""
+    try:
+        from emulator.model import load_emulator
+
+        emu = load_emulator()
+    except Exception as e:  # a broken ML install must never stop the engine
+        log.warning("fire emulator unavailable: %r", e)
+        return None
+    log.info("fire emulator %s", "loaded" if emu else "not installed (uv run --extra ml); Monte Carlo only")
+    return emu
 # Recommendations rerun at most this often (a run is ~0.3 s in its own worker).
 RECOMMEND_MIN_TICKS = 20
 SQ_M_PER_ACRE = 4046.86
@@ -125,6 +139,16 @@ class Engine:
         self._sent_token_version = -1
         self._sent_feed_seq = 0
         self.forecaster = Forecaster()
+        # The learned fire emulator (#113), if MLX and its weights are there:
+        # an instant forecast preview whenever the wind, tokens or fire change,
+        # shown until the next Monte Carlo forecast replaces it. Routing, the
+        # commander and recommendations only ever use Monte Carlo forecasts.
+        self.emulator = _load_emulator()
+        self._preview: tuple[int, np.ndarray] | None = None  # (tick, (2, H, W) probabilities)
+        self._preview_job: asyncio.Task | None = None
+        self._preview_sig: tuple | None = None
+        self._preview_tick = 0
+        self._ignitions = 0
         self._forecast_job: asyncio.Future[Forecast] | None = None
         self._forecast_started = -FORECAST_MIN_TICKS
         # Bumped on reset and on a scenario switch, so a forecast in flight
@@ -341,7 +365,10 @@ class Engine:
     def forecast_frame(self) -> bytes:
         s = self.scenario
         f = self.latest_forecast
-        if f is None:
+        pv = self._preview
+        if pv is not None and (f is None or pv[0] > f.tick):
+            grids, tick = np.round(pv[1] * 255).astype(np.uint8), pv[0]  # emulator preview (#113)
+        elif f is None:
             grids, tick = np.zeros((len(HORIZONS_MIN), s.height, s.width), np.uint8), self.fire.tick
         else:
             grids, tick = np.round(f.probability * 255).astype(np.uint8), f.tick
@@ -382,6 +409,7 @@ class Engine:
                 self.virtual.handle(msg)
             case Ignite():
                 self.fire.ignite(msg.x, msg.y)
+                self._ignitions += 1
                 broadcast(self.clients, self.state_msg())
             case Reset():
                 self.game.reset()
@@ -465,6 +493,7 @@ class Engine:
         self._fire_epoch += 1
         self._forecast_started = -FORECAST_MIN_TICKS
         self.latest_forecast = None
+        self._preview = None
         self._closed[:] = False
         self._bus_signature = ()
         self.tracker.update(TokenSource.VIRTUAL, [])
@@ -501,6 +530,7 @@ class Engine:
         self._fire_epoch += 1
         self._forecast_started = -FORECAST_MIN_TICKS
         self.latest_forecast = None
+        self._preview = None
         self.route_tracker.reset()
         self._closed[:] = False
         self.recent_events.clear()
@@ -634,6 +664,8 @@ class Engine:
         if epoch != self._fire_epoch:
             return
         self.latest_forecast = job.result()
+        if self._preview is not None and self._preview[0] <= self.latest_forecast.tick:
+            self._preview = None  # Monte Carlo has caught up
         broadcast(self.clients, self.forecast_frame())
         self.schedule_replan()
         self.maybe_recommend()
@@ -898,6 +930,35 @@ class Engine:
         broadcast(self.clients, self.routes_msg())
         self.broadcast_events(events)
 
+    def maybe_preview(self) -> None:
+        """Start an emulator preview when what the forecast depends on has
+        changed (wind, tokens, a new ignition, a reset) since the last one, at
+        most every PREVIEW_MIN_TICKS engine ticks, off the tick loop."""
+        if self.emulator is None or (self._preview_job is not None and not self._preview_job.done()):
+            return
+        if self.tick - self._preview_tick < PREVIEW_MIN_TICKS or not (self.fire.state == BURNING).any():
+            return
+        tokens = tuple((t.id, round(t.x), round(t.y)) for t in self.active_tokens())
+        sig = (self._fire_epoch, self.fire.wind, tokens, self._ignitions)
+        if sig == self._preview_sig:
+            return
+        self._preview_sig, self._preview_tick = sig, self.tick
+        snap, epoch = self.snapshot(), self._fire_epoch
+        self._preview_job = asyncio.create_task(asyncio.to_thread(self.emulator.forecast, snap))
+        self._preview_job.add_done_callback(lambda j: self.preview_done(j, snap.tick, epoch))
+
+    def preview_done(self, job: asyncio.Task, tick: int, epoch: int) -> None:
+        if job.cancelled() or epoch != self._fire_epoch:
+            return
+        if (e := job.exception()) is not None:
+            log.error("emulator preview failed: %r", e)
+            return
+        f = self.latest_forecast
+        if f is not None and f.tick >= tick:
+            return  # a Monte Carlo forecast at least as new already landed
+        self._preview = (tick, job.result())
+        broadcast(self.clients, self.forecast_frame())
+
     async def run(self) -> None:
         self.recommender.warm()
         if self.listener.available:
@@ -910,6 +971,7 @@ class Engine:
             self.poll_vision()
             self.flush_tokens()
             self.tick_fire()
+            self.maybe_preview()
             if (briefing := self.briefings.next(time.monotonic(), self.fire.tick, self.paused)) is not None:
                 broadcast(self.clients, briefing.model_dump_json())
                 urgent = briefing.event in (EventKind.NO_SAFE_ROUTE, EventKind.TOWN_THREATENED)

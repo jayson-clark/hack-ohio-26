@@ -1,0 +1,80 @@
+{
+  "parameters": 1501986,
+  "train_samples": 5754,
+  "test_samples": 385,
+  "epochs": 12,
+  "history": [
+    {
+      "epoch": 1,
+      "train_bce": 0.16097375998894373,
+      "brier_emulator": 0.01722338997318341,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 2,
+      "train_bce": 0.09821328381076455,
+      "brier_emulator": 0.009329749934704073,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 3,
+      "train_bce": 0.08882421562965545,
+      "brier_emulator": 0.007508017889683194,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 4,
+      "train_bce": 0.08424717375698189,
+      "brier_emulator": 0.008279227913578237,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 5,
+      "train_bce": 0.0804788059865435,
+      "brier_emulator": 0.006646660879994674,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 6,
+      "train_bce": 0.07809094375309845,
+      "brier_emulator": 0.004783142426472664,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 7,
+      "train_bce": 0.07572004602083729,
+      "brier_emulator": 0.005358831744323763,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 8,
+      "train_bce": 0.07412606741094754,
+      "brier_emulator": 0.004499346454385142,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 9,
+      "train_bce": 0.07270116577856242,
+      "brier_emulator": 0.0036646381236848003,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 10,
+      "train_bce": 0.07193883498613206,
+      "brier_emulator": 0.0033973135838150197,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 11,
+      "train_bce": 0.07124040490016341,
+      "brier_emulator": 0.0032837016220086473,
+      "brier_32_rollouts": 0.0008827919199464193
+    },
+    {
+      "epoch": 12,
+      "train_bce": 0.07093965973601574,
+      "brier_emulator": 0.0032565243912428972,
+      "brier_32_rollouts": 0.0008827919199464193
+    }
+  ]
+}
