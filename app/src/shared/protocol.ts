@@ -1,9 +1,10 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
-export type EngineMessage = Hello | ScenarioState | Tokens | Routes;
+export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
+export type EventKind = "road_cut" | "route_changed" | "no_safe_route";
 export type ClientMessage = VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind;
 
 /**
@@ -65,6 +66,20 @@ export interface RouteInfo {
   eta_min: number;
   risk: number;
   status: RouteStatus;
+  bus: string | null;
+}
+/**
+ * Things worth telling the operator about, sent as they happen.
+ */
+export interface Events {
+  type: "events";
+  events: Event[];
+}
+export interface Event {
+  kind: EventKind;
+  tick: number;
+  town: string | null;
+  text: string;
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";

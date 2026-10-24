@@ -3,10 +3,12 @@
 
 import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
-import type { ClientMessage, EngineMessage, Hello, RouteInfo, ScenarioState, Token } from "./protocol";
+import type { ClientMessage, EngineMessage, Event, Hello, RouteInfo, ScenarioState, Token } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
 const RECONNECT_MS = 1000;
+// How many recent events (road cuts, reroutes) the store keeps for the event log.
+const MAX_EVENTS = 50;
 
 // Cell states in a sim_grid frame (sim.fire in the engine).
 export const Cell = { Unburnable: 0, Fuel: 1, Burning: 2, Burned: 3 } as const;
@@ -31,6 +33,8 @@ export interface EngineState {
   forecast: ForecastGrids | null;
   /** Every town's evacuation route, replanned after each forecast. */
   routes: RouteInfo[];
+  /** Recent events, oldest first. Cleared on reconnect. */
+  events: Event[];
 }
 
 let state: EngineState = {
@@ -41,6 +45,7 @@ let state: EngineState = {
   simGrid: null,
   forecast: null,
   routes: [],
+  events: [],
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -64,6 +69,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "routes":
       setState({ routes: msg.routes });
+      break;
+    case "events":
+      setState({ events: [...state.events, ...msg.events].slice(-MAX_EVENTS) });
       break;
   }
 }
@@ -91,7 +99,7 @@ function connect() {
   socket.binaryType = "arraybuffer";
   ws = socket;
 
-  socket.onopen = () => setState({ status: "open" });
+  socket.onopen = () => setState({ status: "open", events: [] });
   socket.onclose = () => {
     ws = null;
     setState({ status: "closed" });
