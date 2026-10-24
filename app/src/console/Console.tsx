@@ -8,6 +8,7 @@ import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import type { CameraCommand } from "../render/TableView";
 import { FlameMark } from "./icons";
 import Sidebar from "./Sidebar";
+import SimControls from "./SimControls";
 import Viewport, { type ViewMode } from "./Viewport";
 
 export default function Console() {
@@ -52,6 +53,7 @@ export default function Console() {
         </div>
         {scenario && <ScenarioBadge scenario={scenario} />}
         <div className="flex-1" />
+        <SimControls state={state} />
         <FireStats scenario={scenario} simGrid={simGrid} />
         <div className="h-5 w-px bg-edge" />
         {state && (
