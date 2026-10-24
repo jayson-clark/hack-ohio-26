@@ -2,7 +2,7 @@
 -include .env
 export
 
-.PHONY: install engine web app dev types test board
+.PHONY: install engine web app dev types test board clean distclean
 
 install:
 	cd engine && uv sync
@@ -37,3 +37,16 @@ test:
 # Local agent board on http://localhost:8790 (the team board is https://hack.apps.jaysonc.dev)
 board:
 	python3 tools/agent_board/server.py
+
+# Remove build output and caches. Keeps .env, the agent board's data, generated
+# STL tiles and the elevation tile cache (slow to rebuild). Installed
+# dependencies stay too; `make distclean` removes those.
+clean:
+	rm -rf app/dist app/dist-ssr app/src-tauri/target app/src-tauri/gen/schemas
+	rm -rf engine/.pytest_cache
+	find engine tools -name __pycache__ -type d -prune -exec rm -rf {} +
+	rm -f engine/camera-*.jpg
+
+# Also remove installed dependencies; `make install` brings them back.
+distclean: clean
+	rm -rf app/node_modules engine/.venv

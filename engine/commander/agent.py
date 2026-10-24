@@ -27,15 +27,28 @@ from commander.tools import COMPASS, TOOL_SPECS, CommanderTools
 
 log = logging.getLogger("commander")
 
-DEFAULT_MODEL = "claude-opus-5-5"
-# Short spoken answers: low effort keeps latency down. Thinking can't be
-# turned off on this model, so effort is the latency lever.
+# Haiku: about $0.10 / $0.50 per million input / output tokens, so a typical
+# question (two short requests, ~6K tokens in, a few hundred out) costs about
+# a tenth of a cent. The answers are two sentences built from tool results,
+# which doesn't need a bigger model. Set COMMANDER_MODEL to change it, and
+# check the change with commander/eval/run.py.
+DEFAULT_MODEL = "claude-haiku-5-5"
+# Low effort: less thinking, so fewer output tokens and lower latency. Thinking
+# stays adaptive rather than off; on simple questions it skips thinking anyway.
 EFFORT = os.environ.get("COMMANDER_EFFORT") or "low"
-MAX_TOKENS = 4000
-MAX_TOOL_ROUNDS = 4
+# Room for a little thinking, a tool call or two, and a two-sentence answer.
+# Thinking counts toward this, so don't cut it much further.
+MAX_TOKENS = 1500
+MAX_TOOL_ROUNDS = 3
 ANSWER_TIMEOUT_S = 6.0
 HISTORY_TURNS = 3  # previous Q&A pairs kept for follow-ups
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+def has_server_fallback(model: str) -> bool:
+    """Whether to ask for server-side refusal fallbacks. Haiku has none (the
+    parameter would do nothing), so a Haiku refusal falls back to templates."""
+    return not model.startswith("claude-haiku")
 
 SYSTEM = """You are the incident commander for a wildfire on a projected terrain table: the Camp Fire country \
 around Paradise, California. Crew bosses ask you questions out loud, and your answer is spoken back to them.
@@ -178,6 +191,7 @@ class Commander:
 
     async def _turn(self, messages: list[dict], gate: SentenceGate):
         """One streamed request. Returns the final message, or None on refusal."""
+        fallback = {"betas": [FALLBACK_BETA], "fallbacks": "default"} if has_server_fallback(self.model) else {}
         async with self.client.beta.messages.stream(
             model=self.model,
             max_tokens=MAX_TOKENS,
@@ -185,8 +199,7 @@ class Commander:
             tools=TOOLS,
             messages=messages,
             output_config={"effort": self.effort},
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
+            **fallback,
         ) as stream:
             async for text in stream.text_stream:
                 gate.feed(text)
