@@ -1,6 +1,8 @@
-# Firewatch: Projection-Mapped Wildfire Command Table
+# Firewatch: Wildfire Forecasting and Response Software
 
-A 3D-printed terrain model sits on a table under an overhead projector and webcam. The projector paints a live, spreading wildfire onto the terrain, along with topo colors, wind, roads, and towns. Players place physical tokens (fire crews, water drops, firebreaks, evacuation buses) on the map. The camera tracks them, the simulation reacts in real time, and an AI incident commander forecasts the fire, plans evacuations, and recommends where to deploy resources. Everything is projected back onto the terrain.
+Firewatch is decision-support software for people forecasting and responding to a wildfire. It forecasts where the fire will go, plans evacuation routes around roads that are about to burn, dispatches crews and tankers from real stations, recommends where to put them, and gives spoken briefings through an AI incident commander. **The command console is the product.**
+
+**The physical table is a demo extra, not the product.** A 3D-printed terrain model sits under an overhead projector and webcam, and the projector paints the live fire, topo colors, roads and towns onto it. It stands in for the real world seen from above, the way drone or aerial footage shows an incident. The camera looking down at the table plays the part of a drone looking down at the fire. A real operator wouldn't stand at a table placing tokens during an incident; they'd use the software. So the table is a showpiece for the demo, and features are judged by whether they help an operator who only has the software.
 
 ---
 
@@ -83,6 +85,7 @@ Inside the engine:
 
 ### Principles
 
+- **Software first.** The console has to stand on its own as the operator's tool. Table-specific code (camera, calibration, projection) stays in `vision/` and the projector view, and no engine or console feature should depend on the table.
 - **The Python engine holds all state.** Both windows are views of it, so restarting the UI never loses the fire.
 - **One canonical coordinate frame: the map grid** (Paradise is 256×192; the size comes from the scenario's `terrain.json`, and the grid is not square). Every module speaks map coordinates. Only vision (camera→map) and the projector shader (map→projector) know about homographies.
 - **The forecaster runs in its own process,** so rollouts never stall the sim or the render.
@@ -146,6 +149,8 @@ tools/
 
 ## The Two Windows
 
+The console is what an operator uses. The projector view only exists to light up the physical table for the demo.
+
 ### Projector view
 
 Pure WebGL, no UI chrome, fullscreen on the projector monitor.
@@ -159,7 +164,7 @@ Pure WebGL, no UI chrome, fullscreen on the projector monitor.
 
 ### Command console
 
-Looks polished and native, on the laptop screen.
+The product: the operator's full view of the incident, polished and native, on the laptop screen. Everything the operator needs is here, with or without the table.
 
 - **Virtual table:** a 3D view of the print on the table (true mm dimensions, tile seams, corner marker holders), with the projection draped over it and token pucks you can place, drag and remove. Camera presets and fly-to for places. Works with no hardware.
 - **Projection view:** the flat projector output, for checking exactly what gets projected
@@ -362,7 +367,7 @@ The 3D prints start the day before the competition, so everything that affects t
 - **Keep the relief low** (about 3–4 cm max) to limit projection parallax.
 - **Build registration into the prints:**
   - alignment pins between tiles
-  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. One L-shaped holder STL (print 4) pins into the board's outer walls with the same filament pins, so they never move
+  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. L-shaped holders pin into the board's outer walls with the same filament pins, so they never move. The marker is printed into each holder's top in black on white (`marker_holders.3mf`, two colours on the AMS), so there's no paper to glue on crooked
 - **Matte white or light-gray PLA,** which is essential for projection.
 - **Tokens:** print them with flat tops, then laminate and attach the ArUco markers.
 - **Toolchain:** Rust, Node, and Python environments installed and building on every laptop.
@@ -410,6 +415,8 @@ Virtual table mode means nobody is blocked waiting for hardware.
 ---
 
 ## Demo Script
+
+Pitch the software first. The table is the demo's stand-in for the real world seen from above, like drone footage, and the console is what an operator would actually use.
 
 1. A judge walks up to the attract mode: topo-lit terrain, glowing towns, drifting wind.
 2. A lightning strike ignites a ridge.
