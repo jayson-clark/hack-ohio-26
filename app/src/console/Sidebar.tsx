@@ -11,6 +11,7 @@ import ProjectorControls from "./ProjectorControls";
 import RecommendationsPanel from "./RecommendationsPanel";
 import { EventLogPanel } from "./EventLog";
 import RoundPanel from "./RoundPanel";
+import RoutesPanel from "./RoutesPanel";
 import { Kbd, Panel } from "./ui";
 
 interface Props {
@@ -36,6 +37,7 @@ export default function Sidebar(props: Props) {
       <RecommendationsPanel onFocus={props.onFocusPlace} />
       <EventLogPanel />
       {props.scenario && <PlacesPanel scenario={props.scenario} onFocus={props.onFocusPlace} />}
+      <RoutesPanel onFocus={props.onFocusPlace} />
       <Panel title="Projector">
         <ProjectorControls />
       </Panel>
