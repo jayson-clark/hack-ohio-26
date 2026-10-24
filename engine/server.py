@@ -483,9 +483,7 @@ class Engine:
             kind=CommanderKind.ANSWER,
             tick=self.fire.tick,
             text=ans.text,
-            # Templated answers are built from tool numbers; LLM answers get
-            # checked by the grounding guard (#39) and are unverified until then.
-            grounded=ans.source == "rules",
+            grounded=ans.grounded,  # templated, or LLM text that passed commander/guard.py
             event=None,
         )
         broadcast(self.clients, msg.model_dump_json())
