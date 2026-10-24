@@ -4,6 +4,9 @@ Each tick, every burning cell tries to ignite each of its 8 fuel neighbours:
 
     p_burn = p_h · (1 + p_veg) · (1 + p_den) · p_wind · p_slope · (1 − suppression)
 
+where partial suppression (< 1) is weakened against intense, wind-driven
+spread (HOLD_P), so a crew holds flanks and backing fire but not the head.
+
 and a cell that catches burns for BURN_TICKS ticks before turning to char.
 Everything is whole-array NumPy (one shifted slice per neighbour direction),
 and the same kernel advances a batch of grids, so the forecaster's rollouts
@@ -51,6 +54,15 @@ BURN_TICKS = 8
 DIAGONAL = 0.6
 # Roads are a partial fuel break (the pavement doesn't burn, the verges do).
 ROAD_FUEL = 0.4
+# Partial suppression (a crew's line, a wet patch) holds slow fire, not a
+# wind-driven head. Its strength is scaled by 1 / (1 + (p / HOLD_P)^2), where p
+# is the strongest single-neighbour spread chance into the cell this tick:
+# about 0.007 for backing fire and 0.04 for a flank at 8 m/s (held almost
+# fully), 0.08 for calm fire (0.8 of full), 0.25 for an 8 m/s head (0.3) and
+# 0.65 at 15 m/s (0.05). Full suppression (fuel removed by a firebreak, the
+# tick a water drop lands) still stops anything. Without this, crews dropped on
+# a new ignition held its head as well as its flanks and contained every start.
+HOLD_P = 0.15
 
 # (dy, dx) from the cell being ignited to the burning neighbour.
 NEIGHBOURS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
@@ -219,10 +231,15 @@ def advance(
 
     pw = wind_factors(wind)[:, None, None, None] if wind_rows is None else wind_rows[:, :, None, None]
     no_ignite = np.ones((state.shape[0], h, w), np.float32)
+    strongest = np.zeros((state.shape[0], h, w), np.float32)
     for d, (dy, dx) in enumerate(NEIGHBOURS):
-        p = np.minimum(layers.spread[d, y0:y1, x0:x1] * pw[d], 1.0)
-        no_ignite *= 1.0 - p * b[:, 1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
-    p_ignite = (1.0 - no_ignite) * (1.0 - sup)
+        p = np.minimum(layers.spread[d, y0:y1, x0:x1] * pw[d], 1.0) * b[:, 1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
+        no_ignite *= 1.0 - p
+        np.maximum(strongest, p, out=strongest)
+    # Partial suppression weakens against intense (head) fire; see HOLD_P.
+    hold = 1.0 / (1.0 + (strongest / HOLD_P) ** 2)
+    eff = np.where(sup >= 1.0, sup, sup * hold)
+    p_ignite = (1.0 - no_ignite) * (1.0 - eff)
 
     u = rng.random((st.shape[0] // group, h, w), dtype=np.float32)
     if group > 1:

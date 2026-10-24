@@ -9,6 +9,12 @@ cd engine && uv run python -m eval.run --schedules shift --episodes 8 --out repo
 ```
 Options: `--ticks` (sim minutes per episode, default 240), `--every` (minutes between forecasts), `--rollouts`, `--rec-every`, `--scenario`.
 
+Early attack (does dropping crews on a new ignition still contain it?):
+```sh
+cd engine && uv run python -m eval.early_attack            # ~10 s; no crews / instant / dispatched, at 3, 8, 13 m/s
+cd engine && uv run python -m eval.early_attack --no-hold  # without the head-fire rule (sim.fire.HOLD_P), for a before/after
+```
+
 ## What it reports (per wind schedule)
 - **Calibration:** reliability (mean predicted P against the observed share that burned), Brier score, and the share of what actually burned that each raw contour (P ≥ 0.1, P ≥ 0.5) missed. Steady wind should be close to the diagonal, which is the sanity check. After a wind shift, high-P bins come out overconfident.
 - **Arrival times:** coverage of the rollouts' full range (about 88% nominal with 16 rollouts) by lead time, and the mean width.

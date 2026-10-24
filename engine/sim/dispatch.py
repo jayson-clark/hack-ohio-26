@@ -182,10 +182,14 @@ class Dispatcher:
         u.token_id, u.target, u.origin = t.id, (t.x, t.y), tuple(start)
         if not math.isfinite(eta):
             grounded = u.station.kind == "air"
-            u.status, u.path, u.retry_tick = ("grounded" if grounded else "blocked"), [], tick + RETRY_TICKS
-            text = (f"Tankers are grounded: wind is over {TANKER_MAX_WIND_MS:.0f} m/s." if grounded
-                    else f"No open road gets {u.id} there; it will keep trying.")
-            self.events.append(DispatchEvent(u.status, u, text))
+            status = "grounded" if grounded else "blocked"
+            # Announce it once, when the unit first gets stuck; the retries
+            # every RETRY_TICKS stay quiet until it gets through.
+            if u.status != status:
+                text = (f"Tankers are grounded: wind is over {TANKER_MAX_WIND_MS:.0f} m/s." if grounded
+                        else f"No open road gets {u.id} there; it will keep trying.")
+                self.events.append(DispatchEvent(status, u, text))
+            u.status, u.path, u.retry_tick = status, [], tick + RETRY_TICKS
             return
         turnout = TURNOUT_MIN if start == u.home else 0.0
         u.status, u.path, u.depart_tick = "en_route", path, tick

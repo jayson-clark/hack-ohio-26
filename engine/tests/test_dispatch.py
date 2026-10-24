@@ -103,7 +103,10 @@ def test_tankers_wait_out_high_wind_then_fly(router):
     assert step(d, [water], 0, wind=TANKER_MAX_WIND_MS + 1) == set()
     [u] = [u for u in d.units if u.token_type == TokenType.WATER]
     assert u.status == "grounded" and [e.kind for e in d.take_events()] == ["grounded"]
-    step(d, [water], 5, wind=5.0)  # retry after RETRY_TICKS in calm air
+    step(d, [water], 5, wind=TANKER_MAX_WIND_MS + 1)  # still too windy on the retry
+    step(d, [water], 10, wind=TANKER_MAX_WIND_MS + 1)
+    assert u.status == "grounded" and d.take_events() == []  # announced once, not every retry
+    step(d, [water], 15, wind=5.0)  # retry in calm air
     assert u.status == "en_route"
 
 
