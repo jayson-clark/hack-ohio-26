@@ -99,11 +99,14 @@ class WindState(Model):
 
 
 class ScenarioState(Model):
-    """Sent once a second, and immediately after ignite, reset or set_wind."""
+    """Sent once a second, and immediately after ignite, reset, set_wind,
+    set_running and set_speed."""
 
     type: Literal["scenario_state"] = "scenario_state"
     tick: int
-    running: bool
+    running: bool  # false while paused, and once a round has ended
+    paused: bool
+    speed: float  # sim steps per engine tick (1 = SIM_MINUTES_PER_TICK sim-minutes every 0.1 s)
     wind: WindState
     burning_cells: int
     burned_cells: int
@@ -334,6 +337,26 @@ class SetWind(Model):
     from_deg: float
 
 
+class SetRunning(Model):
+    """Pause (false) or resume (true) the fire. A paused round's clock stops too."""
+
+    type: Literal["set_running"] = "set_running"
+    running: bool
+
+
+class SetSpeed(Model):
+    """How many sim steps run per engine tick; fractions spread steps out."""
+
+    type: Literal["set_speed"] = "set_speed"
+    speed: float = Field(ge=0.25, le=8)
+
+
+class StepOnce(Model):
+    """Advance the fire one tick while paused (ignored while running)."""
+
+    type: Literal["step_once"] = "step_once"
+
+
 class CommanderQuery(Model):
     """A question for the incident commander, typed or transcribed. A new
     question cancels one still being answered."""
@@ -364,15 +387,8 @@ class EndRound(Model):
 
 ClientMessage = Annotated[
     Union[
-        VirtualTokenAdd,
-        VirtualTokenMove,
-        VirtualTokenRemove,
-        Ignite,
-        Reset,
-        SetWind,
-        AcceptRecommendation,
-        StartRound,
-        EndRound,
+        VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation,
+        StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
     ],
     Field(discriminator="type"),
