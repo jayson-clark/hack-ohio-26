@@ -27,7 +27,7 @@ export default function Projector() {
 
   return (
     <div className="flex h-full cursor-crosshair items-center justify-center bg-black">
-      <MapView placeType={placeType} className="aspect-square max-h-full max-w-full" />
+      <MapView placeType={placeType} className="max-h-full max-w-full" />
     </div>
   );
 }

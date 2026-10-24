@@ -15,7 +15,9 @@ export interface Protocol {
 export interface Hello {
   type: "hello";
   protocol_version: number;
-  map_size: number;
+  scenario: string;
+  map_width: number;
+  map_height: number;
 }
 export interface ScenarioState {
   type: "scenario_state";

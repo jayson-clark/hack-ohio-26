@@ -84,7 +84,7 @@ Inside the engine:
 ### Principles
 
 - **The Python engine holds all state.** Both windows are views of it, so restarting the UI never loses the fire.
-- **One canonical coordinate frame: the map grid** (e.g. 256×256). Every module speaks map coordinates. Only vision (camera→map) and the projector shader (map→projector) know about homographies.
+- **One canonical coordinate frame: the map grid** (Paradise is 256×192; the size comes from the scenario's `terrain.json`, and the grid is not square). Every module speaks map coordinates. Only vision (camera→map) and the projector shader (map→projector) know about homographies.
 - **The forecaster runs in its own process,** so rollouts never stall the sim or the render.
 - **Virtual table mode from day one.** Mouse clicks in the projector or console window create fake tokens through the same message path real vision uses, so sim, AI, and UI work never waits on hardware.
 
@@ -101,7 +101,7 @@ Define the schemas once as Pydantic models in `engine/protocol.py`, then generat
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
 
-Implemented so far (Phase 0): `hello` (protocol version, map size), `scenario_state`, `tokens`, and `virtual_token_add/move/remove`. Add the rest as each phase needs them.
+Implemented so far (Phase 0): `hello` (protocol version, scenario name, map width and height), `scenario_state`, `tokens`, and `virtual_token_add/move/remove`. Add the rest as each phase needs them.
 
 **Token path.** Real vision and virtual table mode both report full per-source snapshots to `TokenTracker` (`engine/vision/tokens.py`); the rest of the engine only reads `tracker.tokens`. Virtual tokens come from `engine/vision/virtual.py`.
 

@@ -24,7 +24,7 @@ export default function Console() {
           <MapView
             placeType={placeType}
             showGrid
-            className="aspect-square max-h-full max-w-full rounded border border-neutral-800"
+            className="max-h-full max-w-full rounded border border-neutral-800"
           />
         </section>
 
