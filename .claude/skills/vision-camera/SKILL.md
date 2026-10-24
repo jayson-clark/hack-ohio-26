@@ -24,4 +24,6 @@ Pipeline (all in `engine/vision/`, on its own thread): `camera.py` capture → `
 - Positions slightly off on tall hills: parallax, because the homography is for the plane of the corner markers. Expected; see PLAN.md, Height parallax.
 - Washed out under projector light: rely on the white halos. Lower ambient light before you lower detection thresholds.
 
+Projector calibration (map → projector, the projected ring): see the calibrate-projector skill.
+
 Tests: `cd engine && uv run pytest tests/test_vision.py`.

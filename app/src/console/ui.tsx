@@ -93,12 +93,14 @@ export function Button({
   variant = "secondary",
   className = "",
   title,
+  disabled = false,
 }: {
   children: ReactNode;
   onClick?: () => void;
   variant?: "primary" | "secondary" | "ghost";
   className?: string;
   title?: string;
+  disabled?: boolean;
 }) {
   const styles = {
     primary: "bg-ember-500 text-black hover:bg-ember-400",
@@ -109,7 +111,8 @@ export function Button({
     <button
       onClick={onClick}
       title={title}
-      className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${styles} ${className}`}
+      disabled={disabled}
+      className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors disabled:opacity-40 ${styles} ${className}`}
     >
       {children}
     </button>

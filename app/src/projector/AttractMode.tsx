@@ -2,17 +2,19 @@
 // the projector shows topo-lit terrain with towns glowing and wind drifting
 // across it, to draw people in. It ends the moment anything happens.
 //
-// Drawn on a 2D canvas letterboxed exactly like ProjectionView, in map
-// coordinates, so the glows land on the towns. When calibration lands
-// (TODO(calibration) in ProjectionView), this needs the same transform.
+// Drawn on a 2D canvas in map coordinates, placed exactly like ProjectionView
+// (letterboxed, or through the projector calibration), so the glows land on
+// the towns.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Cell, useEngine } from "../shared/engine";
 import type { Scenario } from "../shared/scenario";
+import { cssMatrix3d, toPixels, type Mat3 } from "../render/homography";
 
 const IDLE_MS = 30_000;
 const PARTICLES = 260;
 const FORCED = new URLSearchParams(window.location.search).get("attract") === "1";
+const WARP_SCALE = 4; // element px per map cell when calibrated, so the canvas stays sharp
 
 /** True once the table has been quiet for IDLE_MS: no tokens, nothing burning, no round. */
 export function useAttract(): boolean {
@@ -42,8 +44,10 @@ export function useAttract(): boolean {
   return FORCED || idle;
 }
 
-export default function AttractMode({ scenario }: { scenario: Scenario }) {
+export default function AttractMode({ scenario, mapToProj = null }: { scenario: Scenario; mapToProj?: Mat3 | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [frame, setFrame] = useState({ w: 1, h: 1 });
   const { scenario: state } = useEngine();
   // Read by the animation loop without restarting it.
   const wind = useRef({ speed: 8, from: 45 });
@@ -115,15 +119,35 @@ export default function AttractMode({ scenario }: { scenario: Scenario }) {
     return () => cancelAnimationFrame(raf);
   }, [scenario]);
 
+  useEffect(() => {
+    const el = frameRef.current!;
+    const ro = new ResizeObserver(() => setFrame({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  let box: CSSProperties = {
+    aspectRatio: `${scenario.width} / ${scenario.height}`,
+    width: `min(100cqw, 100cqh * ${scenario.width / scenario.height})`,
+  };
+  if (mapToProj) {
+    // Map-shaped (scaled up) and warped onto the table, like ProjectionView's overlay.
+    const s = WARP_SCALE;
+    const [a, b, c, d, e, f, g, i, k] = toPixels(mapToProj, frame.w, frame.h);
+    box = {
+      position: "absolute",
+      left: 0,
+      top: 0,
+      width: scenario.width * s,
+      height: scenario.height * s,
+      transformOrigin: "0 0",
+      transform: cssMatrix3d([a / s, b / s, c, d / s, e / s, f, g / s, i / s, k]),
+    };
+  }
+
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center [container-type:size]">
-      <div
-        className="relative"
-        style={{
-          aspectRatio: `${scenario.width} / ${scenario.height}`,
-          width: `min(100cqw, 100cqh * ${scenario.width / scenario.height})`,
-        }}
-      >
+    <div ref={frameRef} className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center [container-type:size]">
+      <div className="relative" style={box}>
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
         {/* Near-black pill: projects as near-darkness, so the title reads over any terrain. */}
         <div className="absolute inset-x-0 bottom-[6%] flex justify-center">

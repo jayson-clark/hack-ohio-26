@@ -338,6 +338,35 @@ class VisionStatus(Model):
     board_found: bool
 
 
+class CalibrationPhase(StrEnum):
+    NONE = "none"  # never calibrated: the projector letterboxes the map
+    PATTERN = "pattern"  # the projector shows the pattern while the camera looks for it
+    REVIEW = "review"  # the projector shows the map and a test grid through map_to_proj: save or retry
+    CALIBRATED = "calibrated"
+
+
+class Calibration(Model):
+    """Projector calibration (PLAN.md, Calibration; engine/vision/projector.py).
+    Sent on connect, on every calibration_step, while the pattern is being
+    found, and when the engine follows a moved board."""
+
+    type: Literal["calibration"] = "calibration"
+    phase: CalibrationPhase
+    # Row-major 3x3 homography from map coords (cells) to the projector window,
+    # normalised: (0, 0) top-left, (1, 1) bottom-right, y down. What the
+    # projector applies now (in review, the fit being reviewed). None: letterbox.
+    map_to_proj: list[float] | None
+    # PNG data URL of the pattern (black, then the ring), only in the pattern phase. The
+    # projector stretches it to fill its whole window.
+    pattern: str | None
+    corners_found: int  # pattern corners the camera sees in the latest frame
+    corners_total: int
+    frames: int  # good frames collected, of frames_needed
+    frames_needed: int
+    error_px: float | None  # RMS fit residual, in pattern px (1920 wide)
+    message: str | None  # why the last step didn't go ahead
+
+
 class RoundPhase(StrEnum):
     SANDBOX = "sandbox"  # free play: no limits, no timer
     RUNNING = "running"
@@ -507,7 +536,7 @@ class PlanResult(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          CommanderSpeech, Transcript, Units, EvacClock, Situation, PlanResult],
+          CommanderSpeech, Transcript, Units, EvacClock, Situation, PlanResult, Calibration],
     Field(discriminator="type"),
 ]
 
@@ -644,6 +673,19 @@ class EndRound(Model):
     type: Literal["end_round"] = "end_round"
 
 
+class CalibrationAction(StrEnum):
+    START = "start"  # show the pattern and find it (also: retry)
+    SAVE = "save"  # keep the fit under review
+    CHECK = "check"  # show the test grid through the saved calibration
+    CANCEL = "cancel"  # back to the saved calibration (or none)
+    CLEAR = "clear"  # forget the calibration: letterbox again
+
+
+class CalibrationStep(Model):
+    type: Literal["calibration_step"] = "calibration_step"
+    action: CalibrationAction
+
+
 class PlanOrder(Model):
     token_type: TokenType
     x: float
@@ -671,6 +713,7 @@ ClientMessage = Annotated[
         SetVoice,
         PttStart,
         PttStop,
+        CalibrationStep,
         EvaluatePlan,
     ],
     Field(discriminator="type"),

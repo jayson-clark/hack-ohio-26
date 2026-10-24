@@ -26,6 +26,7 @@ from protocol import CameraState, Token, VisionStatus
 from scenario import Scenario
 from vision.calibration import BoardHomography
 from vision.markers import CORNER_IDS, Detection, detect, make_detector, token_type_for
+from vision.projector import PatternFinder, PatternProgress
 from vision.tracking import MarkerTracker, measure
 
 CAPTURE_SIZE = (1920, 1080)
@@ -46,6 +47,9 @@ class Snapshot:
     feed_seq: int = 0  # bumps with every new feed JPEG
     feed_jpeg: bytes = b""
     feed_size: tuple[int, int] = (0, 0)
+    # camera -> map from the latest frame, only if it saw all four corners.
+    board: np.ndarray | None = None
+    pattern: PatternProgress | None = None  # while a projector pattern search runs
 
 
 class CameraVision:
@@ -59,6 +63,9 @@ class CameraVision:
         self._markers_seen = 0
         self._lock = threading.Lock()
         self._snap = Snapshot(status=self._status(CameraState.NO_SIGNAL))
+        self._want_pattern: int | None = None  # set from the main thread
+        self._finder: PatternFinder | None = None
+        self._lock_gray: np.ndarray | None = None  # the latest frame that saw all four corners
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="vision", daemon=True)
 
@@ -72,6 +79,12 @@ class CameraVision:
     def snapshot(self) -> Snapshot:
         with self._lock:
             return self._snap
+
+    def find_pattern(self, search: int | None) -> None:
+        """Look for the projector's calibration pattern (Calibrator.finding).
+        Meanwhile tokens and the board stay as they were: the pattern is
+        projected over them."""
+        self._want_pattern = search
 
     # --- Capture thread -------------------------------------------------
 
@@ -106,19 +119,40 @@ class CameraVision:
             self._frame_size = (frame.shape[1], frame.shape[0])
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+            search = self._want_pattern
+            if search is not None:
+                if self._finder is None or self._finder.search != search:
+                    # The calibrator starts the pattern only once it has a board
+                    # lock with the projector black, so that lock's frame is
+                    # the pattern's background.
+                    self._finder = PatternFinder(search, background=self._lock_gray)
+                progress = self._finder.feed(gray)
+                feed = None
+                if now >= next_feed:
+                    next_feed = now + 1 / FEED_HZ
+                    img = draw_pattern_overlay(frame, self._finder.last, progress, FEED_WIDTH)
+                    feed = self._encode(img)
+                self._publish(state=CameraState.OK, feed=feed, pattern=progress)
+                continue
+            self._finder = None
+
             detections = detect(self._detector, gray)
             self._markers_seen = len(detections)
-            self._board.update(detections)
+            locked = self._board.update(detections)
+            if locked:
+                self._lock_gray = gray
             sightings = measure(detections, self._board) if self._board.cam_to_map is not None else {}
             tokens = self._tracker.update(sightings)
 
             feed = None
             if now >= next_feed:
                 next_feed = now + 1 / FEED_HZ
-                feed = self._encode_feed(frame, detections, tokens)
-            self._publish(state=CameraState.OK, tokens=tokens, feed=feed)
+                feed = self._encode(draw_overlay(frame, detections, self._board, tokens, FEED_WIDTH))
+            board = self._board.cam_to_map.copy() if locked else None
+            self._publish(state=CameraState.OK, tokens=tokens, feed=feed, board=board)
 
-    def _publish(self, state: CameraState, tokens: list[Token] | None = None, feed: tuple[bytes, tuple[int, int]] | None = None) -> None:
+    def _publish(self, state: CameraState, tokens: list[Token] | None = None, feed: tuple[bytes, tuple[int, int]] | None = None,
+                 board: np.ndarray | None = None, pattern: PatternProgress | None = None) -> None:
         if state != CameraState.OK:
             self._fps = 0.0
             self._markers_seen = 0
@@ -133,6 +167,8 @@ class CameraVision:
                 feed_seq=prev.feed_seq + (feed is not None),
                 feed_jpeg=feed[0] if feed else prev.feed_jpeg,
                 feed_size=feed[1] if feed else prev.feed_size,
+                board=board,
+                pattern=pattern,
             )
 
     def _status(self, state: CameraState) -> VisionStatus:
@@ -147,8 +183,7 @@ class CameraVision:
             board_found=self._board.cam_to_map is not None,
         )
 
-    def _encode_feed(self, frame: np.ndarray, detections: list[Detection], tokens: list[Token]) -> tuple[bytes, tuple[int, int]]:
-        img = draw_overlay(frame, detections, self._board, tokens, FEED_WIDTH)
+    def _encode(self, img: np.ndarray) -> tuple[bytes, tuple[int, int]]:
         ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, FEED_JPEG_QUALITY])
         return (buf.tobytes() if ok else b""), (img.shape[1], img.shape[0])
 
@@ -195,6 +230,24 @@ def draw_overlay(frame: np.ndarray, detections: list[Detection], board: BoardHom
         pts = cv2.perspectiveTransform(np.array([[[t.x, t.y]] for t in tokens], np.float32), inv).reshape(-1, 2)
         for p in pts * scale:
             cv2.circle(img, (round(p[0]), round(p[1])), 10, TOKEN_COLOR, 2, cv2.LINE_AA)
+    return img
+
+
+PATTERN_COLOR = (255, 0, 255)
+
+
+def draw_pattern_overlay(frame: np.ndarray, corners: np.ndarray | None, progress: PatternProgress, width: int) -> np.ndarray:
+    """The feed while the projector pattern is up: the pattern corners found this frame."""
+    scale = width / frame.shape[1]
+    img = cv2.resize(frame, (width, round(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    if corners is not None:
+        for p in corners * scale:
+            cv2.circle(img, (round(p[0]), round(p[1])), 3, PATTERN_COLOR, -1, cv2.LINE_AA)
+    label = f"pattern: {progress.corners} corners, frame {progress.frames}"
+    cv2.putText(img, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA)
+    cv2.putText(img, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, PATTERN_COLOR, 2, cv2.LINE_AA)
     return img
 
 
