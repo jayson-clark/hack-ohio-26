@@ -83,6 +83,8 @@ def test_placement_by_name_and_unknown_place():
         out = await tools.call("evaluate_placement", {"place": "concow", "x": None, "y": None})
         json.dumps(out)
         assert out["placement"]["at"] == "Concow" and isinstance(out["helps"], bool)
+        # A crew has to drive there first (#104), and the answer says from where and how long.
+        assert out["placement"]["from_station"] and out["placement"]["minutes_to_arrive"] > 0
         bad = await tools.call("evaluate_placement", {"place": "Atlantis", "x": None, "y": None})
         assert "unknown place" in bad["error"] and "Paradise" in bad["error"]
 

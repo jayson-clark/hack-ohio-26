@@ -197,6 +197,8 @@ Looks polished and native, on the laptop screen.
 | Water drop | Instant knockdown in a radius, with a cooldown |
 | Evac bus | Moves along the computed route and picks up residents from a town |
 
+**Dispatch (#104).** A crew, firebreak or water token is an order, not a teleport. The fastest free unit of that type is sent: an engine crew or dozer from a real fire station (`stations.json`, from OSM) driving the road graph at 50 km/h, skipping burning roads, then hiking the last stretch; or a tanker flying from the Chico air base, grounded above 13 m/s wind. Every order pays a 3-minute turnout. The token only acts on the fire once its unit arrives (`engine/sim/dispatch.py`, travel times in `engine/routing/units.py`). Moving a token re-routes its unit, removing it frees the unit, and a unit whose road burns re-routes or reports blocked. Buses are not dispatched. Units go out as a `units` message and the projector draws each one's route and ETA. Forecasts credit en-route units from their arrival tick, and recommendations and the commander's what-ifs start a crew digging in only when one could get there, with the station named ("a crew from Jarbo Gap, about 17 minutes out").
+
 ### Fire model
 
 Based on **Alexandridis et al. (2008)**, a cellular automaton validated against a real fire on Spetses island, with Rothermel-inspired wind and slope terms.

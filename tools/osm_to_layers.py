@@ -10,6 +10,7 @@ terrain.json: commit them, and regenerate rather than edit by hand.
     uv run tools/osm_to_layers.py paradise
     uv run tools/osm_to_layers.py paradise --classes motorway,trunk,primary,secondary,tertiary
     uv run tools/osm_to_layers.py paradise --refresh     # re-download instead of using the cache
+    uv run tools/osm_to_layers.py paradise --stations-only   # just stations.json (fire dispatch, #104)
 
 Roads come from the Overpass API (no key) for the bounds in terrain.json and
 are cached in tools/.cache/overpass/. Town populations and structure counts
@@ -27,6 +28,9 @@ Output (map coords, cell units, origin north-west):
   roads.json  {"nodes": [[x, y], ...], "edges": [[i, j, length_m, class], ...]}
   towns.json  {"towns": [{name, x, y, radius, population, structures}],
                "safe_zones": [{name, x, y, road}], "note": ...}
+  stations.json {"stations": [{name, x, y, kind, units: {token_type: count}}]}
+               OSM fire stations on the map (crews and dozers, by road) plus the
+               air attack bases in AIR_BASES (tankers, by air; may be off the map).
 """
 
 import argparse
@@ -81,9 +85,53 @@ SAFE_ZONES = {
 }
 
 
+# Air attack bases that serve the scenario: tankers fly from here, so they
+# can be off the map. Positions are approximate.
+AIR_BASES = {
+    "paradise": [{"name": "Chico Air Attack Base", "lat": 39.7954, "lon": -121.8584}],
+}
+# What each kind of station can send, per station (the round's limits still cap the totals).
+GROUND_UNITS = {"crew": 1, "firebreak": 1}  # an engine crew and a dozer
+AIR_UNITS = {"water": 2}  # two tankers
+
+
 def fetch_ways(bounds: dict, classes: list[str], refresh: bool) -> list[dict]:
     bbox = f"{bounds['south']},{bounds['west']},{bounds['north']},{bounds['east']}"
     query = f'[out:json][timeout:120];way["highway"~"^({"|".join(classes)})$"]({bbox});out geom;'
+    return fetch(query, refresh, "roads")
+
+
+def fetch_stations(bounds: dict, refresh: bool) -> list[dict]:
+    bbox = f"{bounds['south']},{bounds['west']},{bounds['north']},{bounds['east']}"
+    return fetch(f'[out:json][timeout:60];nwr["amenity"="fire_station"]({bbox});out center tags;', refresh, "fire stations")
+
+
+def write_stations(d: Path, terrain: dict, proj: "Projector", scenario: str, refresh: bool) -> None:
+    stations = []
+    for el in fetch_stations(terrain["bounds"], refresh):
+        lat, lon = (el["lat"], el["lon"]) if "lat" in el else (el["center"]["lat"], el["center"]["lon"])
+        x, y = proj(lat, lon)
+        if not proj.inside(x, y):
+            continue
+        tags = el.get("tags", {})
+        name = tags.get("name") or (f"Station {tags['ref']}" if tags.get("ref") else f"Fire station {el['id']}")
+        stations.append({"name": name, "x": round(x, 2), "y": round(y, 2), "kind": "ground", "units": GROUND_UNITS})
+    stations.sort(key=lambda s: s["name"])
+    for b in AIR_BASES.get(scenario, []):
+        x, y = proj(b["lat"], b["lon"])
+        stations.append({"name": b["name"], "x": round(x, 2), "y": round(y, 2), "kind": "air", "units": AIR_UNITS})
+    out = {
+        "generated_by": "tools/osm_to_layers.py --stations-only",
+        "source": "OpenStreetMap contributors (ODbL), via the Overpass API; air bases typed in (approximate)",
+        "stations": stations,
+    }
+    (d / "stations.json").write_text(json.dumps(out, indent=2) + "\n")
+    print(f"Wrote {(d / 'stations.json').relative_to(REPO)}: {len(stations)} stations")
+    for st in stations:
+        print(f"  {st['kind']:6} {st['name']} at ({st['x']:.1f}, {st['y']:.1f})")
+
+
+def fetch(query: str, refresh: bool, what: str) -> list[dict]:
     CACHE.mkdir(parents=True, exist_ok=True)
     path = CACHE / f"{hashlib.sha1(query.encode()).hexdigest()[:16]}.json"
     if path.exists() and not refresh:
@@ -96,7 +144,7 @@ def fetch_ways(bounds: dict, classes: list[str], refresh: bool) -> list[dict]:
         if attempt >= len(OVERPASS):
             time.sleep(10 * (attempt // len(OVERPASS)))
         try:
-            print(f"Fetching roads from {url}")
+            print(f"Fetching {what} from {url}")
             req = urllib.request.Request(url, data=body, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=180) as r:
                 raw = r.read()
@@ -280,11 +328,15 @@ def main():
     ap.add_argument("--classes", default=DEFAULT_CLASSES, help="comma-separated OSM highway classes")
     ap.add_argument("--no-prune", action="store_true", help="keep dead-end residential stubs")
     ap.add_argument("--refresh", action="store_true", help="ignore the Overpass cache")
+    ap.add_argument("--stations-only", action="store_true", help="only write stations.json")
     args = ap.parse_args()
 
     d = REPO / "assets" / "scenarios" / args.scenario
     terrain = json.loads((d / "terrain.json").read_text())
     proj = Projector(terrain)
+    if args.stations_only:
+        write_stations(d, terrain, proj, args.scenario, args.refresh)
+        return
     ways = fetch_ways(terrain["bounds"], args.classes.split(","), args.refresh)
     print(f"{len(ways)} ways")
 
