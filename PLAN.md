@@ -10,7 +10,7 @@ Firewatch is decision-support software for people forecasting and responding to 
 
 1. [Stack](#stack)
 2. [Architecture](#architecture)
-3. [The Two Windows](#the-two-windows)
+3. [The Windows](#the-windows)
 4. [Core Systems](#core-systems)
 5. [Phases](#phases)
 6. [Pre-Event Prep](#pre-event-prep)
@@ -57,8 +57,9 @@ The React app must also run unchanged in a plain browser (`vite dev` plus two Ch
 │  Rust (thin): launch engine, window/monitor mgmt,     │
 │               fullscreen projector window             │
 │                                                       │
-│  React window 1: COMMAND CONSOLE  (laptop screen)     │
-│  React window 2: PROJECTOR VIEW   (projector, no UI)  │
+│  React window 1: OPERATOR CONSOLE (the product)       │
+│  React window 2: EXERCISE CONTROL (plays the world)   │
+│  React window 3: PROJECTOR VIEW   (projector, no UI)  │
 └──────────────────────────┬────────────────────────────┘
                            │ WebSocket (JSON + binary frames)
 ┌──────────────────────────┴────────────────────────────┐
@@ -98,19 +99,20 @@ Define the schemas once as Pydantic models in `engine/protocol.py`, then generat
 **Binary frames** (engine → UI), with a 12-byte little-endian header (`type: u8`, 3 pad bytes, `tick: u32`, `width: u16`, `height: u16`). The header is mirrored by hand in `app/src/shared/binary.ts`:
 - `sim_grid`: `uint8` cell states (0 unburnable, 1 fuel, 2 burning, 3 burned), 256×192 is 48 KB, every tick (10 Hz)
 - `forecast_grid`: `uint8` burn probability (0–255), one `width×height` grid per horizon stacked in the order of `Hello.forecast_horizons_min` (T+30, T+60), in one frame. The header's tick is the sim tick the forecast started from. Sent each time a forecast lands, and all-zero on reset
+- `plan_grid`: two `uint8` grids, P(burned by the plan's horizon) without and then with a plan's orders, both under its assumed wind. The header's tick is the `plan_result` id it belongs to. Sent right after each successful `plan_result`
 - `camera_frame`: JPEG of the webcam with the vision overlay drawn in (960 px wide, 6 fps, only while `CAMERA` is set). The header's width/height are the JPEG's and its tick counts feed frames. It's broadcast to every window; the projector ignores it
 
 **JSON messages:**
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
 
-Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `set_running`, `set_speed`, `step_once` (pause, speed and single steps; `scenario_state` carries `paused` and `speed`), `vision_status` (camera state, fps, corner markers seen, board locked), `evac_clock` and `order_evacuation {town, ordered}` (#121), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
+Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `set_running`, `set_speed`, `step_once` (pause, speed and single steps; `scenario_state` carries `paused` and `speed`), `vision_status` (camera state, fps, corner markers seen, board locked), `situation` (the console's town board: per town, how many simulations reach it within 30 and 60 min with 90% intervals, median and 10th-percentile minutes until fire, route status; sent after each Monte Carlo forecast and replan, on reset and on connect), `evaluate_plan {id, orders, wind, horizon_min}` and its `plan_result` (#123), `evac_clock` and `order_evacuation {town, ordered}` (#121), and the `sim_grid`, `forecast_grid`, `plan_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
 
 **Wind convention** everywhere (protocol, sim, commander tools): `speed_ms` in m/s and `from_deg` meteorological, the direction the wind blows *from*, degrees clockwise from north (map up, −y). 270 is a west wind that pushes fire east.
 
 **Token path.** Real vision and virtual table mode both report full per-source snapshots to `TokenTracker` (`engine/vision/tokens.py`); the rest of the engine only reads `tracker.tokens`. Virtual tokens come from `engine/vision/virtual.py`. Camera tokens come from `engine/vision/camera.py`, a thread that reads frames, detects markers, solves `H_cam→map` from the corner markers and debounces (`engine/vision/tracking.py`). The main loop only picks up its latest snapshot each tick. It's off unless `CAMERA` is set in `.env` (see the `vision-camera` skill).
 
-**Windows.** One React bundle; `?view=console` or `?view=projector` picks the view. In Tauri the console is the `main` window from `tauri.conf.json`, and the projector is created on demand by `app/src/platform/tauri.ts` on the chosen monitor, then made fullscreen. Closing the console quits the app. In a browser, the projector is a popup (press F to fullscreen). Both windows render with `app/src/render/` (see [The Two Windows](#the-two-windows)).
+**Windows.** One React bundle; `?view=console` (the default), `?view=control` or `?view=projector` picks the view. In Tauri the console is the `main` window from `tauri.conf.json`; exercise control opens from the console's header, and the projector from exercise control on the chosen monitor (fullscreen). Both are created by `app/src/platform/tauri.ts`. Closing the console quits the app. In a browser they're popups (press F to fullscreen the projector). Every window renders with `app/src/render/` (see [The Windows](#the-windows)).
 
 ### Repo layout
 
@@ -147,32 +149,38 @@ tools/
 
 ---
 
-## The Two Windows
+## The Windows
 
-The console is what an operator uses. The projector view only exists to light up the physical table for the demo.
+The operator console is the product. Exercise control and the projector exist for development, training exercises and the demo.
+
+### Operator console (`app/src/console/`)
+
+For an incident manager or planning chief. It answers three questions: what's happening, what needs a decision, and what each option would do. It never plays the world: no igniting, no setting the wind, no clock controls. Three modes over one top-down incident map (fire, forecast ghost, routes, units, orders):
+
+- **Monitor:** a **decision queue**, most urgent first: towns to evacuate (with the soonest and likely time fire arrives, and the way out), towns with no safe way out, crew recommendations with the station and ETA, units that can't get through. Each card has its action (dispatch, send a bus, try in plan, show on map). A **town board** lists every town with time until fire (10th percentile to median), the share of simulations reaching it within the hour with its interval, and route status. **Units and orders** shows free units per type and every standing order with its unit's status. Order tools on the map send a crew, dozer line, air drop or bus where you click.
+- **Plan** (#123): try orders and an assumed wind without changing anything. Clicks add draft orders; each is assigned the free unit dispatch would send, and only acts once that unit could get there. The plan runs against doing nothing on paired simulations (`forecast/plan.py`, `rollout_paired` with the plan as one suppression schedule), so the difference is the plan, not luck. The map shades where the plan keeps fire out (green) or pushes it in (red); the panel shows acres and residents affected with intervals, and per-town reach. It re-runs a moment after each edit; the engine skips a plan that a newer one replaced. "Dispatch" sends the orders for real.
+- **Review:** outcome so far (people evacuated, structures, acres, per town) and the event log. The after-action comparison against doing nothing is #124.
+
+The commander (briefings, typed questions, push-to-talk) sits beside every mode. Voice is off by default: operators mostly want it on screen.
+
+### Exercise control (`app/src/control/`)
+
+Plays the real world. In a real incident this is the fire itself plus drone footage and weather stations. It holds ignite and reset, wind, pause/speed/step, the scenario picker, exercises (timed, limited rounds), the 3D virtual table with token placement, the camera feed, and projector controls. **Autopilot** accepts the top crew recommendation a few seconds after each one arrives, so a recorded demo plays out without clicking every card.
 
 ### Projector view
 
 Pure WebGL, no UI chrome, fullscreen on the projector monitor.
 
-**One projection shader** (`app/src/render/shaders.ts`) computes what the projector emits, per pixel in map coordinates: topo tint, hillshade, contours, labels, fire and token halos. The projector draws it on a flat quad. The console's virtual table drapes the *same* shader over the terrain mesh, so what you see in 3D is what the real projector would throw onto the print. The UI loads terrain straight from `assets/scenarios/<name>/` (`terrain.json` + `heightmap.npy`), picked by `VITE_SCENARIO` or `?scenario=`.
+**One projection shader** (`app/src/render/shaders.ts`) computes what the projector emits, per pixel in map coordinates: topo tint, hillshade, contours, labels, fire and token halos. The projector draws it on a flat quad. Exercise control's virtual table drapes the *same* shader over the terrain mesh, so what you see in 3D is what the real projector would throw onto the print, and the console's incident map is the same flat projection. The UI loads terrain straight from `assets/scenarios/<name>/` (`terrain.json` + `heightmap.npy`), picked by `VITE_SCENARIO` or `?scenario=`.
 
 - The sim grid is uploaded as a texture each tick. A fragment shader maps cell states to visuals: topo base, flickering flame on burning cells, char on burned ones.
 - Overlay layers include the forecast ghost (probability contours), glowing evacuation routes, pulsing recommendation markers, wind particles, town labels, and the token halos.
 - **The calibration homography is a 3×3 matrix applied in the vertex shader.** Python never warps images.
 - Embers, wind streaks, and route pulses are animated in shaders.
 
-### Command console
+### Later: a field app
 
-The product: the operator's full view of the incident, polished and native, on the laptop screen. Everything the operator needs is here, with or without the table.
-
-- **Virtual table:** a 3D view of the print on the table (true mm dimensions, tile seams, corner marker holders), with the projection draped over it and token pucks you can place, drag and remove. Camera presets and fly-to for places. Works with no hardware.
-- **Projection view:** the flat projector output, for checking exactly what gets projected
-- **Camera feed** with detected markers overlaid (for debugging, and to show judges the vision working)
-- **Calibration wizard:** a step-by-step flow with a recalibrate button
-- **Scenario controls:** ignite, reset, scenario picker, wind dial (synced with the physical knob)
-- **Commander panel:** transcript, push-to-talk, recommendation cards with an "accept" button
-- **Scoreboard:** people evacuated, structures saved, acres burned, resources left
+A second product for the people carrying out orders (fire crews, police and sheriff units, bus drivers): each sees their own assignment, route and ETA, what changed, and when to pull out. The console's orders and units are already per-unit, so it would read the same engine state. Not started; noted so engine work keeps orders addressable per unit.
 
 ---
 
@@ -260,9 +268,9 @@ The known gap: the replay burns about 1.5–1.7x the real area, because flanks s
 - **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
   - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
   - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
-  - **Screening:** recommendations take 48 front spots, keep the emulator's best 8 for the paired Monte Carlo, and only Monte Carlo numbers are shown. The top recommendation's realized benefit rose by about 10% (708 → 780 in steady wind, 159 → 173 after a shift).
+  - **Screening:** recommendations take 48 front spots, keep the emulator's best 8 for the paired Monte Carlo, and only Monte Carlo numbers are shown. It helps most after a wind shift. Over two measurements of 32 cases each, the top recommendation's realized benefit went from 159/163 to 173/181 after a shift, and it beat a random spot 19 and 23 times out of 32 (15 and 17 without screening). In steady wind it was within noise: 708 → 780, then 702 → 690.
   - **Not used for decisions:** routing, alerts and the commander never use it.
-  - **How it was trained:** 5,750 random fires on paradise and valley, labelled by 64-rollout forecasts. See the `fire-emulator` skill.
+  - **How it was trained:** about 5,750 random fires on paradise and valley, labelled by 64-rollout forecasts of the current fire model (ember spotting included, #118). It's retrained whenever the fire model changes; see the `fire-emulator` skill.
 
 ### Evacuation routing
 
@@ -448,12 +456,11 @@ Virtual table mode means nobody is blocked waiting for hardware.
 
 ## Demo Script
 
-Pitch the software first. The table is the demo's stand-in for the real world seen from above, like drone footage, and the console is what an operator would actually use.
+Judging is virtual, so the demo is a recorded video. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record with exercise control on a second screen (or off-camera) and Autopilot on where clicking every card would drag.
 
-1. A judge walks up to the attract mode: topo-lit terrain, glowing towns, drifting wind.
-2. A lightning strike ignites a ridge.
-3. The fire races uphill. The commander announces: *"Pinecrest threatened in 12 minutes."* An evacuation route lights up.
-4. The judge places crews and a firebreak. The fire bends around them in real time.
-5. The judge turns the wind knob. The forecast ghost swings, routes reroute, and the commander re-briefs.
-6. The judge asks, "What if the wind shifts west?" The commander answers from a real forecast.
-7. Round ends with a score summary. Close with the Camp Fire replay against the real perimeter.
+1. Open on the table under the projector, a fire starting at the Camp Fire origin: "this is what a drone sees."
+2. Cut to the operator console, Monitor. The decision queue fills: Concow likely to see fire in about 40 minutes, evacuate via Highway 70; crew recommendations with stations and ETAs. The town board shows every town's time until fire, with ranges.
+3. Dispatch a recommendation. The unit drives in from its station on the map; the forecast credits it from its arrival.
+4. Plan mode: "what if the wind swings west?" Dial it in, add a dozer line, and watch the map shade what the plan saves against doing nothing, with intervals. Dispatch the plan.
+5. The wind really shifts (exercise control). Routes reroute, a road is cut, the queue re-sorts, and the commander briefs it. Ask the commander a question out loud.
+6. Review: the outcome town by town (and, with #124, what the decisions bought against doing nothing). Close with the Camp Fire replay against the real perimeter.

@@ -24,6 +24,7 @@ from commander.briefings import BriefingQueue, ForecastWatcher, evacuate_text, r
 from commander.listen import Listener, vocabulary_prompt
 from commander.voice import MacVoice, speakable
 from commander.tools import CommanderTools
+from forecast.plan import PLAN_ROLLOUTS, PlanOutcome, evaluate_plan
 from forecast.recommend import PlacedCrew, Rec, Recommender, TownInfo, describe
 from forecast.runner import EVAC_HORIZON_MIN, HORIZONS_MIN, Forecast, Forecaster, LongForecast, LongForecaster
 from protocol import (
@@ -36,13 +37,18 @@ from protocol import (
     CameraState,
     EndRound,
     EvacStatus,
+    EvaluatePlan,
     Event,
     EventKind,
     Events,
     Hello,
     Ignite,
+    KofN,
     LoadScenario,
     OrderEvacuation,
+    PlanOrderResult,
+    PlanResult,
+    PlanTown,
     PttStart,
     PttStop,
     Reset,
@@ -54,6 +60,7 @@ from protocol import (
     SetSpeed,
     SetVoice,
     SetWind,
+    Situation,
     StartRound,
     StepOnce,
     Token,
@@ -89,8 +96,9 @@ from routing.evac import Route, burning_edges, plan_routes, replan_routes, route
 from routing.tracker import RouteTracker
 from routing.roads import load_network
 from scenario import ASSETS, load_scenario
-from sim.effects import CREW_RADIUS, TokenEffects
+from sim.effects import CREW_RADIUS, SuppressionSchedule, TokenEffects
 from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
+from uq.mc import wilson
 from sim.dispatch import Dispatcher
 from sim.game import Game, GameTown
 from routing.units import TURNOUT_MIN, Station, UnitRouter
@@ -188,6 +196,10 @@ class Engine:
         self.speed = 1.0
         self._step_budget = 0.0
         self._sent_inactive: list[str] = []
+        # Plans run one at a time; one that a newer plan replaced while it
+        # waited is skipped, so editing a plan quickly never builds a queue.
+        self._plan_lock = asyncio.Lock()
+        self._plan_latest = 0
         # Everything derived from the scenario (the map, layers, routing, game,
         # dispatch and the speech vocabulary) lives in load(), so a scenario
         # switch (#57) can rebuild it. It runs before the commander below,
@@ -345,6 +357,11 @@ class Engine:
 
     def recs_msg(self) -> str:
         return Recommendations(tick=self._recs_tick, recommendations=self.recs).model_dump_json()
+
+    def situation_msg(self) -> str:
+        f = self.latest_forecast
+        return Situation(tick=self.fire.tick, forecast_tick=None if f is None else f.tick,
+                         towns=self.tools.town_threats()).model_dump_json()
     def vision_status_msg(self) -> str:
         if self.camera is None:
             status = VisionStatus(
@@ -403,6 +420,10 @@ class Engine:
                 await ws.send(self.clock_msg())
             await ws.send(self.recs_msg())
             await ws.send(self.units_msg())
+            await ws.send(self.situation_msg())
+            if self.recent_events:
+                # So a window opened mid-incident has the recent log, not an empty one.
+                await ws.send(Events(events=list(self.recent_events)).model_dump_json())
             await ws.send(self.score_msg())
             async for raw in ws:
                 try:
@@ -457,6 +478,9 @@ class Engine:
                 self.accept_recommendation(msg.id)
             case OrderEvacuation():
                 self.order_evacuation(msg.town, msg.ordered)
+            case EvaluatePlan():
+                self._plan_latest = msg.id
+                asyncio.create_task(self.evaluate_plan(msg))
             case CommanderQuery():
                 self.ask(msg.text)
             case PttStart():
@@ -570,6 +594,7 @@ class Engine:
         broadcast(self.clients, self.forecast_frame())
         broadcast(self.clients, self.state_msg())
         broadcast(self.clients, self.score_msg())
+        broadcast(self.clients, self.situation_msg())
         self.schedule_replan()
         self.schedule_clock()
 
@@ -913,6 +938,98 @@ class Engine:
         self.recs = [r for r in self.recs if r.id != rec_id]
         broadcast(self.clients, self.recs_msg())
 
+    def plan_arrivals(self, orders, wind_ms: float) -> list[PlanOrderResult]:
+        """Which free unit would take each order and when it could act (#123).
+        Greedy, in order: each order takes the fastest unit not already taken,
+        the way dispatch would send them one after another."""
+        if not self.dispatcher.units:
+            return [PlanOrderResult(token_type=o.token_type, x=o.x, y=o.y, station=None, eta_min=0.0,
+                                    counted=o.token_type != TokenType.BUS) for o in orders]
+        taken: set[str] = set()
+        out = []
+        for o in orders:
+            best = None
+            for u in self.dispatcher.units:
+                if u.token_type != o.token_type or u.status != "available" or u.id in taken:
+                    continue
+                m, _ = self.dispatcher._eta(u, u.home, (o.x, o.y), wind_ms)
+                if m != float("inf") and (best is None or m < best[1]):
+                    best = (u, m + TURNOUT_MIN)
+            if best is not None:
+                taken.add(best[0].id)
+            out.append(PlanOrderResult(
+                token_type=o.token_type, x=o.x, y=o.y,
+                station=None if best is None else best[0].station.name,
+                eta_min=None if best is None else round(best[1], 1),
+                counted=best is not None,
+            ))
+        return out
+
+    async def evaluate_plan(self, msg: EvaluatePlan) -> None:
+        """Run the operator's plan against doing nothing (#123) in the
+        Recommender worker, then broadcast the result and its PLAN_GRID."""
+        async with self._plan_lock:
+            if self._plan_latest and msg.id != self._plan_latest:
+                return  # a newer plan came in while this one waited
+            await self._evaluate_plan(msg)
+
+    async def _evaluate_plan(self, msg: EvaluatePlan) -> None:
+        w = msg.wind
+        wind = self.fire.wind if w is None else Wind(speed_ms=max(0.0, w.speed_ms), from_deg=w.from_deg % 360)
+        horizon = min(max(msg.horizon_min, 30.0), 240.0)
+        tick, epoch = self.fire.tick, self._fire_epoch
+        orders = self.plan_arrivals(msg.orders, wind.speed_ms)
+
+        def reply(error: str | None, outcome: PlanOutcome | None = None) -> None:
+            empty = KofN(k=0, n=0, lo=0.0, hi=1.0)
+            o = outcome
+            broadcast(self.clients, PlanResult(
+                id=msg.id, tick=tick, n=0 if o is None else o.n, horizon_min=horizon,
+                wind=WindState(speed_ms=wind.speed_ms, from_deg=wind.from_deg), orders=orders,
+                acres_base=0 if o is None else round(o.acres_base, 1),
+                acres_plan=0 if o is None else round(o.acres_plan, 1),
+                acres_saved=0 if o is None else round(o.acres_saved[0], 1),
+                acres_saved_lo=0 if o is None else round(o.acres_saved[1], 1),
+                acres_saved_hi=0 if o is None else round(o.acres_saved[2], 1),
+                people_base=0 if o is None else round(o.people_base),
+                people_plan=0 if o is None else round(o.people_plan),
+                towns=[] if o is None else [
+                    PlanTown(town=t.town, base=self._kofn(t.base_hits, o.n) or empty,
+                             plan=self._kofn(t.plan_hits, o.n) or empty, saves=t.saves, worsens=t.worsens,
+                             base_median_min=t.base_median_min, plan_median_min=t.plan_median_min)
+                    for t in o.towns
+                ],
+                error=error,
+            ).model_dump_json())
+
+        if not self.fire.counts()[0]:
+            return reply("Nothing is burning, so there's nothing to plan against.")
+        tokens = [Token(id=f"plan{i}", token_type=o.token_type, x=o.x, y=o.y, angle=0.0, source=TokenSource.VIRTUAL)
+                  for i, o in enumerate(orders) if o.counted]
+        layers = [self.effects.arrival_layer(t, int(round((o.eta_min or 0) / SIM_MINUTES_PER_TICK)))
+                  for t, o in zip(tokens, [o for o in orders if o.counted])]
+        s = self.scenario
+        plan = SuppressionSchedule(np.zeros((s.height, s.width), np.float32), [l for l in layers if l is not None])
+        acres_per_cell = s.cell_size_m**2 / SQ_M_PER_ACRE
+        try:
+            outcome = await self.recommender.run(
+                evaluate_plan, self.snapshot(), plan, self.towns, wind,
+                int(round(horizon / SIM_MINUTES_PER_TICK)), acres_per_cell, PLAN_ROLLOUTS, tick)
+        except Exception as e:
+            log.exception("plan evaluation failed")
+            return reply(f"The plan couldn't be simulated: {e}")
+        if epoch != self._fire_epoch:
+            return reply("The map was reset while the plan ran.")
+        reply(None, outcome)
+        broadcast(self.clients, pack_binary(BinaryType.PLAN_GRID, msg.id, s.width, s.height, outcome.grids.tobytes()))
+
+    @staticmethod
+    def _kofn(k: int, n: int) -> KofN | None:
+        if n == 0:
+            return None
+        lo, hi = wilson(k, n)
+        return KofN(k=k, n=n, lo=round(float(lo), 3), hi=round(float(hi), 3))
+
     def schedule_replan(self) -> None:
         """Replan every town's route in a worker thread (~20 ms), one job at a
         time. Anything that asks while a job runs gets one more run after it,
@@ -949,6 +1066,7 @@ class Engine:
         self.routes, events = self.route_tracker.choose(best, rescored, tick)
         self._routes_tick = tick
         broadcast(self.clients, self.routes_msg())
+        broadcast(self.clients, self.situation_msg())
         self.broadcast_events(events)
 
     def maybe_long_forecast(self) -> None:

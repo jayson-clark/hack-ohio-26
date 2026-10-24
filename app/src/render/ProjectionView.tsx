@@ -4,7 +4,7 @@
 //
 // TODO(calibration): apply H_map→proj in the vertex shader here.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
@@ -23,13 +23,14 @@ export interface ViewProps {
   forecast: ForecastGrids | null;
   routes: RouteInfo[];
   layers: Layers;
-  placeType: PlaceType;
+  /** What a click on empty map places; null places nothing (the operator console). */
+  placeType: PlaceType | null;
   selectedId: string | null;
   onSelect?: (id: string | null) => void;
   onHover?: (p: { x: number; y: number } | null) => void;
 }
 
-export default function ProjectionView(props: ViewProps & { showGlyphs?: boolean }) {
+export default function ProjectionView(props: ViewProps & { showGlyphs?: boolean; children?: ReactNode }) {
   const { scenario, tokens, placeType, showGlyphs, onSelect, onHover } = props;
   const hostRef = useRef<HTMLDivElement>(null);
   const projRef = useRef<Projection | null>(null);
@@ -91,6 +92,8 @@ export default function ProjectionView(props: ViewProps & { showGlyphs?: boolean
           onSelect={onSelect}
           onHover={onHover}
         />
+        {/* Extra layers in map coordinates (the console's plan overlay), above the tokens. */}
+        {props.children}
       </div>
     </div>
   );

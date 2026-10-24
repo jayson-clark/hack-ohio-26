@@ -86,9 +86,10 @@ def rollout_paired(
     """First-burn ticks for a baseline and K what-ifs on identical luck,
     float32 (K+1, n, H, W). Index 0 is the baseline (the snapshot as is);
     index k is the snapshot plus variants[k-1], max-combined into its
-    suppression. A variant is either a fixed grid (float (H, W)) or a
-    sim.effects.TimedLayer: a crew that starts digging in at its arrival tick
-    and ramps up, as a placed one really would (#56, #104).
+    suppression. A variant is a fixed grid (float (H, W)), a
+    sim.effects.TimedLayer (a crew that starts digging in at its arrival tick
+    and ramps up, as a placed one really would, #56, #104), or a whole
+    sim.effects.SuppressionSchedule (several orders at once: a plan, #123).
 
     Rollout i of every variant sees the same random draws (and the same wind,
     with wind_spread), so `first[k, i]` vs `first[0, i]` differs only because
@@ -98,7 +99,7 @@ def rollout_paired(
     if isinstance(variants, np.ndarray):
         variants = list(np.asarray(variants, np.float32).reshape(-1, *snapshot.state.shape))
     k = len(variants)
-    timed = [v for v in variants if hasattr(v, "level")]
+    timed = [v for v in variants if hasattr(v, "level") or hasattr(v, "at")]
 
     def sup_at(dt: int) -> np.ndarray:
         base = _base_at(snapshot, dt)
@@ -108,6 +109,8 @@ def rollout_paired(
             if hasattr(v, "level"):
                 lvl = v.level(dt)
                 sup[i] = np.maximum(base, lvl * v.footprint) if lvl > 0 else base
+            elif hasattr(v, "at"):
+                np.maximum(base, v.at(dt), out=sup[i])
             else:
                 np.maximum(base, v, out=sup[i])
         return sup

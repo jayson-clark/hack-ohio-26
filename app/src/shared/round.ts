@@ -13,7 +13,7 @@ export function formatSimMinutes(min: number): string {
 export const END_REASON_TEXT: Record<EndReason, string> = {
   time: "Time's up",
   contained: "Fire contained",
-  stopped: "Round ended",
+  stopped: "Exercise ended",
 };
 
 export function pct(part: number, whole: number): number {

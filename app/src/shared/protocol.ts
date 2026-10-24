@@ -13,7 +13,9 @@ export type EngineMessage =
   | CommanderSpeech
   | Transcript
   | Units
-  | EvacClock;
+  | EvacClock
+  | Situation
+  | PlanResult;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -54,7 +56,8 @@ export type ClientMessage =
   | OrderEvacuation
   | SetVoice
   | PttStart
-  | PttStop;
+  | PttStop
+  | EvaluatePlan;
 export type VoiceMode = "off" | "console" | "mac";
 
 /**
@@ -325,6 +328,80 @@ export interface EvacExit {
   bottleneck_vph: number;
   drive_min: number;
 }
+/**
+ * The operator's town board: how soon the fire could reach each town.
+ * Sent after each Monte Carlo forecast (never from the emulator), on reset,
+ * and on connect.
+ */
+export interface Situation {
+  type: "situation";
+  tick: number;
+  forecast_tick: number | null;
+  towns: TownThreat[];
+}
+export interface TownThreat {
+  town: string;
+  population: number;
+  structures: number;
+  fire_inside: boolean;
+  within_30: KofN | null;
+  within_60: KofN | null;
+  median_min: number | null;
+  soonest_min: number | null;
+  route_status: RouteStatus | null;
+  exit: string | null;
+  drive_min: number | null;
+}
+/**
+ * How many of the forecast's simulations something happened in, with a
+ * 90% interval on the true chance (sampling uncertainty, #11).
+ */
+export interface KofN {
+  k: number;
+  n: number;
+  lo: number;
+  hi: number;
+}
+/**
+ * The answer to an evaluate_plan: the plan against doing nothing, on
+ * paired simulations under the same assumed wind. Broadcast; a console
+ * keeps only the id it asked for.
+ */
+export interface PlanResult {
+  type: "plan_result";
+  id: number;
+  tick: number;
+  n: number;
+  horizon_min: number;
+  wind: WindState;
+  orders: PlanOrderResult[];
+  acres_base: number;
+  acres_plan: number;
+  acres_saved: number;
+  acres_saved_lo: number;
+  acres_saved_hi: number;
+  people_base: number;
+  people_plan: number;
+  towns: PlanTown[];
+  error: string | null;
+}
+export interface PlanOrderResult {
+  token_type: TokenType;
+  x: number;
+  y: number;
+  station: string | null;
+  eta_min: number | null;
+  counted: boolean;
+}
+export interface PlanTown {
+  town: string;
+  base: KofN;
+  plan: KofN;
+  saves: number;
+  worsens: number;
+  base_median_min: number | null;
+  plan_median_min: number | null;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -443,4 +520,21 @@ export interface PttStart {
  */
 export interface PttStop {
   type: "ptt_stop";
+}
+/**
+ * Try a set of orders, and optionally a different wind, from the fire as
+ * it is now, without changing anything. Answered by a plan_result (and a
+ * PLAN_GRID frame). A newer plan replaces one still running.
+ */
+export interface EvaluatePlan {
+  type: "evaluate_plan";
+  id: number;
+  orders: PlanOrder[];
+  wind: WindState | null;
+  horizon_min: number;
+}
+export interface PlanOrder {
+  token_type: TokenType;
+  x: number;
+  y: number;
 }

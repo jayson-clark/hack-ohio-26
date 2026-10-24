@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { send } from "../shared/engine";
 import type { Score } from "../shared/protocol";
 import { END_REASON_TEXT, formatSimMinutes, headline } from "../shared/round";
-import { Button } from "./ui";
+import { Button } from "../console/ui";
 
 /** Console card. Reappears for each new round end; can be dismissed to look at the map. */
 export function RoundSummaryCard({ score }: { score: Score | null }) {
@@ -31,7 +31,7 @@ export function RoundSummaryCard({ score }: { score: Score | null }) {
         </div>
         <div className="mt-5 flex gap-2">
           <Button variant="primary" className="flex-1" onClick={() => send({ type: "start_round" })}>
-            New round
+            New exercise
           </Button>
           <Button className="flex-1" onClick={() => send({ type: "reset" })}>
             Free play
@@ -71,7 +71,7 @@ export function RoundSummaryProjected({ score }: { score: Score | null }) {
 }
 
 function Title({ score, large = false }: { score: Score; large?: boolean }) {
-  const reason = score.end_reason ? END_REASON_TEXT[score.end_reason] : "Round over";
+  const reason = score.end_reason ? END_REASON_TEXT[score.end_reason] : "Exercise over";
   return (
     <div>
       <div className={large ? "text-4xl font-semibold text-white" : "text-base font-semibold text-fg"}>{reason}</div>
