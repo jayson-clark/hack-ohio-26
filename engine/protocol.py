@@ -15,6 +15,10 @@ app/src/shared/binary.ts), followed by a payload:
   scaled to 0-255. `tick` is the sim tick the forecast started from. Sent
   whenever a forecast finishes (a few per second), and once, all zero, on
   reset.
+- CAMERA_FRAME: one JPEG of the webcam with the vision overlay drawn on it
+  (markers, map outline, placed tokens), for the console's camera view.
+  width/height are the JPEG's size and `tick` counts feed frames. A few per
+  second, only while the engine has a camera (CAMERA in .env).
 
 All positions are in map-grid coordinates, in cell units (floats allowed):
 x runs from 0 to the map width, y from 0 to the map height, origin at the
@@ -27,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 6
+PROTOCOL_VERSION = 7
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -187,8 +191,31 @@ class Recommendations(Model):
     recommendations: list[Recommendation]
 
 
+class CameraState(StrEnum):
+    OFF = "off"  # no CAMERA configured: virtual table only
+    NO_SIGNAL = "no_signal"  # configured, but can't open or read it
+    OK = "ok"
+
+
+class VisionStatus(Model):
+    """Sent once a second, and on connect."""
+
+    type: Literal["vision_status"] = "vision_status"
+    camera: CameraState
+    source: str  # the CAMERA setting: an index or a file path
+    fps: float
+    frame_width: int
+    frame_height: int
+    markers_seen: int  # ArUco markers detected in the latest frame, any ID
+    corners_seen: list[str]  # corner markers ("NW", "NE", "SE", "SW") in the latest frame
+    # A camera->map homography has been solved (all four corners seen at
+    # once). It is kept while corners are covered, so tokens still track.
+    board_found: bool
+
+
 EngineMessage = Annotated[
-    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations], Field(discriminator="type")
+    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus],
+    Field(discriminator="type"),
 ]
 
 

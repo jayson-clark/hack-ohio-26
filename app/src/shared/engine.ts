@@ -12,6 +12,7 @@ import type {
   RouteInfo,
   ScenarioState,
   Token,
+  VisionStatus,
 } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
@@ -46,6 +47,10 @@ export interface EngineState {
   events: Event[];
   /** Crew placement recommendations, best first (cards and markers: #45). */
   recommendations: Recommendation[];
+  /** Camera and marker detection health (camera "off" in virtual table mode). */
+  vision: VisionStatus | null;
+  /** Latest camera_frame (a JPEG with the vision overlay), while a camera is on. */
+  cameraFrame: BinaryFrame | null;
 }
 
 let state: EngineState = {
@@ -58,6 +63,8 @@ let state: EngineState = {
   routes: [],
   events: [],
   recommendations: [],
+  vision: null,
+  cameraFrame: null,
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -88,6 +95,9 @@ function handleMessage(msg: EngineMessage) {
     case "events":
       setState({ events: [...state.events, ...msg.events].slice(-MAX_EVENTS) });
       break;
+    case "vision_status":
+      setState({ vision: msg });
+      break;
   }
 }
 
@@ -105,6 +115,9 @@ function handleBinary(buf: ArrayBuffer) {
       setState({ forecast: { tick, width, height, horizons } });
       break;
     }
+    case BinaryType.CameraFrame:
+      setState({ cameraFrame: frame });
+      break;
   }
 }
 
