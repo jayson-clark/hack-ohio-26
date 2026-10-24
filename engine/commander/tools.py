@@ -266,7 +266,7 @@ class CommanderTools:
         speed = e.fire.wind.speed_ms if wind_speed_ms is None else max(0.0, float(wind_speed_ms))
         wind = Wind(speed_ms=speed, from_deg=COMPASS.index(wind_from) * 45.0)
         ticks = int(60 / SIM_MINUTES_PER_TICK)
-        job = e.recommender.run(whatif_job, e.fire.snapshot(), wind, e.towns, WHATIF_ROLLOUTS, ticks, e.fire.tick)
+        job = e.recommender.run(whatif_job, e.snapshot(), wind, e.towns, WHATIF_ROLLOUTS, ticks, e.fire.tick)
         arrivals, cells = await job
         now = self._town_table()
         towns = []
@@ -298,7 +298,7 @@ class CommanderTools:
             raise ValueError("that spot is off the map")
         if not e.fire.counts()[0]:
             return {"error": "nothing is burning, so a crew has nothing to hold"}
-        job = e.recommender.run(placement_job, e.fire.snapshot(), x, y, e.towns, PLACEMENT_ROLLOUTS, e.fire.tick)
+        job = e.recommender.run(placement_job, e.snapshot(), x, y, e.towns, PLACEMENT_ROLLOUTS, e.fire.tick)
         rec = await job
         return {
             "placement": {"type": "crew", "at": label, "x": round(x, 1), "y": round(y, 1)},
