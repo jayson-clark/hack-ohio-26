@@ -216,6 +216,58 @@ class VisionStatus(Model):
     board_found: bool
 
 
+class RoundPhase(StrEnum):
+    SANDBOX = "sandbox"  # free play: no limits, no timer
+    RUNNING = "running"
+    ENDED = "ended"  # the fire is frozen and the score is final
+
+
+class EndReason(StrEnum):
+    TIME = "time"  # the round timer ran out
+    CONTAINED = "contained"  # nothing is burning any more
+    STOPPED = "stopped"  # the operator ended it
+
+
+class ResourceUse(Model):
+    token_type: TokenType
+    limit: int | None  # None = unlimited (always, in the sandbox)
+    used: int  # tokens of this type that are taking effect
+
+
+class WaterCooldown(Model):
+    id: str  # water token id
+    ready_in_min: float  # sim minutes until it can drop again (0 = ready once moved)
+
+
+class TownScore(Model):
+    name: str
+    population: int
+    evacuated: int
+    structures: int
+    structures_lost: int
+
+
+class Score(Model):
+    """The game layer's state. Sent once a second, immediately when the round
+    starts or ends, and when a token goes over or back under its limit."""
+
+    type: Literal["score"] = "score"
+    tick: int
+    phase: RoundPhase
+    end_reason: EndReason | None
+    elapsed_min: float  # sim minutes since the round started (0 in the sandbox)
+    duration_min: float
+    resources: list[ResourceUse]
+    inactive_tokens: list[str]  # ids over their type's limit, which do nothing
+    water_cooldowns: list[WaterCooldown]
+    people_total: int
+    people_evacuated: int
+    structures_total: int
+    structures_lost: int
+    acres_burned: float
+    towns: list[TownScore]
+
+
 class CommanderKind(StrEnum):
     BRIEFING = "briefing"  # unprompted, from an event
     ANSWER = "answer"  # a reply to commander_query
@@ -235,7 +287,7 @@ class CommanderMessage(Model):
 
 
 EngineMessage = Annotated[
-    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, CommanderMessage],
+    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage],
     Field(discriminator="type"),
 ]
 
@@ -270,7 +322,8 @@ class Ignite(Model):
 
 
 class Reset(Model):
-    """Put the fire out and unburn the map. Tokens stay where they are."""
+    """Put the fire out and unburn the map. Tokens stay where they are. Also
+    abandons any round and returns to the sandbox."""
 
     type: Literal["reset"] = "reset"
 
@@ -288,8 +341,24 @@ class AcceptRecommendation(Model):
     id: str
 
 
+class StartRound(Model):
+    """Reset the map and start a timed, limited round, igniting at the
+    scenario's ignition point if it has one."""
+
+    type: Literal["start_round"] = "start_round"
+
+
+class EndRound(Model):
+    """End the running round now, freezing the fire and the score."""
+
+    type: Literal["end_round"] = "end_round"
+
+
 ClientMessage = Annotated[
-    Union[VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation],
+    Union[
+        VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation,
+        StartRound, EndRound,
+    ],
     Field(discriminator="type"),
 ]
 
