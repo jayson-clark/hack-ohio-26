@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
-import { setVoiceMode, useEngine } from "../shared/engine";
+import { pttStart, pttStop, setVoiceMode, useEngine } from "../shared/engine";
 import { speechSupported } from "../shared/speech";
 import { useScenario, type Scenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
@@ -13,7 +13,8 @@ import Sidebar from "./Sidebar";
 import Viewport, { type ViewMode } from "./Viewport";
 
 export default function Console() {
-  const { status, scenario: state, tokens, simGrid, forecast, routes, vision, cameraFrame, voiceMode } = useEngine();
+  const { status, scenario: state, tokens, simGrid, forecast, routes, vision, cameraFrame, voiceMode, hello, listening, heard } =
+    useEngine();
   const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -45,6 +46,28 @@ export default function Console() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Hold Space to talk to the commander (outside text fields).
+  useEffect(() => {
+    const typing = (e: KeyboardEvent) =>
+      e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    function down(e: KeyboardEvent) {
+      if (e.code !== "Space" || e.repeat || typing(e)) return;
+      e.preventDefault();
+      pttStart();
+    }
+    function up(e: KeyboardEvent) {
+      if (e.code === "Space" && !typing(e)) pttStop();
+    }
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", pttStop);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", pttStop);
+    };
+  }, []);
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-4 border-b border-edge px-4">
@@ -61,6 +84,7 @@ export default function Console() {
             tick <span className="text-fg-muted">{state.tick}</span>
           </span>
         )}
+        <TalkButton available={hello?.speech_to_text ?? false} listening={listening} heard={heard} />
         <Segmented
           value={voiceMode}
           onChange={setVoiceMode}
@@ -172,5 +196,39 @@ function ConnectionBadge({ status }: { status: string }) {
       <span className={`h-1.5 w-1.5 rounded-full ${color} ${open ? "" : "animate-pulse"}`} />
       {open ? "Engine connected" : status === "connecting" ? "Connecting…" : "Engine offline"}
     </span>
+  );
+}
+
+function TalkButton({
+  available,
+  listening,
+  heard,
+}: {
+  available: boolean;
+  listening: boolean;
+  heard: { text: string; error: string | null } | null;
+}) {
+  // Push-to-talk for the incident commander (also: hold Space). Moves into the commander panel (#29).
+  const label = listening ? "Listening…" : "Hold to talk";
+  const note = heard ? (heard.text ? `“${heard.text}”` : heard.error) : null;
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <button
+        disabled={!available}
+        title={available ? "Hold (or hold Space) and ask the commander a question" : "Speech-to-text isn't installed: cd engine && uv sync --extra voice"}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          pttStart();
+        }}
+        onPointerUp={pttStop}
+        onPointerCancel={pttStop}
+        className={`h-7 shrink-0 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          listening ? "border-ember-400 bg-ember-500/20 text-ember-300" : "border-edge bg-surface-2 text-fg hover:bg-surface-3"
+        }`}
+      >
+        {label}
+      </button>
+      {note && <span className="max-w-[18rem] truncate text-[11px] text-fg-muted">{note}</span>}
+    </div>
   );
 }

@@ -19,6 +19,7 @@ import numpy as np
 
 from commander.agent import Commander
 from commander.briefings import BriefingQueue, ForecastWatcher
+from commander.listen import Listener, vocabulary_prompt
 from commander.voice import MacVoice, speakable
 from commander.tools import CommanderTools
 from forecast.recommend import Rec, Recommender, TownInfo, describe
@@ -37,6 +38,8 @@ from protocol import (
     Events,
     Hello,
     Ignite,
+    PttStart,
+    PttStop,
     Reset,
     ResourceUse,
     RoundPhase,
@@ -50,6 +53,7 @@ from protocol import (
     StepOnce,
     Token,
     TokenType,
+    Transcript,
     VoiceMode,
     Tokens,
     TokenSource,
@@ -175,6 +179,11 @@ class Engine:
         self.voice_mode = VoiceMode.OFF
         self.mac_voice = MacVoice()
         self._utterances = itertools.count(1)
+        # Push-to-talk: the engine records and transcribes (commander/listen.py).
+        exits = [z.name for z in self.roads.safe_zones] if self.roads else []
+        roads = [speakable(n[n.index("(") + 1 : -1]) for n in exits if n.endswith(")")]
+        roads = [r if r.startswith(("Highway", "State")) else ("the " + r if " " not in r else r) for r in roads]
+        self.listener = Listener(vocabulary_prompt([t.name for t in self.towns], roads))
 
     def hello_msg(self) -> str:
         s = self.scenario
@@ -184,6 +193,7 @@ class Engine:
             map_height=s.height,
             sim_minutes_per_tick=SIM_MINUTES_PER_TICK,
             forecast_horizons_min=list(HORIZONS_MIN),
+            speech_to_text=self.listener.available,
         ).model_dump_json()
 
     def tokens_msg(self) -> str:
@@ -340,6 +350,10 @@ class Engine:
                 self.accept_recommendation(msg.id)
             case CommanderQuery():
                 self.ask(msg.text)
+            case PttStart():
+                self.ptt_start()
+            case PttStop():
+                self.ptt_stop()
             case SetVoice():
                 self.voice_mode = msg.mode
                 if msg.mode != VoiceMode.MAC:
@@ -367,6 +381,8 @@ class Engine:
         if self._query_task is not None:
             self._query_task.cancel()
         self.mac_voice.interrupt()
+        if self.listener.recording:
+            self.listener.stop()
         self.recs = []
         self._rec_started = -RECOMMEND_MIN_TICKS
         broadcast(self.clients, self.recs_msg())
@@ -528,6 +544,34 @@ class Engine:
             self._query_task.cancel()
         self._query_task = asyncio.create_task(self._answer(question))
 
+    def ptt_start(self) -> None:
+        self.mac_voice.interrupt()  # the console stops its own voice when the button goes down
+        if not self.listener.available:
+            self.send_transcript("", self.listener.reason)
+            return
+        try:
+            self.listener.start()
+        except Exception as err:  # no mic, or microphone permission denied
+            self.send_transcript("", f"can't open the microphone: {err}")
+
+    def ptt_stop(self) -> None:
+        if self.listener.recording:
+            asyncio.create_task(self._transcribe(self.listener.stop()))
+
+    async def _transcribe(self, audio) -> None:
+        try:
+            text = await asyncio.to_thread(self.listener.transcribe, audio)
+        except Exception as err:
+            log.warning("transcription failed: %s", err)
+            self.send_transcript("", "speech-to-text failed")
+            return
+        self.send_transcript(text, None if text else "didn't catch that")
+        if text:
+            self.ask(text)
+
+    def send_transcript(self, text: str, error: str | None) -> None:
+        broadcast(self.clients, Transcript(text=text, error=error).model_dump_json())
+
     def speak(self, utterance: str, kind: CommanderKind, text: str, urgent: bool = False) -> None:
         """Send text to whichever voice is on. Sentences of one answer share an utterance id."""
         if self.voice_mode == VoiceMode.CONSOLE:
@@ -598,6 +642,8 @@ class Engine:
 
     async def run(self) -> None:
         self.recommender.warm()
+        if self.listener.available:
+            asyncio.get_running_loop().run_in_executor(None, self.listener.warm)
         period = 1 / TICK_HZ
         loop = asyncio.get_running_loop()
         next_tick = loop.time()
