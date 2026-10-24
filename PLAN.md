@@ -242,6 +242,12 @@ The top recommendation's realized benefit fell from 985 to 708 (steady wind). It
 - **Paired what-ifs:** `forecast.rollout_paired(snapshot, n, ticks, variants)` runs a baseline plus K suppression variants (e.g. a crew at each candidate spot) in one batch, as `(K+1, n, H, W)`. Rollout i of every variant shares its random draws (`advance(..., group=K+1)`), so the difference between a variant and the baseline is the intervention's effect, not luck. Recommendations rely on this.
 - **Wind spread (optional):** `WindSpread(speed_frac, dir_deg)` gives each rollout its own wind (`advance(..., wind_rows=...)`). It's off for the live forecast (`forecast.runner.WIND_SPREAD = None`), and when it's on, `Forecast.wind_spread` records it.
 - The projector shows a translucent ghost with 50% and 90% contours at T+30 and T+60 sim-minutes.
+- **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
+  - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
+  - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
+  - **Screening:** recommendations take 48 front spots, keep the emulator's best 8 for the paired Monte Carlo, and only Monte Carlo numbers are shown. The top recommendation's realized benefit rose by about 10% (708 → 780 in steady wind, 159 → 173 after a shift).
+  - **Not used for decisions:** routing, alerts and the commander never use it.
+  - **How it was trained:** 5,750 random fires on paradise and valley, labelled by 64-rollout forecasts. See the `fire-emulator` skill.
 
 ### Evacuation routing
 
