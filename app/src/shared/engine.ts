@@ -3,7 +3,7 @@
 
 import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
-import { speak } from "./speech";
+import { interrupt, speak } from "./speech";
 import type {
   ClientMessage,
   CommanderMessage,
@@ -15,6 +15,7 @@ import type {
   ScenarioState,
   Score,
   Token,
+  Transcript,
   VisionStatus,
   VoiceMode,
 } from "./protocol";
@@ -63,6 +64,9 @@ export interface EngineState {
   transcript: CommanderMessage[];
   /** How the commander speaks (off by default); remembered per browser. */
   voiceMode: VoiceMode;
+  /** Push-to-talk: held down now, and what it heard last time (cleared when pressed again). */
+  listening: boolean;
+  heard: Transcript | null;
 }
 
 let state: EngineState = {
@@ -80,6 +84,8 @@ let state: EngineState = {
   score: null,
   transcript: [],
   voiceMode: loadVoiceMode(),
+  listening: false,
+  heard: null,
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -106,6 +112,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "recommendations":
       setState({ recommendations: msg.recommendations });
+      break;
+    case "transcript":
+      setState({ heard: msg });
       break;
     case "commander_speech":
       if (state.voiceMode === "console") speak(msg);
@@ -194,6 +203,21 @@ export function setVoiceMode(mode: VoiceMode) {
   }
   setState({ voiceMode: mode });
   send({ type: "set_voice", mode });
+}
+
+/** Push-to-talk down: the commander stops talking and the engine starts recording. */
+export function pttStart() {
+  if (state.listening) return;
+  interrupt();
+  setState({ listening: true, heard: null });
+  send({ type: "ptt_start" });
+}
+
+/** Push-to-talk up: the engine transcribes, sends a transcript, and asks the commander. */
+export function pttStop() {
+  if (!state.listening) return;
+  setState({ listening: false });
+  send({ type: "ptt_stop" });
 }
 
 /** Ask the incident commander a question; the answer arrives as a commander_message. */
