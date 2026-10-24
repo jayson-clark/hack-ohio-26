@@ -28,8 +28,20 @@ export interface TerrainInfo {
   places: { name: string; lat: number; lon: number; map: [number, number] }[];
 }
 
+/** towns.json, written by tools/osm_to_layers.py: what the game scores and routing evacuates. */
+export interface Town {
+  name: string;
+  x: number;
+  y: number;
+  radius: number; // cells: the disk the score counts as the town
+  population: number;
+  structures: number;
+}
+
 export interface Scenario {
   info: TerrainInfo;
+  /** Empty for a scenario without a road layer. */
+  towns: Town[];
   width: number;
   height: number;
   /** Elevation in meters, row-major, row 0 = north. */
@@ -37,6 +49,10 @@ export interface Scenario {
 }
 
 const terrainFiles = import.meta.glob<TerrainInfo>("../../../assets/scenarios/*/terrain.json", {
+  eager: true,
+  import: "default",
+});
+const townFiles = import.meta.glob<{ towns: Town[] }>("../../../assets/scenarios/*/towns.json", {
   eager: true,
   import: "default",
 });
@@ -76,7 +92,9 @@ export function loadScenario(name: string): Promise<Scenario> {
       if (width !== info.grid.width || height !== info.grid.height) {
         throw new Error(`heightmap is ${width}×${height}, terrain.json says ${info.grid.width}×${info.grid.height}`);
       }
-      return { info, width, height, heights: npy.data };
+      const townsPath = Object.keys(townFiles).find((p) => scenarioName(p) === name);
+      const towns = townsPath ? townFiles[townsPath].towns : [];
+      return { info, towns, width, height, heights: npy.data };
     })();
     cache.set(name, promise);
   }
