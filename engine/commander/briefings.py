@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from protocol import CommanderKind, CommanderMessage, Event, EventKind
+from sim.fire import SIM_MINUTES_PER_TICK
 
 THREAT_ON = 0.6  # share of simulations with fire in the town within 30 min
 THREAT_OFF = 0.4
@@ -39,7 +40,10 @@ PRIORITY = {
 }
 MIN_GAP_S = 8.0  # wall seconds between spoken briefings
 DEDUPE_S = 45.0  # don't repeat the same kind of news about the same town
-STALE_S = 20.0  # drop news that waited this long
+STALE_S = 20.0  # drop news that waited this long in wall time...
+# ...or this long in sim time. The sim can run up to 8x (#71), where 8 s of
+# wall time is over an hour of fire: "within 30 minutes" is meaningless by then.
+STALE_SIM_MIN = 15.0
 
 
 def _share(reach: dict | None) -> float:
@@ -149,9 +153,21 @@ class BriefingQueue:
             self.pending = [p for p in self.pending if (p.event.kind, p.event.town) != key]
             self.pending.append(_Pending(e, now))
 
-    def next(self, now: float) -> CommanderMessage | None:
-        """The briefing to say now, if any."""
-        self.pending = [p for p in self.pending if now - p.since < STALE_S]
+    def next(self, now: float, tick: int, paused: bool = False) -> CommanderMessage | None:
+        """The briefing to say now, if any. `now` is wall time, `tick` the sim tick.
+
+        News expires after STALE_S of wall time or STALE_SIM_MIN of sim time,
+        whichever comes first, so a fast sim doesn't announce history. While
+        paused nothing is said and nothing expires: the sim isn't moving, so
+        the news is still true when play resumes."""
+        if paused:
+            for p in self.pending:
+                p.since = now
+            return None
+        self.pending = [
+            p for p in self.pending
+            if now - p.since < STALE_S and (tick - p.event.tick) * SIM_MINUTES_PER_TICK <= STALE_SIM_MIN
+        ]
         if not self.pending or now - self._last_spoken < MIN_GAP_S:
             return None
         # Oldest first within a priority, so urgent news can't be starved by newer news.

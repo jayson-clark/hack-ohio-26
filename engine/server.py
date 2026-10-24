@@ -652,7 +652,7 @@ class Engine:
             self.poll_vision()
             self.flush_tokens()
             self.tick_fire()
-            if (briefing := self.briefings.next(time.monotonic())) is not None:
+            if (briefing := self.briefings.next(time.monotonic(), self.fire.tick, self.paused)) is not None:
                 broadcast(self.clients, briefing.model_dump_json())
                 urgent = briefing.event in (EventKind.NO_SAFE_ROUTE, EventKind.TOWN_THREATENED)
                 self.speak(f"b{next(self._utterances)}", CommanderKind.BRIEFING, briefing.text, urgent)
