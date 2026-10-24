@@ -11,6 +11,11 @@ varying vec2 vUv;
 varying vec3 vWorldPos;
 #ifdef DRAPED
 varying vec3 vNormal;
+#else
+// Projector calibration: map cells -> projector window (0..1, y down), or
+// uCalibrated = 0 to use the camera (letterboxed map).
+uniform mat3 uMapToProj;
+uniform float uCalibrated;
 #endif
 
 void main() {
@@ -19,8 +24,17 @@ void main() {
   vWorldPos = wp.xyz;
 #ifdef DRAPED
   vNormal = normalize(mat3(modelMatrix) * normal);
-#endif
   gl_Position = projectionMatrix * viewMatrix * wp;
+#else
+  if (uCalibrated > 0.5) {
+    // The flat view's world is (x, -y) in map cells. Keeping the homography's
+    // w as clip w makes the GPU interpolate perspective-correctly.
+    vec3 p = uMapToProj * vec3(wp.x, -wp.y, 1.0);
+    gl_Position = vec4(2.0 * p.x - p.z, p.z - 2.0 * p.y, 0.0, p.z);
+  } else {
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+#endif
 }
 `;
 

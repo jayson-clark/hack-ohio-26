@@ -28,6 +28,7 @@ from forecast.recommend import PlacedCrew, Rec, Recommender, TownInfo, describe
 from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
 from protocol import (
     AcceptRecommendation,
+    CalibrationStep,
     BinaryType,
     CommanderKind,
     CommanderMessage,
@@ -92,6 +93,7 @@ from sim.dispatch import Dispatcher
 from sim.game import Game, GameTown
 from routing.units import TURNOUT_MIN, Station, UnitRouter
 from vision import camera
+from vision.projector import Calibrator
 from vision.tokens import TokenTracker
 from vision.virtual import VirtualTable
 
@@ -187,6 +189,10 @@ class Engine:
         if self.camera is not None:
             self.camera.stop()
         self.camera = camera.from_env(CAMERA, s)
+        # Projector calibration (map -> projector), saved in calibration.json.
+        # Another scenario keeps the rig's camera -> projector and re-derives
+        # the map part once the camera sees the new board.
+        self.calibrator = Calibrator(s)
         self.fire = FireSim(s)
         self.effects = TokenEffects(s.width, s.height)
         # Evacuation routes (PLAN.md, Evacuation routing), replanned off the
@@ -311,11 +317,17 @@ class Engine:
             status = self.camera.snapshot().status
         return status.model_dump_json()
 
+    def calibration_msg(self) -> str:
+        return self.calibrator.message_model().model_dump_json()
+
     def poll_vision(self) -> None:
         """Pick up the camera thread's latest tokens and feed frame."""
         if self.camera is None:
             return
+        self.camera.find_pattern(self.calibrator.finding)
         snap = self.camera.snapshot()
+        if self.calibrator.poll(snap.pattern, snap.board):
+            broadcast(self.clients, self.calibration_msg())
         self.tracker.update(TokenSource.VISION, snap.tokens)
         if snap.feed_seq != self._sent_feed_seq and snap.feed_jpeg:
             self._sent_feed_seq = snap.feed_seq
@@ -343,6 +355,7 @@ class Engine:
             await ws.send(self.state_msg())
             await ws.send(self.tokens_msg())
             await ws.send(self.vision_status_msg())
+            await ws.send(self.calibration_msg())
             await ws.send(self.sim_grid_frame())
             await ws.send(self.forecast_frame())
             if self.roads is not None:
@@ -410,6 +423,9 @@ class Engine:
                 self.voice_mode = msg.mode
                 if msg.mode != VoiceMode.MAC:
                     self.mac_voice.interrupt()
+            case CalibrationStep():
+                self.calibrator.step(msg.action, self.camera is not None)
+                broadcast(self.clients, self.calibration_msg())
             case SetWind():
                 self.fire.set_wind(Wind(speed_ms=msg.speed_ms, from_deg=msg.from_deg % 360))
                 broadcast(self.clients, self.state_msg())
@@ -476,6 +492,7 @@ class Engine:
             broadcast(self.clients, self.routes_msg())
         broadcast(self.clients, self.recs_msg())
         broadcast(self.clients, self.score_msg())
+        broadcast(self.clients, self.calibration_msg())
 
     def reset_map(self) -> None:
         """Put the fire out, drop everything derived from it, and tell the UI."""

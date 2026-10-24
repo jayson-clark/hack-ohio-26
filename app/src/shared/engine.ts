@@ -5,6 +5,8 @@ import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
 import { interrupt, speak } from "./speech";
 import type {
+  Calibration,
+  CalibrationAction,
   ClientMessage,
   CommanderMessage,
   EngineMessage,
@@ -59,6 +61,8 @@ export interface EngineState {
   recommendations: Recommendation[];
   /** Camera and marker detection health (camera "off" in virtual table mode). */
   vision: VisionStatus | null;
+  /** Projector calibration: the wizard's phase and the map -> projector matrix. */
+  calibration: Calibration | null;
   /** Latest camera_frame (a JPEG with the vision overlay), while a camera is on. */
   cameraFrame: BinaryFrame | null;
   /** Round phase, resource limits and score (scoreboard: #47). */
@@ -84,6 +88,7 @@ let state: EngineState = {
   events: [],
   recommendations: [],
   vision: null,
+  calibration: null,
   cameraFrame: null,
   score: null,
   transcript: [],
@@ -153,6 +158,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "score":
       setState({ score: msg });
+      break;
+    case "calibration":
+      setState({ calibration: msg });
       break;
   }
 }
@@ -247,6 +255,11 @@ export function pttStop() {
 export function askCommander(text: string) {
   const q = text.trim();
   if (q) send({ type: "commander_query", text: q.slice(0, 500) });
+}
+
+/** Drive the projector calibration wizard (start, save, check, cancel, clear). */
+export function calibrationStep(action: CalibrationAction) {
+  send({ type: "calibration_step", action });
 }
 
 /** Place a recommended crew where the engine suggested it. */

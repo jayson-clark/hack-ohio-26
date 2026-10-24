@@ -9,7 +9,7 @@ from protocol import CameraState, TokenSource, TokenType
 from scenario import load_scenario
 from vision.calibration import BoardHomography
 from vision.camera import CameraVision
-from vision.markers import CORNER_IDS, DICTIONARY, detect, make_detector, token_type_for
+from vision.markers import CORNER_IDS, DICTIONARY, Detection, detect, make_detector, token_type_for
 from vision.tracking import APPEAR_FRAMES, SNAP_CELLS, VANISH_FRAMES, MarkerTracker, Sighting, measure
 
 PX_PER_CELL = 5
@@ -108,6 +108,16 @@ def test_board_keeps_last_homography_when_a_corner_is_covered(scenario):
     assert not board.update(detect(detector, render_camera_image(scenario, hide_corner="SE")))
     assert board.corners_seen == ["NW", "NE", "SW"]
     np.testing.assert_array_equal(board.cam_to_map, solved)
+
+
+def test_board_rejects_swapped_corners(scenario):
+    board = BoardHomography(scenario)
+    dets = detect(make_detector(), render_camera_image(scenario))
+    swap = {CORNER_IDS["SE"]: CORNER_IDS["SW"], CORNER_IDS["SW"]: CORNER_IDS["SE"]}
+    assert not board.update([Detection(swap.get(d.id, d.id), d.corners) for d in dets])
+    assert board.misplaced and board.cam_to_map is None
+    assert board.update(dets)
+    assert not board.misplaced
 
 
 def test_board_needs_all_four_corners_first(scenario):

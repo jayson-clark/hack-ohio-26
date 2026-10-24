@@ -12,7 +12,8 @@ export type EngineMessage =
   | CommanderMessage
   | CommanderSpeech
   | Transcript
-  | Units;
+  | Units
+  | Calibration;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -33,6 +34,7 @@ export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
 export type CommanderKind = "briefing" | "answer";
 export type UnitStatus = "available" | "en_route" | "working" | "blocked" | "grounded";
+export type CalibrationPhase = "none" | "pattern" | "review" | "calibrated";
 export type ClientMessage =
   | VirtualTokenAdd
   | VirtualTokenMove
@@ -50,8 +52,10 @@ export type ClientMessage =
   | CommanderQuery
   | SetVoice
   | PttStart
-  | PttStop;
+  | PttStop
+  | CalibrationStep;
 export type VoiceMode = "off" | "console" | "mac";
+export type CalibrationAction = "start" | "save" | "check" | "cancel" | "clear";
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -282,6 +286,23 @@ export interface UnitInfo {
   eta_min: number | null;
   path: number[][];
 }
+/**
+ * Projector calibration (PLAN.md, Calibration; engine/vision/projector.py).
+ * Sent on connect, on every calibration_step, while the pattern is being
+ * found, and when the engine follows a moved board.
+ */
+export interface Calibration {
+  type: "calibration";
+  phase: CalibrationPhase;
+  map_to_proj: number[] | null;
+  pattern: string | null;
+  corners_found: number;
+  corners_total: number;
+  frames: number;
+  frames_needed: number;
+  error_px: number | null;
+  message: string | null;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -392,4 +413,8 @@ export interface PttStart {
  */
 export interface PttStop {
   type: "ptt_stop";
+}
+export interface CalibrationStep {
+  type: "calibration_step";
+  action: CalibrationAction;
 }

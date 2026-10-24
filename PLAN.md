@@ -101,7 +101,7 @@ Define the schemas once as Pydantic models in `engine/protocol.py`, then generat
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
 
-Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `set_running`, `set_speed`, `step_once` (pause, speed and single steps; `scenario_state` carries `paused` and `speed`), `vision_status` (camera state, fps, corner markers seen, board locked), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
+Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `set_running`, `set_speed`, `step_once` (pause, speed and single steps; `scenario_state` carries `paused` and `speed`), `vision_status` (camera state, fps, corner markers seen, board locked), `calibration_step` and `calibration` (the projector calibration wizard and its map→projector matrix), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
 
 **Wind convention** everywhere (protocol, sim, commander tools): `speed_ms` in m/s and `from_deg` meteorological, the direction the wind blows *from*, degrees clockwise from north (map up, −y). 270 is a west wind that pushes fire east.
 
@@ -175,10 +175,13 @@ Looks polished and native, on the laptop screen.
 
 ### Calibration
 
-1. The projector shows a ChArUco pattern at known projector-pixel positions. The camera detects it, giving `H_cam→proj`.
+1. The projector goes black until the camera sees all four corner markers (projected light washes them out), then shows a dim white ring with a dot by its top-left corner, stretched over its whole window. The camera finds the ring's 8 corners in each frame minus the black one, over a few frames, giving `H_cam→proj`. Big plain shapes rather than a marker grid, because a projector blooms its whites into small markers' bits; the ring's outer edges bloom outward and its inner edges inward, so the fit cancels most of it. The ring stays in the middle of the frame so it lands on the board, not the floor.
 2. ArUco markers on holders pinned to the four board corners, just outside the terrain, are detected, giving `H_cam→map`.
-3. Combine them: `H_map→proj = H_cam→proj · H_map→cam`, which the projector shader uses.
-4. Save to `calibration.json`. The console has a hotkey and button to recalibrate in seconds when someone bumps the table.
+3. Combine them: `H_map→proj = H_cam→proj · H_map→cam`, which the projector's vertex shader applies (`uMapToProj`, keeping the homography's w as clip w so texturing stays perspective-correct). Projector coords are normalised to the projector window (0..1, y down), so the matrix doesn't depend on its resolution.
+4. The console wizard (Projector panel, Shift+C) reviews the fit on the table with a test grid and corner crosses, then saves to `calibration.json` at the repo root (gitignored, per rig).
+5. `H_cam→proj` is saved too. Camera and projector share a mount, so a bumped table only moves the board in the camera view: the engine re-derives `H_map→proj` from the saved `H_cam→proj` and the corner markers, with no recalibration. Recalibrate if the camera moves relative to the projector.
+
+Code: `engine/vision/projector.py` (engine), `app/src/console/CalibrationPanel.tsx` and `app/src/render/ProjectionView.tsx` (UI).
 
 **Height parallax.** Projected points land offset by roughly `h × d / H` (feature height × distance from the projector's center axis ÷ projector height). With a projector about 150 cm up, a 4 cm hill 30 cm off-axis shifts about 0.8 cm. That's acceptable with low relief. The full fix (rendering the terrain mesh from a calibrated projector pose) is in Phase 7.
 

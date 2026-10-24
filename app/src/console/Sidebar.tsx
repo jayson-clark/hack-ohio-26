@@ -7,6 +7,7 @@ import { elevationAt, type Scenario } from "../shared/scenario";
 import { TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { CloseIcon, PinIcon } from "./icons";
+import CalibrationPanel from "./CalibrationPanel";
 import CommanderPanel from "./CommanderPanel";
 import ProjectorControls from "./ProjectorControls";
 import StationsPanel from "./StationsPanel";
@@ -42,7 +43,10 @@ export default function Sidebar(props: Props) {
       {props.scenario && <PlacesPanel scenario={props.scenario} onFocus={props.onFocusPlace} />}
       <RoutesPanel onFocus={props.onFocusPlace} />
       <Panel title="Projector">
-        <ProjectorControls />
+        <div className="space-y-3">
+          <ProjectorControls />
+          <CalibrationPanel />
+        </div>
       </Panel>
     </aside>
   );

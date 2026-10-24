@@ -2,7 +2,10 @@
 // map's aspect. Used full-screen by the projector window and as the console's
 // top-down view.
 //
-// TODO(calibration): apply H_map→proj in the vertex shader here.
+// With a projector calibration (mapToProj) the view fills its whole frame and
+// the vertex shader places the map through the homography, so it lands on the
+// printed terrain. The input overlay follows through the same matrix as a CSS
+// matrix3d, so clicks and the test grid line up with the picture.
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
@@ -11,6 +14,7 @@ import type { ForecastGrids } from "../shared/engine";
 import type { RouteInfo, Token } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import type { PlaceType } from "../shared/virtualTokens";
+import { apply, cssMatrix3d, invert, toPixels, type Mat3 } from "./homography";
 import MapOverlay from "./MapOverlay";
 import { createProjection, type Layers, type Projection } from "./projection";
 import { useProjectionSync } from "./useProjection";
@@ -29,11 +33,27 @@ export interface ViewProps {
   onHover?: (p: { x: number; y: number } | null) => void;
 }
 
-export default function ProjectionView(props: ViewProps & { showGlyphs?: boolean }) {
-  const { scenario, tokens, placeType, showGlyphs, onSelect, onHover } = props;
+interface CalibrationProps {
+  /** Row-major map -> projector window (normalised); null letterboxes the map. */
+  mapToProj?: Mat3 | null;
+  /** Draw the calibration test grid and corner crosses over the map. */
+  testPattern?: boolean;
+}
+
+export default function ProjectionView(props: ViewProps & CalibrationProps & { showGlyphs?: boolean }) {
+  const { scenario, tokens, placeType, showGlyphs, onSelect, onHover, mapToProj = null, testPattern = false } = props;
+  const frameRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const projRef = useRef<Projection | null>(null);
   const [generation, setGeneration] = useState(0);
+  const [frame, setFrame] = useState({ w: 1, h: 1 });
+
+  useEffect(() => {
+    const el = frameRef.current!;
+    const observer = new ResizeObserver(() => setFrame({ w: el.clientWidth || 1, h: el.clientHeight || 1 }));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const { width, height } = scenario;
@@ -72,26 +92,102 @@ export default function ProjectionView(props: ViewProps & { showGlyphs?: boolean
   }, [scenario]);
 
   useProjectionSync(projRef, props, generation);
+  useEffect(() => projRef.current?.setMapToProj(mapToProj), [mapToProj, generation]);
 
-  return (
-    <div className="flex h-full w-full items-center justify-center [container-type:size]">
+  const overlay = (toMap?: (clientX: number, clientY: number) => { x: number; y: number }) => (
+    <>
+      <MapOverlay
+        map={scenario}
+        tokens={tokens}
+        placeType={placeType}
+        showGlyphs={showGlyphs}
+        onSelect={onSelect}
+        onHover={onHover}
+        toMap={toMap}
+      />
+      {testPattern && <TestPattern scenario={scenario} />}
+    </>
+  );
+
+  let content;
+  if (mapToProj) {
+    const px = toPixels(mapToProj, frame.w, frame.h);
+    const inv = invert(px);
+    const toMap = (clientX: number, clientY: number) => {
+      const r = frameRef.current!.getBoundingClientRect();
+      const [x, y] = apply(inv, clientX - r.left, clientY - r.top);
+      return { x, y };
+    };
+    content = (
       <div
-        className="relative"
+        className="absolute top-0 left-0"
         style={{
-          aspectRatio: `${scenario.width} / ${scenario.height}`,
-          width: `min(100cqw, 100cqh * ${scenario.width / scenario.height})`,
+          width: scenario.width,
+          height: scenario.height,
+          transformOrigin: "0 0",
+          transform: cssMatrix3d(px),
         }}
       >
+        {overlay(toMap)}
+      </div>
+    );
+  } else {
+    content = overlay();
+  }
+
+  // The host keeps its place in the tree either way, so the WebGL canvas survives.
+  return (
+    <div ref={frameRef} className="relative flex h-full w-full items-center justify-center [container-type:size]">
+      <div
+        className={mapToProj ? "absolute inset-0" : "relative"}
+        style={
+          mapToProj
+            ? undefined
+            : {
+                aspectRatio: `${scenario.width} / ${scenario.height}`,
+                width: `min(100cqw, 100cqh * ${scenario.width / scenario.height})`,
+              }
+        }
+      >
         <div ref={hostRef} className="absolute inset-0" />
-        <MapOverlay
-          map={scenario}
-          tokens={tokens}
-          placeType={placeType}
-          showGlyphs={showGlyphs}
-          onSelect={onSelect}
-          onHover={onHover}
-        />
+        {content}
       </div>
     </div>
+  );
+}
+
+const TEST_GRID_CELLS = 16;
+const TEST_COLOR = "#22d3ee";
+
+/** Calibration check, in map cells: grid, map border, and crosses that should
+ * sit on the printed corner markers. */
+function TestPattern({ scenario }: { scenario: Scenario }) {
+  const { width, height, info } = scenario;
+  const markerHalf = (info.markers.marker_size_mm / info.grid.cell_size_mm) / 2;
+  const xs = Array.from({ length: Math.floor(width / TEST_GRID_CELLS) + 1 }, (_, i) => i * TEST_GRID_CELLS);
+  const ys = Array.from({ length: Math.floor(height / TEST_GRID_CELLS) + 1 }, (_, i) => i * TEST_GRID_CELLS);
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      style={{ overflow: "visible" }}
+      fill="none"
+      stroke={TEST_COLOR}
+    >
+      {xs.map((x) => (
+        <line key={`x${x}`} x1={x} y1={0} x2={x} y2={height} strokeWidth={0.35} />
+      ))}
+      {ys.map((y) => (
+        <line key={`y${y}`} x1={0} y1={y} x2={width} y2={y} strokeWidth={0.35} />
+      ))}
+      <rect width={width} height={height} strokeWidth={1.2} />
+      {info.markers.corners.map(({ corner, center_map: [cx, cy] }) => (
+        <g key={corner} strokeWidth={0.8}>
+          <rect x={cx - markerHalf} y={cy - markerHalf} width={markerHalf * 2} height={markerHalf * 2} />
+          <line x1={cx - markerHalf * 1.6} y1={cy} x2={cx + markerHalf * 1.6} y2={cy} />
+          <line x1={cx} y1={cy - markerHalf * 1.6} x2={cx} y2={cy + markerHalf * 1.6} />
+        </g>
+      ))}
+    </svg>
   );
 }
