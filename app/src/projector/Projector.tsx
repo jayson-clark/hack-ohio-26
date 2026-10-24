@@ -8,9 +8,10 @@ import { useScenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
 import { DEFAULT_LAYERS } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
+import { RoundSummaryProjected } from "../console/RoundSummary";
 
 export default function Projector() {
-  const { tokens, simGrid, forecast, routes } = useEngine();
+  const { tokens, simGrid, forecast, routes, score } = useEngine();
   const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<TokenType>("crew");
 
@@ -29,7 +30,7 @@ export default function Projector() {
   }, []);
 
   return (
-    <div className="h-full cursor-crosshair bg-black">
+    <div className="relative h-full cursor-crosshair bg-black">
       {scenario ? (
         <ProjectionView
           scenario={scenario}
@@ -44,6 +45,7 @@ export default function Projector() {
       ) : (
         error && <p className="p-6 font-mono text-sm text-red-400">{error}</p>
       )}
+      <RoundSummaryProjected score={score} />
     </div>
   );
 }
