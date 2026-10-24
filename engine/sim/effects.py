@@ -40,6 +40,19 @@ FIREBREAK_LENGTH = 16.0  # cells, end to end (~1.5 km)
 FIREBREAK_HALF_WIDTH = 0.9
 
 
+def soft_disk(dist: np.ndarray, radius: float) -> np.ndarray:
+    """Full strength out to 60% of the radius, then a linear edge, so the
+    boundary isn't a hard pixel circle the fire hugs."""
+    return np.clip((radius - dist) / (0.4 * radius), 0.0, 1.0)
+
+
+def crew_footprint(width: int, height: int, x: float, y: float) -> np.ndarray:
+    """A dug-in crew's suppression at (x, y), float32 (H, W): what a crew placed
+    there settles to once it has ramped up. Recommendations test this."""
+    cy, cx = np.mgrid[:height, :width].astype(np.float32) + 0.5
+    return (CREW_MAX * soft_disk(np.hypot(cx - x, cy - y), CREW_RADIUS)).astype(np.float32)
+
+
 @dataclass
 class _Crew:
     x: float
@@ -88,10 +101,7 @@ class TokenEffects:
         return np.hypot(self._cx - x, self._cy - y)
 
     def _disk(self, x: float, y: float, radius: float) -> np.ndarray:
-        # Full strength out to 60% of the radius, then a linear edge, so the
-        # boundary isn't a hard pixel circle the fire hugs.
-        d = self._dist(x, y)
-        return np.clip((radius - d) / (0.4 * radius), 0.0, 1.0)
+        return soft_disk(self._dist(x, y), radius)
 
     def _crew(self, t: Token, tick: int) -> np.ndarray:
         c = self._crews.get(t.id)

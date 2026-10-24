@@ -27,7 +27,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 5
+PROTOCOL_VERSION = 6
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -155,7 +155,41 @@ class Events(Model):
     events: list[Event]
 
 
-EngineMessage = Annotated[Union[Hello, ScenarioState, Tokens, Routes, Events], Field(discriminator="type")]
+class TownEffect(Model):
+    town: str
+    hits: int  # rollouts in which the placement changes whether fire reaches the town
+    n: int  # rollouts run
+
+
+class TownShare(Model):
+    town: str
+    share: float  # mean drop in the fraction of the town that burns by T+60, 0..1
+
+
+class Recommendation(Model):
+    id: str  # pass back in accept_recommendation
+    token_type: TokenType
+    x: float  # map coords
+    y: float
+    benefit: float  # mean person-equivalents spared per rollout (the ranking score)
+    acres_saved: float  # mean acres the placement keeps from burning by T+60
+    saves: list[TownEffect]  # without it the fire reaches the town; with it, it doesn't
+    worsens: list[TownEffect]  # the reverse: the placement deflects fire onto the town
+    protects: list[TownShare]  # towns where less burns with it, biggest drop first
+    text: str  # one sentence for a card or a briefing
+
+
+class Recommendations(Model):
+    """Best first. Sent every few seconds while a fire burns, and empty on reset."""
+
+    type: Literal["recommendations"] = "recommendations"
+    tick: int
+    recommendations: list[Recommendation]
+
+
+EngineMessage = Annotated[
+    Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations], Field(discriminator="type")
+]
 
 
 # --- UI -> engine ----------------------------------------------------------
@@ -199,8 +233,15 @@ class SetWind(Model):
     from_deg: float
 
 
+class AcceptRecommendation(Model):
+    """Place the recommended token (as a virtual token) where it was recommended."""
+
+    type: Literal["accept_recommendation"] = "accept_recommendation"
+    id: str
+
+
 ClientMessage = Annotated[
-    Union[VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind],
+    Union[VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation],
     Field(discriminator="type"),
 ]
 
