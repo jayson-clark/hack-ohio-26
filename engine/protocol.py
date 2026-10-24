@@ -5,7 +5,16 @@ with `make types` and commit both in the same commit (see AGENTS.md).
 
 JSON messages are discriminated on `type`. Binary frames start with the
 12-byte header described by BINARY_HEADER (mirrored by hand in
-app/src/shared/binary.ts).
+app/src/shared/binary.ts), followed by a payload:
+
+- SIM_GRID: width*height uint8 cell states, row-major, row 0 = north, every
+  tick. Values are sim.fire's UNBURNABLE=0, FUEL=1, BURNING=2, BURNED=3.
+- FORECAST_GRID: one width*height uint8 grid per forecast horizon, stacked in
+  the order of Hello.forecast_horizons_min (so the payload is
+  len(horizons)*width*height bytes). Each byte is P(burned by that horizon)
+  scaled to 0-255. `tick` is the sim tick the forecast started from. Sent
+  whenever a forecast finishes (a few per second), and once, all zero, on
+  reset.
 
 All positions are in map-grid coordinates, in cell units (floats allowed):
 x runs from 0 to the map width, y from 0 to the map height, origin at the
@@ -18,7 +27,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -74,12 +83,26 @@ class Hello(Model):
     scenario: str
     map_width: int
     map_height: int
+    sim_minutes_per_tick: float
+    forecast_horizons_min: list[float]  # order of the grids in a FORECAST_GRID frame
+
+
+class WindState(Model):
+    speed_ms: float
+    # Meteorological: where the wind blows FROM, degrees clockwise from north
+    # (map up). 270 is a west wind, pushing fire east (+x).
+    from_deg: float
 
 
 class ScenarioState(Model):
+    """Sent once a second, and immediately after ignite, reset or set_wind."""
+
     type: Literal["scenario_state"] = "scenario_state"
     tick: int
     running: bool
+    wind: WindState
+    burning_cells: int
+    burned_cells: int
 
 
 class Tokens(Model):
@@ -113,8 +136,27 @@ class VirtualTokenRemove(Model):
     id: str
 
 
+class Ignite(Model):
+    type: Literal["ignite"] = "ignite"
+    x: float
+    y: float
+
+
+class Reset(Model):
+    """Put the fire out and unburn the map. Tokens stay where they are."""
+
+    type: Literal["reset"] = "reset"
+
+
+class SetWind(Model):
+    type: Literal["set_wind"] = "set_wind"
+    speed_ms: float = Field(ge=0, le=40)
+    from_deg: float
+
+
 ClientMessage = Annotated[
-    Union[VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove], Field(discriminator="type")
+    Union[VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind],
+    Field(discriminator="type"),
 ]
 
 client_message_adapter: TypeAdapter[ClientMessage] = TypeAdapter(ClientMessage)
