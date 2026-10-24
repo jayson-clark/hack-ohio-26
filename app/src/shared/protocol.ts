@@ -12,7 +12,8 @@ export type EngineMessage =
   | CommanderMessage
   | CommanderSpeech
   | Transcript
-  | Units;
+  | Units
+  | EvacClock;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -26,13 +27,15 @@ export type EventKind =
   | "round_ended"
   | "unit_arrived"
   | "unit_blocked"
-  | "tankers_grounded";
+  | "tankers_grounded"
+  | "evacuate_now";
 export type RecAction = "place" | "move";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
 export type CommanderKind = "briefing" | "answer";
 export type UnitStatus = "available" | "en_route" | "working" | "blocked" | "grounded";
+export type EvacStatus = "watch" | "order_soon" | "order_now" | "late" | "evacuating" | "clear" | "trapped";
 export type ClientMessage =
   | VirtualTokenAdd
   | VirtualTokenMove
@@ -48,6 +51,7 @@ export type ClientMessage =
   | SetSpeed
   | StepOnce
   | CommanderQuery
+  | OrderEvacuation
   | SetVoice
   | PttStart
   | PttStop;
@@ -282,6 +286,45 @@ export interface UnitInfo {
   eta_min: number | null;
   path: number[][];
 }
+/**
+ * When each town has to be ordered out (#121): fire arrival from a long
+ * forecast against the time to empty the town through shared exits. Sent
+ * when that forecast lands, on an order, and on connect.
+ */
+export interface EvacClock {
+  type: "evac_clock";
+  tick: number;
+  forecast_tick: number | null;
+  horizon_min: number;
+  towns: TownEvac[];
+}
+export interface TownEvac {
+  town: string;
+  status: EvacStatus;
+  ordered_tick: number | null;
+  people: number;
+  vehicles: number;
+  mobilize_min: number;
+  clearance_min: number | null;
+  last_car_out_tick: number | null;
+  order_by_tick: number | null;
+  order_by_bound: boolean;
+  fire_tick: number | null;
+  reach: number;
+  n: number;
+  p_safe: number;
+  p_safe_lo: number;
+  p_safe_hi: number;
+  p_safe_bound: boolean;
+  exits: EvacExit[];
+  shares_with: string[];
+}
+export interface EvacExit {
+  safe_zone: string;
+  share: number;
+  bottleneck_vph: number;
+  drive_min: number;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -373,6 +416,14 @@ export interface StepOnce {
 export interface CommanderQuery {
   type: "commander_query";
   text: string;
+}
+/**
+ * Order a town out (or take the order back).
+ */
+export interface OrderEvacuation {
+  type: "order_evacuation";
+  town: string;
+  ordered: boolean;
 }
 /**
  * How the commander speaks. Off by default; the console sends its saved choice on connect.

@@ -11,6 +11,7 @@ import CommanderPanel from "./CommanderPanel";
 import ProjectorControls from "./ProjectorControls";
 import StationsPanel from "./StationsPanel";
 import RecommendationsPanel from "./RecommendationsPanel";
+import EvacuationPanel from "./EvacuationPanel";
 import { EventLogPanel } from "./EventLog";
 import RoundPanel from "./RoundPanel";
 import RoutesPanel from "./RoutesPanel";
@@ -32,6 +33,7 @@ export default function Sidebar(props: Props) {
   return (
     <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto pb-3">
       <RoundPanel score={props.score} />
+      <EvacuationPanel onFocus={props.onFocusPlace} />
       <DeployPanel {...props} />
       <FirePanel {...props} />
       <CommanderPanel />

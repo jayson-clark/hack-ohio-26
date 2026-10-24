@@ -96,6 +96,7 @@ def test_accepting_a_recommendation_places_a_virtual_crew():
             assert len(engine.tracker.tokens) == 1
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run_engine())

@@ -14,6 +14,7 @@ def run_engine(body):
             body(engine)
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
             if engine.camera is not None:
                 engine.camera.stop()
