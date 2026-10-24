@@ -14,6 +14,11 @@ Against the real 2018 Camp Fire (NIST observations plus NIFC and FEDS perimeters
 cd engine && uv run python -m eval.campfire             # one replay with the current constants, ~3 s
 cd engine && uv run python -m eval.campfire --search    # grid over C2, spotting and the replay wind, ~4 min on 11 cores
 ```
+Evacuation order clock (#121) against the real fire: NIST's observed arrival in each town minus the clock's time to empty it gives the real order deadline, next to what the clock said from replay forecasts:
+```sh
+cd engine && uv run python -m eval.evac_clock           # 9 long forecasts to T+120, ~50 s
+```
+
 Regenerate the real data with `engine/.venv/bin/python -I tools/campfire_to_assets.py` (the raw downloads live in `tools/.cache/campfire/`; the URLs are in the script's docstring).
 
 Early attack (does dropping crews on a new ignition still contain it?):

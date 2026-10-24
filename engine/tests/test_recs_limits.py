@@ -57,6 +57,7 @@ def engine_in_round(crews: int, source=TokenSource.VIRTUAL) -> Engine:
 
 def shut(e):
     e.forecaster.shutdown()
+    e.long_forecaster.shutdown()
     e.recommender.shutdown()
 
 

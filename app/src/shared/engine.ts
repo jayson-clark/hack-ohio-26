@@ -8,6 +8,7 @@ import type {
   ClientMessage,
   CommanderMessage,
   EngineMessage,
+  EvacClock,
   Event,
   Hello,
   PlanOrder,
@@ -63,6 +64,8 @@ export interface EngineState {
   forecast: ForecastGrids | null;
   /** Every town's evacuation route, replanned after each forecast. */
   routes: RouteInfo[];
+  /** When each town has to be ordered out (#121), most urgent first. */
+  evacClock: EvacClock | null;
   /** Fire units (#104): where each is, and its route and ETA while en route. */
   units: UnitInfo[];
   /** Recent events, oldest first. Cleared on reconnect. */
@@ -96,6 +99,7 @@ let state: EngineState = {
   simGrid: null,
   forecast: null,
   routes: [],
+  evacClock: null,
   units: [],
   events: [],
   recommendations: [],
@@ -129,6 +133,7 @@ function handleMessage(msg: EngineMessage) {
           simGrid: null,
           forecast: null,
           routes: [],
+          evacClock: null,
           units: [],
           events: [],
           recommendations: [],
@@ -152,6 +157,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "routes":
       setState({ routes: msg.routes });
+      break;
+    case "evac_clock":
+      setState({ evacClock: msg });
       break;
     case "recommendations":
       setState({ recommendations: msg.recommendations });
@@ -289,6 +297,11 @@ export function pttStop() {
 export function askCommander(text: string) {
   const q = text.trim();
   if (q) send({ type: "commander_query", text: q.slice(0, 500) });
+}
+
+/** Order a town out (or take the order back). */
+export function orderEvacuation(town: string, ordered: boolean) {
+  send({ type: "order_evacuation", town, ordered });
 }
 
 // Plan ids only need to be unique per window and session; start somewhere

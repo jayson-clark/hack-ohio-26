@@ -97,6 +97,7 @@ def test_engine_snapshot_carries_the_schedule_through_the_worker():
             assert f.first_burn.shape[1:] == snap.state.shape
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())
