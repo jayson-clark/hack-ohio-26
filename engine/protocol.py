@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 13
+PROTOCOL_VERSION = 14
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -171,6 +171,8 @@ class TownEffect(Model):
     town: str
     hits: int  # rollouts in which the placement changes whether fire reaches the town
     n: int  # rollouts run
+    lo: float  # 90% interval on hits / n (sampling uncertainty, #11), 0..1
+    hi: float
 
 
 class TownShare(Model):
@@ -196,6 +198,9 @@ class Recommendation(Model):
     # physical token has to be moved by hand, so its card is advice only.
     auto: bool
     benefit: float  # mean person-equivalents spared per rollout (the ranking score)
+    benefit_lo: float  # 90% interval on benefit; only placements with benefit_lo > 0 are sent (#11)
+    benefit_hi: float
+    confidence: str  # how firmly to state it: "high" or "moderate"
     acres_saved: float  # mean acres the placement keeps from burning by T+60
     saves: list[TownEffect]  # without it the fire reaches the town; with it, it doesn't
     worsens: list[TownEffect]  # the reverse: the placement deflects fire onto the town

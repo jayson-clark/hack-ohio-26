@@ -127,6 +127,7 @@ engine/                 Python
   forecast/             batched rollouts, crew recommendations
   routing/              road graph, evac routing
   commander/            LLM tools, speech-to-text/TTS
+  uq/                   uncertainty: sampling intervals (mc.py); conformal calibration to come
   protocol.py           Pydantic message models
   gen_schema.py         protocol JSON schema for `make types`
   tests/                pytest
@@ -238,6 +239,7 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 - Sample candidate cells along the predicted fire front.
 - For each candidate, run a few rollouts with a crew placed there, then rank by population and structures saved.
 - Project the top 3 as pulsing markers labeled, for example, "Saves Pinecrest in 87% of simulations."
+- **Uncertainty** (`engine/uq/mc.py`): every "k of N" carries a 90% Wilson interval, and each recommendation's benefit a paired t interval. A recommendation is shown only if the *low* end of its benefit is above zero, and the top two are re-run head to head when their intervals overlap. Town threat briefings use the interval's bounds instead of the raw share. This is sampling uncertainty only; whether the forecast's assumptions hold is for conformal calibration (#12, #13).
 
 ### Incident commander (LLM)
 

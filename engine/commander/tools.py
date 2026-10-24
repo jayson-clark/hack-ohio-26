@@ -22,6 +22,7 @@ import numpy as np
 from forecast.recommend import TownInfo, evaluate_spots
 from forecast.rollout import rollout
 from sim.fire import BURNED, BURNING, SIM_MINUTES_PER_TICK, FireSnapshot, Wind
+from uq.mc import confidence_word, wilson
 
 if TYPE_CHECKING:
     from server import Engine
@@ -238,11 +239,19 @@ class CommanderTools:
         def within(minutes: float) -> int:
             return int((a * SIM_MINUTES_PER_TICK <= minutes).sum())
 
+        def count(minutes: float) -> dict:
+            k = within(minutes)
+            lo, hi = wilson(k, n)
+            # The count is from n simulations, so the true chance is only known to
+            # within this range (#11). The word says how firmly to state it.
+            return {"simulations": k, "of": n, "likely_percent": [round(lo * 100), round(hi * 100)],
+                    "confidence": confidence_word(lo, hi)}
+
         reached = np.isfinite(a)
         median = float(np.median(a[reached])) * SIM_MINUTES_PER_TICK if reached.sum() * 2 >= n else None
         return {
-            "fire_reaches_within_30_min": {"simulations": within(30), "of": n},
-            "fire_reaches_within_60_min": {"simulations": within(60), "of": n},
+            "fire_reaches_within_30_min": count(30),
+            "fire_reaches_within_60_min": count(60),
             "median_minutes_until_fire": None if median is None else round(median),
         }
 

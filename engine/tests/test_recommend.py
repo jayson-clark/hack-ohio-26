@@ -42,7 +42,12 @@ def test_chokepoint_ranks_first_and_saves_the_town():
     assert math.hypot(best.x - GAP[0], best.y - GAP[1]) < 8, best
     [save] = best.saves
     # A crew is 0.9 suppression, not a wall, so it holds the gap often but not always.
-    assert save.town == "Eastville" and save.hits >= 4 and save.n == 12
+    # The shown counts come from the fresh-seed check (16 rollouts).
+    assert save.town == "Eastville" and save.n == 16 and save.hits / save.n >= 0.25
+    assert save.lo < save.hits / save.n < save.hi
+    # Only shown because even the low end of its benefit interval helps (#11).
+    assert best.benefit_lo > 0 and best.benefit_lo <= best.benefit <= best.benefit_hi
+    assert best.confidence in ("high", "moderate")
     assert all(r.benefit > 0 for r in recs)
     assert [r.benefit for r in recs] == sorted((r.benefit for r in recs), reverse=True)
 
@@ -80,6 +85,7 @@ def test_accepting_a_recommendation_places_a_virtual_crew():
         try:
             engine.recs = [Recommendation(id="r5-0", token_type=TokenType.CREW, action="place", x=120.5, y=80.5,
                                           move_token=None, from_x=None, from_y=None, auto=True, benefit=3.0,
+                                          benefit_lo=1.0, benefit_hi=5.0, confidence="moderate",
                                           acres_saved=10.0, saves=[], worsens=[], protects=[], text="")]
             engine.accept_recommendation("r5-0")
             [crew] = engine.tracker.tokens
