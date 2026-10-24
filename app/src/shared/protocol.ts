@@ -1,8 +1,9 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
-export type EngineMessage = Hello | ScenarioState | Tokens;
+export type EngineMessage = Hello | ScenarioState | Tokens | Routes;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
+export type RouteStatus = "clear" | "risky" | "cut";
 export type ClientMessage = VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind;
 
 /**
@@ -47,6 +48,23 @@ export interface Token {
   y: number;
   angle: number;
   source: TokenSource;
+}
+/**
+ * Every town's evacuation route. Sent after each forecast, on reset, and on connect.
+ */
+export interface Routes {
+  type: "routes";
+  tick: number;
+  routes: RouteInfo[];
+}
+export interface RouteInfo {
+  town: string;
+  safe_zone: string | null;
+  points: number[][];
+  length_m: number;
+  eta_min: number;
+  risk: number;
+  status: RouteStatus;
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";

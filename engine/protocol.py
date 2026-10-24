@@ -27,7 +27,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -110,7 +110,31 @@ class Tokens(Model):
     tokens: list[Token]
 
 
-EngineMessage = Annotated[Union[Hello, ScenarioState, Tokens], Field(discriminator="type")]
+class RouteStatus(StrEnum):
+    CLEAR = "clear"
+    RISKY = "risky"  # some edge is fairly likely to burn before the bus passes
+    CUT = "cut"  # no safe zone is reachable
+
+
+class RouteInfo(Model):
+    town: str
+    safe_zone: str | None  # None when the route is cut
+    points: list[list[float]]  # [x, y] polyline in map coords, town first
+    length_m: float
+    eta_min: float  # drive time in sim minutes
+    risk: float  # max P(an edge burns by the time the bus reaches it), 0..1
+    status: RouteStatus
+
+
+class Routes(Model):
+    """Every town's evacuation route. Sent after each forecast, on reset, and on connect."""
+
+    type: Literal["routes"] = "routes"
+    tick: int  # sim tick the routes were planned at
+    routes: list[RouteInfo]
+
+
+EngineMessage = Annotated[Union[Hello, ScenarioState, Tokens, Routes], Field(discriminator="type")]
 
 
 # --- UI -> engine ----------------------------------------------------------
