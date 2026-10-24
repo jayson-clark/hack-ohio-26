@@ -87,7 +87,9 @@ export default function Console() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-edge px-4">
+      {/* Everything here stays on one line: low-value text (scenario size, tick)
+          only shows on wide screens, so the demo controls always fit. */}
+      <header className="flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge px-4">
         <div className="flex items-center gap-2">
           <FlameMark />
           <span className="text-[13px] font-semibold tracking-[0.14em]">FIREWATCH</span>
@@ -98,20 +100,23 @@ export default function Console() {
         <FireStats scenario={scenario} simGrid={simGrid} />
         <div className="h-5 w-px bg-edge" />
         {state && (
-          <span className="font-mono text-[11px] tabular-nums text-fg-subtle">
+          <span className="hidden font-mono text-[11px] tabular-nums text-fg-subtle 2xl:inline">
             tick <span className="text-fg-muted">{state.tick}</span>
           </span>
         )}
         <TalkButton available={hello?.speech_to_text ?? false} listening={listening} heard={heard} />
-        <Segmented
-          value={voiceMode}
-          onChange={setVoiceMode}
-          options={[
-            { value: "off", label: "Voice off" },
-            ...(speechSupported ? [{ value: "console" as const, label: "Console" }] : []),
-            { value: "mac", label: "Mac say" },
-          ]}
-        />
+        <span className="flex items-center gap-1.5">
+          <span className="text-[11px] text-fg-subtle">Voice</span>
+          <Segmented
+            value={voiceMode}
+            onChange={setVoiceMode}
+            options={[
+              { value: "off", label: "Off" },
+              ...(speechSupported ? [{ value: "console" as const, label: "Console" }] : []),
+              { value: "mac", label: "Mac" },
+            ]}
+          />
+        </span>
         <ConnectionBadge status={status} />
       </header>
 
@@ -164,7 +169,7 @@ function ScenarioBadge({ scenario }: { scenario: Scenario }) {
   return (
     <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-1 px-2 py-1 text-[11px]">
       <span className="font-medium capitalize text-fg">{info.name}</span>
-      <span className="text-fg-subtle">
+      <span className="hidden text-fg-subtle 2xl:inline">
         {km(scenario.width)} × {km(scenario.height)} km · {scenario.width}×{scenario.height} cells
       </span>
     </div>
@@ -215,7 +220,9 @@ function ConnectionBadge({ status }: { status: string }) {
       }`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${color} ${open ? "" : "animate-pulse"}`} />
-      {open ? "Engine connected" : status === "connecting" ? "Connecting…" : "Engine offline"}
+      {/* "Connected" on a laptop, "Engine connected" where there's room. */}
+      <span className="hidden 2xl:inline">Engine </span>
+      <span className="2xl:lowercase">{open ? "Connected" : status === "connecting" ? "Connecting…" : "Offline"}</span>
     </span>
   );
 }
