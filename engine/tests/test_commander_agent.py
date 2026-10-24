@@ -78,11 +78,11 @@ def run(coro):
 def test_tool_loop_and_request_shape(engine):
     client = FakeClient(tool_msg("get_situation", {}), text_msg("Pulga is threatened in 32 of 32 simulations."))
     cmd = Commander(CommanderTools(engine), client=client, model="claude-opus-5-5")
-    chunks = []
-    ans = run(cmd.answer("How bad is it?", on_text=chunks.append))
+    sentences = []
+    ans = run(cmd.answer("How bad is it?", on_sentence=sentences.append))
     assert ans.source == "llm" and ans.text == "Pulga is threatened in 32 of 32 simulations."
-    assert ans.tools_used == ["get_situation"] and "towns" in ans.tool_results[0]
-    assert "".join(chunks).strip() == ans.text
+    assert ans.grounded and ans.tools_used == ["get_situation"] and "towns" in ans.tool_results[0]
+    assert sentences == [ans.text]
 
     first, second = client.requests
     assert first["model"] == "claude-opus-5-5" and first["fallbacks"] == "default"
@@ -125,7 +125,8 @@ def test_llm_trouble_falls_back_to_rules(engine, monkeypatch, trouble):
     }[trouble]
     cmd = Commander(CommanderTools(engine), client=FakeClient(stream))
     ans = run(cmd.answer("Which town is in danger?"))
-    assert ans.source == "rules" and "simulations" in ans.text
+    assert ans.source == "rules" and ans.grounded
+    assert any(t.name in ans.text for t in engine.towns)  # the live fire isn't seeded, so which town varies
 
 
 def test_no_key_means_rules(engine, monkeypatch):
@@ -145,7 +146,7 @@ def test_rule_based_answers_pick_the_right_tool(engine):
         routes = await rule_based_answer(tools, "Are the evacuation routes OK?")
         assert routes.tools_used == ["get_routes"]
         status = await rule_based_answer(tools, "How bad is it?")
-        assert status.tools_used == ["get_situation"] and "Pulga" in status.text
+        assert status.tools_used == ["get_situation"] and any(t.name in status.text for t in engine.towns)
 
     run(go())
 
