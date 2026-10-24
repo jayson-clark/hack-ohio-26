@@ -127,6 +127,28 @@ export function drawRoutes(
   // Recommended crew placements (#45): a dashed ring at the crew's reach and
   // the card's number, so the table and the console's cards match up.
   recs.forEach((r, i) => {
+    // A move (#77, every crew already placed): a dashed arrow from the crew's
+    // spot now to the suggested one.
+    if (r.action === "move" && r.from_x != null && r.from_y != null) {
+      const a = Math.atan2(r.y - r.from_y, r.x - r.from_x);
+      const ex = r.x - Math.cos(a) * (CREW_REACH + 0.8);
+      const ey = r.y - Math.sin(a) * (CREW_REACH + 0.8);
+      ctx.beginPath();
+      ctx.moveTo(r.from_x, r.from_y);
+      ctx.lineTo(ex, ey);
+      ctx.setLineDash([2, 1.4]);
+      ctx.strokeStyle = REC_COLOR;
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - Math.cos(a - 0.5) * 2.4, ey - Math.sin(a - 0.5) * 2.4);
+      ctx.lineTo(ex - Math.cos(a + 0.5) * 2.4, ey - Math.sin(a + 0.5) * 2.4);
+      ctx.closePath();
+      ctx.fillStyle = REC_COLOR;
+      ctx.fill();
+    }
     ctx.beginPath();
     ctx.arc(r.x, r.y, CREW_REACH, 0, Math.PI * 2);
     ctx.setLineDash([1.6, 1.1]);
