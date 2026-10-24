@@ -155,6 +155,12 @@ export function send(msg: ClientMessage) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
+/** Ask the incident commander a question; the answer arrives as a commander_message. */
+export function askCommander(text: string) {
+  const q = text.trim();
+  if (q) send({ type: "commander_query", text: q.slice(0, 500) });
+}
+
 /** Place a recommended crew where the engine suggested it. */
 export function acceptRecommendation(id: string) {
   send({ type: "accept_recommendation", id });

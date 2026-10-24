@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 8
+PROTOCOL_VERSION = 9
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -281,6 +281,14 @@ class SetWind(Model):
     from_deg: float
 
 
+class CommanderQuery(Model):
+    """A question for the incident commander, typed or transcribed. A new
+    question cancels one still being answered."""
+
+    type: Literal["commander_query"] = "commander_query"
+    text: str = Field(min_length=1, max_length=500)
+
+
 class AcceptRecommendation(Model):
     """Place the recommended token (as a virtual token) where it was recommended."""
 
@@ -289,7 +297,16 @@ class AcceptRecommendation(Model):
 
 
 ClientMessage = Annotated[
-    Union[VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation],
+    Union[
+        VirtualTokenAdd,
+        VirtualTokenMove,
+        VirtualTokenRemove,
+        Ignite,
+        Reset,
+        SetWind,
+        AcceptRecommendation,
+        CommanderQuery,
+    ],
     Field(discriminator="type"),
 ]
 

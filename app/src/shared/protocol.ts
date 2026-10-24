@@ -10,7 +10,14 @@ export type EventKind =
 export type CameraState = "off" | "no_signal" | "ok";
 export type CommanderKind = "briefing" | "answer";
 export type ClientMessage =
-  VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind | AcceptRecommendation;
+  | VirtualTokenAdd
+  | VirtualTokenMove
+  | VirtualTokenRemove
+  | Ignite
+  | Reset
+  | SetWind
+  | AcceptRecommendation
+  | CommanderQuery;
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -180,4 +187,12 @@ export interface SetWind {
 export interface AcceptRecommendation {
   type: "accept_recommendation";
   id: string;
+}
+/**
+ * A question for the incident commander, typed or transcribed. A new
+ * question cancels one still being answered.
+ */
+export interface CommanderQuery {
+  type: "commander_query";
+  text: string;
 }
