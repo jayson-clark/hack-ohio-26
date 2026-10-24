@@ -137,6 +137,7 @@ assets/
   markers/              printable ArUco/ChArUco sheets
 tools/
   dem_to_assets.py      DEM → heightmap.npy + STL tiles (single source of truth)
+  osm_to_fuel.py        OSM land cover → fuel.png (the fire's fuel layer)
 ```
 
 ---
