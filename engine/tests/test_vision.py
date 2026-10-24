@@ -76,10 +76,11 @@ def _angle_diff(a, b):
 
 def test_token_ids_map_to_types():
     assert token_type_for(10) == TokenType.CREW
-    assert token_type_for(29) == TokenType.FIREBREAK
-    assert token_type_for(35) == TokenType.WATER
-    assert token_type_for(49) == TokenType.BUS
+    assert token_type_for(24) == TokenType.FIREBREAK
+    assert token_type_for(30) == TokenType.WATER
+    assert token_type_for(44) == TokenType.BUS
     assert token_type_for(0) is None  # a corner
+    assert token_type_for(17) is None  # in the crew block, but never printed
     assert token_type_for(50) is None
 
 
