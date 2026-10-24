@@ -9,6 +9,7 @@ import { CloseIcon, PinIcon } from "./icons";
 import CommanderPanel from "./CommanderPanel";
 import ProjectorControls from "./ProjectorControls";
 import RecommendationsPanel from "./RecommendationsPanel";
+import { EventLogPanel } from "./EventLog";
 import RoundPanel from "./RoundPanel";
 import { Kbd, Panel } from "./ui";
 
@@ -33,6 +34,7 @@ export default function Sidebar(props: Props) {
       <CommanderPanel />
       <TokensPanel {...props} />
       <RecommendationsPanel onFocus={props.onFocusPlace} />
+      <EventLogPanel />
       {props.scenario && <PlacesPanel scenario={props.scenario} onFocus={props.onFocusPlace} />}
       <Panel title="Projector">
         <ProjectorControls />
