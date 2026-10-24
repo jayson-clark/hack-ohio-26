@@ -97,6 +97,11 @@ class TokenEffects:
                 del d[gone]
         return s
 
+    def water_ready_in(self, tick: int) -> dict[str, int]:
+        """Ticks until each water token can drop again (0 = ready once moved),
+        for the console's cooldown display."""
+        return {k: max(0, WATER_COOLDOWN_TICKS - (tick - w.dropped)) for k, w in self._water.items()}
+
     def _dist(self, x: float, y: float) -> np.ndarray:
         return np.hypot(self._cx - x, self._cy - y)
 

@@ -101,7 +101,7 @@ Define the schemas once as Pydantic models in `engine/protocol.py`, then generat
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
 
-Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `vision_status` (camera state, fps, corner markers seen, board locked), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
+Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `set_running`, `set_speed`, `step_once` (pause, speed and single steps; `scenario_state` carries `paused` and `speed`), `vision_status` (camera state, fps, corner markers seen, board locked), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
 
 **Wind convention** everywhere (protocol, sim, commander tools): `speed_ms` in m/s and `from_deg` meteorological, the direction the wind blows *from*, degrees clockwise from north (map up, −y). 270 is a west wind that pushes fire east.
 
@@ -134,9 +134,10 @@ assets/
   scenarios/<name>/     terrain.yaml (DEM generator input), heightmap.npy, terrain.json, preview.png,
                         fuel.png, roads.geojson, towns.json, config.yaml
   stl/<name>/           generated print tiles (gitignored, regenerate them)
-  markers/              printable ArUco/ChArUco sheets
+  markers/              printable ArUco sheets (markers.pdf, from tools/make_markers.py)
 tools/
   dem_to_assets.py      DEM → heightmap.npy + STL tiles (single source of truth)
+  make_markers.py       ArUco IDs → assets/markers/markers.pdf (vector, print at 100%)
 ```
 
 ---
@@ -181,7 +182,7 @@ Looks polished and native, on the laptop screen.
 
 ### Token tracking
 
-- Each token carries an ArUco marker (`DICT_4X4_50`), and its marker ID determines its type: corners 0–3 (NW, NE, SE, SW), crew 10–19, firebreak 20–29, water 30–39, bus 40–49 (`engine/vision/markers.py`). On the wire a token's id is `m<marker id>`, so sim effects survive brief dropouts.
+- Each token carries an ArUco marker (`DICT_4X4_50`), and its marker ID determines its type: corners 0–3 (NW, NE, SE, SW), crew 10–14, firebreak 20–24, water 30–34, bus 40–44 (`engine/vision/markers.py`). Only printed IDs are accepted, so a misread can't become a phantom token. On the wire a token's id is `m<marker id>`, so sim effects survive brief dropouts.
 - **Board homography:** `H_cam→map` is re-solved from the four corner-marker centres on every frame where all four are visible, and the last good one is kept while a corner is covered. So a bumped table or camera fixes itself.
 - **Debounce:** a token counts as placed after 3 frames in a row, and as removed after 15 frames missing (~0.5 s).
 - **Smoothing:** positions and angles are low-passed, with a small deadband so still tokens don't re-broadcast. A jump of more than 3 cells is taken at once.
@@ -259,6 +260,13 @@ The LLM gets **tools**, not a raw state dump, so its answers come from real simu
 - **Scoring:** people evacuated, structures saved, acres burned.
 - **Scenario timer** and an end-of-round summary.
 - **Attract mode:** an idle animated state that draws judges in.
+
+As built (`engine/sim/game.py`):
+
+- **Sandbox vs round.** Outside a round nothing is limited or timed, so virtual table mode stays free play. `start_round` resets the map, ignites at the scenario's ignition point and turns the limits on; the round ends on time, when nothing is burning, or on `end_round`, and then the fire freezes so the summary matches the map. `reset` returns to the sandbox.
+- **Limits** count tokens on the table per type (3 crews, 2 water, 1 firebreak, 2 buses). The first ones placed take effect; any over the limit do nothing and are listed in `score.inactive_tokens` so the UI can grey them out.
+- **Scoring:** acres burned from burning and burned cells; structures lost as each town's structures times the share of its burnable disk that has caught; people evacuated while an in-limit bus sits inside a town whose route isn't cut (a stand-in until buses drive their routes).
+- **Per-scenario settings** (round length, limits, ignition, bus rate) live in an optional `assets/scenarios/<name>/game.json`. Paradise: 600 sim-minutes, ignition at the Camp Fire origin, 40 people per minute per bus.
 
 ---
 
