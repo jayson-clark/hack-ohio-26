@@ -17,9 +17,17 @@ export interface Layers {
   labels: boolean;
   grid: boolean;
   routes: boolean;
+  forecast: boolean;
 }
 
-export const DEFAULT_LAYERS: Layers = { tint: true, contours: true, labels: true, grid: false, routes: true };
+export const DEFAULT_LAYERS: Layers = {
+  tint: true,
+  contours: true,
+  labels: true,
+  grid: false,
+  routes: true,
+  forecast: true,
+};
 
 // sim_grid cell states, in PLAN.md order. Switch to the generated enum once
 // the sim defines it in protocol.py.
@@ -104,6 +112,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
   const burning = new Float32Array(width * height);
   const burned = new Float32Array(width * height);
   const scratch = new Float32Array(width * height);
+  const forecastBuf = new Float32Array(width * height);
 
   const tokenData = Array.from({ length: MAX_TOKENS }, () => new THREE.Vector4());
 
@@ -116,6 +125,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       uLabels: { value: labelsTex },
       uRoutes: { value: routesTex },
       uShowRoutes: { value: 1 },
+      uShowForecast: { value: 1 },
       uFire: { value: fireTex },
       uGrid: { value: new THREE.Vector2(width, height) },
       uCellM: { value: info.grid.cell_size_m },
@@ -164,6 +174,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     setLayers(l) {
       (u.uLayers.value as THREE.Vector4).set(+l.tint, +l.contours, +l.labels, +l.grid);
       u.uShowRoutes.value = +l.routes;
+      u.uShowForecast.value = +l.forecast;
     },
 
     setFire(frame) {
@@ -192,7 +203,11 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       const ok = forecast && forecast.width === width && forecast.height === height;
       for (let h = 0; h < 2; h++) {
         const grid = ok ? forecast.horizons[h] : undefined;
-        for (let i = 0; i < width * height; i++) fireData[i * 4 + 2 + h] = grid ? grid[i] : 0;
+        // Smoothed like the fire masks: the shader draws the 50% and 90%
+        // contours from these, and the raw cell grid gives stair-stepped lines.
+        for (let i = 0; i < width * height; i++) forecastBuf[i] = grid ? grid[i] : 0;
+        if (grid) blur(forecastBuf, scratch, width, height);
+        for (let i = 0; i < width * height; i++) fireData[i * 4 + 2 + h] = forecastBuf[i];
       }
       fireTex.needsUpdate = true;
     },

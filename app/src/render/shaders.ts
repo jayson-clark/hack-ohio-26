@@ -36,6 +36,7 @@ uniform sampler2D uHeight; // elevation normalized to 0..1
 uniform sampler2D uLabels; // static overlay: towns and names
 uniform sampler2D uRoutes; // evacuation routes, redrawn per routes message
 uniform float uShowRoutes;
+uniform float uShowForecast;
 uniform sampler2D uFire;   // r = burning, g = burned (linear filtered masks),
                            // b, a = forecast P(burned) at the first two horizons
 uniform vec2 uGrid;        // map size in cells
@@ -133,14 +134,33 @@ vec3 terrain(vec2 uv, vec2 cell) {
   return col;
 }
 
+// 1 on the line where v crosses level, about px pixels wide, fading at the
+// edges. fwidth keeps the width constant on screen whatever the zoom. Where v
+// is flat fwidth is 0, and smoothstep with equal edges is undefined (it lit
+// the whole map), so the width has a floor.
+float isoline(float v, float level, float px) {
+  return 1.0 - smoothstep(0.0, max(fwidth(v) * px, 1e-4), abs(v - level));
+}
+
 vec3 fire(vec3 col, vec2 uv, vec2 cell) {
   vec4 f = texture2D(uFire, uv);
   float t = uTime;
 
-  // Forecast ghost on unburned ground: further horizon in yellow, nearer in orange on top.
+  // Forecast on unburned ground (PLAN.md: 50% and 90% contours at T+30 and
+  // T+60). A faint fill shows the spread of likely fire; the lines say how
+  // likely. Further horizon in yellow, nearer in orange on top; 90% is the
+  // solid line, 50% the thinner, fainter one.
   float unburned = 1.0 - clamp(f.r + f.g, 0.0, 1.0);
-  col = mix(col, vec3(0.98, 0.82, 0.31), f.a * 0.3 * unburned);
-  col = mix(col, vec3(1.0, 0.47, 0.16), f.b * 0.55 * unburned);
+  if (uShowForecast > 0.5) {
+    vec3 far = vec3(0.98, 0.82, 0.31);
+    vec3 near = vec3(1.0, 0.47, 0.16);
+    col = mix(col, far, f.a * 0.16 * unburned);
+    col = mix(col, near, f.b * 0.3 * unburned);
+    col = mix(col, far, isoline(f.a, 0.5, 1.0) * 0.55 * unburned);
+    col = mix(col, far, isoline(f.a, 0.9, 1.8) * 0.9 * unburned);
+    col = mix(col, near, isoline(f.b, 0.5, 1.0) * 0.6 * unburned);
+    col = mix(col, near, isoline(f.b, 0.9, 1.8) * unburned);
+  }
 
   // Burned ground: dark char with a few glowing embers.
   float burned = smoothstep(0.3, 0.6, f.g + (noise(cell * 0.3) - 0.5) * 0.3);
