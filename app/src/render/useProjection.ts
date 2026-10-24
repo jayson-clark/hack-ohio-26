@@ -1,6 +1,7 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useMemo, type RefObject } from "react";
 import type { BinaryFrame } from "../shared/binary";
-import { useEngine, type ForecastGrids } from "../shared/engine";
+import { Cell, useEngine, type ForecastGrids } from "../shared/engine";
+import { threatenedTowns } from "../shared/events";
 import type { RouteInfo, Token } from "../shared/protocol";
 import type { Layers, Projection } from "./projection";
 
@@ -26,6 +27,15 @@ export function useProjectionSync(
   useEffect(() => ref.current?.setRoutes(routes), [ref, routes, generation]);
   // Read straight from the store rather than threaded through every view's
   // props: every projection shows the same recommendations.
-  const { recommendations } = useEngine();
+  const { recommendations, events } = useEngine();
   useEffect(() => ref.current?.setRecommendations(recommendations), [ref, recommendations, generation]);
+  // The store's events outlive a reset, so a map with nothing burning has no
+  // threatened towns whatever the log says. Joined to a string so the canvas
+  // only redraws when the set actually changes, not on every sim frame.
+  const burning = !!simGrid && simGrid.payload.includes(Cell.Burning);
+  const threatened = useMemo(() => (burning ? threatenedTowns(events).join("|") : ""), [burning, events]);
+  useEffect(
+    () => ref.current?.setThreatened(threatened ? threatened.split("|") : []),
+    [ref, threatened, generation],
+  );
 }

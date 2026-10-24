@@ -7,6 +7,7 @@ import { TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import type { CameraCommand } from "../render/TableView";
+import { EventAlerts } from "./EventLog";
 import { FlameMark } from "./icons";
 import { RoundSummaryCard } from "./RoundSummary";
 import { Segmented } from "./ui";
@@ -134,6 +135,7 @@ export default function Console() {
             camera={camera}
             onCameraPreset={(preset) => setCamera({ seq: ++seq.current, kind: "preset", preset })}
           />
+          <EventAlerts />
           <RoundSummaryCard score={score} />
         </main>
         <Sidebar
