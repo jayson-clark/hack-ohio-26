@@ -19,16 +19,20 @@ from server import Engine
 from sim.fire import Wind
 
 
-async def scripted_engine(minutes: int, wind: Wind = Wind(10, 45)) -> Engine:
+async def scripted_engine(minutes: int, wind: Wind = Wind(10, 45), in_round: bool = False) -> Engine:
     """An engine with the Camp Fire origin burning for `minutes`, forecast,
     routes and recommendations all current, as the server would have them.
-    Call shutdown(e) when done. minutes=0 means no fire at all."""
+    Call shutdown(e) when done. minutes=0 means no fire at all. in_round
+    starts a round at the ignition, so the fire is `minutes` into it."""
     e = Engine()
+    if in_round:
+        e.game.start(0)
     e.fire.set_wind(wind)
     if minutes:
         e.fire.ignite(217.3, 54.5)
         for _ in range(minutes):
             e.fire.step()
+        e.game.update(e.fire.tick, e.fire.state, [], set())  # score the map as the server would
         e.latest_forecast = f = run_forecast(e.fire.snapshot(), seed=0)
     await e.recommender.warm()
     if minutes:

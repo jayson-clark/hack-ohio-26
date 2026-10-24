@@ -37,6 +37,7 @@ class Case:
     fire: int
     question: str
     tools: tuple[str, ...]  # any of these counts as the right tool
+    in_round: bool = False  # a round is running (#68), started when the fire was lit
 
 
 CASES = [
@@ -60,6 +61,8 @@ CASES = [
     Case(OLD, "Can buses still get out of Concow?", ("get_routes",)),
     Case(NONE, "What's the situation?", ("get_situation",)),
     Case(NONE, "What if the wind shifts west?", ("forecast_whatif",)),
+    Case(OLD, "How are we doing?", ("get_situation",), in_round=True),
+    Case(YOUNG, "How many crews do I have left?", ("get_situation",), in_round=True),
 ]
 
 
@@ -84,7 +87,7 @@ class Result:
 
 
 async def run_case(case: Case, model: str | None, effort: str | None) -> Result:
-    e = await scripted_engine(case.fire)
+    e = await scripted_engine(case.fire, in_round=case.in_round)
     try:
         cmd = Commander(e.tools, model=model, effort=effort)
         t0 = time.perf_counter()
@@ -120,7 +123,7 @@ def report(results: list[Result], model: str, effort: str) -> str:
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for i, r in enumerate(results, 1):
-        fire = f"{r.case.fire} min" if r.case.fire else "none"
+        fire = (f"{r.case.fire} min" if r.case.fire else "none") + (", round" if r.case.in_round else "")
         mark = "✅" if r.passed else "❌ " + ", ".join(
             w for w, ok in (("tool", r.right_tool), ("grounded", r.grounded), ("length", 0 < r.sentences <= 2)) if not ok)
         first = f"{r.first_s:.2f}" if r.first_s is not None else "–"

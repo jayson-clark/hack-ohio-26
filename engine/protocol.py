@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 9
+PROTOCOL_VERSION = 10
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -149,6 +149,7 @@ class EventKind(StrEnum):
     TOWN_THREATENED = "town_threatened"  # most simulations have fire in the town within 30 min
     TOWN_SAFE = "town_safe"  # a threatened town has dropped out of the fire's 30-min path
     FORECAST_SHIFT = "forecast_shift"  # the next hour's likely burn area moved a lot
+    ROUND_ENDED = "round_ended"  # with the final score
 
 
 class Event(Model):

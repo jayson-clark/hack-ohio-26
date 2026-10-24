@@ -17,7 +17,7 @@ from websockets.exceptions import ConnectionClosed
 import numpy as np
 
 from commander.agent import Commander
-from commander.briefings import BriefingQueue, ForecastWatcher
+from commander.briefings import BriefingQueue, ForecastWatcher, round_summary
 from commander.tools import CommanderTools
 from forecast.recommend import Rec, Recommender, TownInfo, describe
 from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
@@ -194,6 +194,9 @@ class Engine:
         ).model_dump_json()
 
     def score_msg(self) -> str:
+        return self.score().model_dump_json()
+
+    def score(self) -> Score:
         g, tick = self.game, self.fire.tick
         sandbox = g.phase == RoundPhase.SANDBOX
         types = {t.token_type for t in self.tracker.tokens} | set(g.limits)
@@ -222,7 +225,7 @@ class Engine:
                           structures=t.structures, structures_lost=lost)
                 for t, e, lost in zip(g.towns, g.evacuated, g.structures_lost)
             ],
-        ).model_dump_json()
+        )
 
     def routes_msg(self) -> str:
         return routes_message(self.routes, self._routes_tick).model_dump_json()
@@ -314,8 +317,10 @@ class Engine:
                     self.fire.ignite(*ig)
                     broadcast(self.clients, self.state_msg())
             case EndRound():
+                phase = self.game.phase
                 self.game.stop(self.fire.tick)
                 broadcast(self.clients, self.score_msg())
+                self.announce_round_end(phase)
             case SetRunning():
                 self.paused = not msg.running
                 self._step_budget = 0.0
@@ -442,6 +447,13 @@ class Engine:
         self.game.update(self.fire.tick, self.fire.state, buses, cut)
         if self.game.phase != phase:
             broadcast(self.clients, self.score_msg())
+            self.announce_round_end(phase)
+
+    def announce_round_end(self, before: RoundPhase) -> None:
+        """When a round has just ended, brief the final score (every number from it)."""
+        if before == RoundPhase.RUNNING and self.game.phase == RoundPhase.ENDED:
+            text = round_summary(self.score())
+            self.broadcast_events([Event(kind=EventKind.ROUND_ENDED, tick=self.fire.tick, town=None, text=text)])
 
     def maybe_forecast(self) -> None:
         if self._forecast_job is not None and not self._forecast_job.done():
