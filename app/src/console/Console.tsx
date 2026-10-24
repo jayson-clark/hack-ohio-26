@@ -7,11 +7,12 @@ import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import type { CameraCommand } from "../render/TableView";
 import { FlameMark } from "./icons";
+import { RoundSummaryCard } from "./RoundSummary";
 import Sidebar from "./Sidebar";
 import Viewport, { type ViewMode } from "./Viewport";
 
 export default function Console() {
-  const { status, scenario: state, tokens, simGrid, forecast, routes, vision, cameraFrame } = useEngine();
+  const { status, scenario: state, tokens, simGrid, forecast, routes, vision, cameraFrame, score } = useEngine();
   const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -63,7 +64,7 @@ export default function Console() {
       </header>
 
       <div className="flex min-h-0 flex-1 gap-3 p-3">
-        <main className="min-w-0 flex-1">
+        <main className="relative min-w-0 flex-1">
           <Viewport
             scenario={scenario}
             error={error}
@@ -83,10 +84,12 @@ export default function Console() {
             camera={camera}
             onCameraPreset={(preset) => setCamera({ seq: ++seq.current, kind: "preset", preset })}
           />
+          <RoundSummaryCard score={score} />
         </main>
         <Sidebar
           scenario={scenario}
           wind={state?.wind ?? null}
+          score={score}
           tokens={tokens}
           placeType={placeType}
           onPlaceType={setPlaceType}
