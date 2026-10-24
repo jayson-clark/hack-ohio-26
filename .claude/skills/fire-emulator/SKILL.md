@@ -38,4 +38,4 @@ Baseline (#113, 5,754 training and 385 test fires):
 | IoU of the 50% area | 0.88 | 0.94 |
 | Time per forecast | 6 ms | ~0.6 s |
 
-Screening lifted the top recommendation's realized benefit about 10%.
+Retrained with ember spotting (#118): Brier 0.0034 (32 rollouts: 0.0010), IoU of the 50% area 0.88 (0.94). Screening helps most after wind shifts: the top rec beat a random spot 23/32 vs 17/32 without screening. In steady wind it's within noise.

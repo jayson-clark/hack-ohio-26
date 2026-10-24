@@ -1,80 +1,85 @@
 {
   "parameters": 1501986,
-  "train_samples": 5754,
+  "trained_on": {
+    "backend": "metal",
+    "device": "Apple M2 Max",
+    "memory_gb": 96.0
+  },
+  "train_samples": 5747,
   "test_samples": 385,
   "epochs": 12,
   "history": [
     {
       "epoch": 1,
-      "train_bce": 0.16097375998894373,
-      "brier_emulator": 0.01722338997318341,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.17649532668292522,
+      "brier_emulator": 0.01781361955914788,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 2,
-      "train_bce": 0.09821328381076455,
-      "brier_emulator": 0.009329749934704073,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.11699251863432841,
+      "brier_emulator": 0.011906277500532974,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 3,
-      "train_bce": 0.08882421562965545,
-      "brier_emulator": 0.007508017889683194,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.10323673229561084,
+      "brier_emulator": 0.009546281466898133,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 4,
-      "train_bce": 0.08424717375698189,
-      "brier_emulator": 0.008279227913578237,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.09643285274505616,
+      "brier_emulator": 0.007778932835836721,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 5,
-      "train_bce": 0.0804788059865435,
-      "brier_emulator": 0.006646660879994674,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.09098730351155003,
+      "brier_emulator": 0.0066829931693773974,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 6,
-      "train_bce": 0.07809094375309845,
-      "brier_emulator": 0.004783142426472664,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.0875156125622905,
+      "brier_emulator": 0.005301122763325971,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 7,
-      "train_bce": 0.07572004602083729,
-      "brier_emulator": 0.005358831744323763,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.0843771851155907,
+      "brier_emulator": 0.0044468078141616995,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 8,
-      "train_bce": 0.07412606741094754,
-      "brier_emulator": 0.004499346454385142,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.08227454094319708,
+      "brier_emulator": 0.004041744938668765,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 9,
-      "train_bce": 0.07270116577856242,
-      "brier_emulator": 0.0036646381236848003,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.08066152599122789,
+      "brier_emulator": 0.0037197706313807683,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 10,
-      "train_bce": 0.07193883498613206,
-      "brier_emulator": 0.0033973135838150197,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.07963435974799925,
+      "brier_emulator": 0.003492238579061028,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 11,
-      "train_bce": 0.07124040490016341,
-      "brier_emulator": 0.0032837016220086473,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.07923900152349637,
+      "brier_emulator": 0.00339517981300883,
+      "brier_32_rollouts": 0.0010274316559896425
     },
     {
       "epoch": 12,
-      "train_bce": 0.07093965973601574,
-      "brier_emulator": 0.0032565243912428972,
-      "brier_32_rollouts": 0.0008827919199464193
+      "train_bce": 0.07877337143549488,
+      "brier_emulator": 0.003369153838930519,
+      "brier_32_rollouts": 0.0010274316559896425
     }
   ]
 }
