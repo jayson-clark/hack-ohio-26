@@ -1,0 +1,305 @@
+{
+  "name": "paradise",
+  "generated_by": "tools/dem_to_assets.py",
+  "source": "AWS Terrain Tiles (Terrarium), USGS 3DEP in the US",
+  "bounds": {
+    "south": 39.69406116726479,
+    "west": -121.6754159172523,
+    "north": 39.855938832735205,
+    "east": -121.3945840827477
+  },
+  "grid": {
+    "width": 256,
+    "height": 192,
+    "cell_size_m": 93.75,
+    "cell_size_mm": 1.28984375
+  },
+  "heightmap": {
+    "file": "heightmap.npy",
+    "dtype": "float32",
+    "units": "m above sea level",
+    "row0": "north"
+  },
+  "elevation_m": {
+    "min": 124.9186989021616,
+    "max": 1326.234228021034
+  },
+  "model": {
+    "width_mm": 330.2,
+    "height_mm": 247.65,
+    "base_mm": 6,
+    "relief_mm": 35.0,
+    "m_per_mm": 72.68322228952151,
+    "vertical_exaggeration": 2.117605839990376
+  },
+  "frames": {
+    "board_mm": "x east, y north, origin at the south-west corner",
+    "map": "col = x_mm / width_mm * grid.width, row = (height_mm - y_mm) / height_mm * grid.height"
+  },
+  "markers": {
+    "holder_file": "marker_holder.stl",
+    "marker_size_mm": 30.0,
+    "marker_top_z_mm": 5.0,
+    "pin_length_mm": 14.0,
+    "note": "Centres are outside the terrain, so map coords fall outside the grid.",
+    "corners": [
+      {
+        "corner": "NW",
+        "center_mm": [
+          -18.4,
+          266.05
+        ],
+        "center_map": [
+          -14.265,
+          -14.265
+        ],
+        "holder_rotation_deg": 270,
+        "holder_origin_mm": [
+          0,
+          247.65
+        ]
+      },
+      {
+        "corner": "NE",
+        "center_mm": [
+          348.6,
+          266.05
+        ],
+        "center_map": [
+          270.265,
+          -14.265
+        ],
+        "holder_rotation_deg": 180,
+        "holder_origin_mm": [
+          330.2,
+          247.65
+        ]
+      },
+      {
+        "corner": "SE",
+        "center_mm": [
+          348.6,
+          -18.4
+        ],
+        "center_map": [
+          270.265,
+          206.265
+        ],
+        "holder_rotation_deg": 90,
+        "holder_origin_mm": [
+          330.2,
+          0
+        ]
+      },
+      {
+        "corner": "SW",
+        "center_mm": [
+          -18.4,
+          -18.4
+        ],
+        "center_map": [
+          -14.265,
+          206.265
+        ],
+        "holder_rotation_deg": 0,
+        "holder_origin_mm": [
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "tiles": [
+    {
+      "file": "tile_r0_c0.stl",
+      "row": 0,
+      "col": 0,
+      "origin_mm": [
+        0.0,
+        123.825
+      ],
+      "size_mm": [
+        165.1,
+        123.825
+      ]
+    },
+    {
+      "file": "tile_r0_c1.stl",
+      "row": 0,
+      "col": 1,
+      "origin_mm": [
+        165.1,
+        123.825
+      ],
+      "size_mm": [
+        165.1,
+        123.825
+      ]
+    },
+    {
+      "file": "tile_r1_c0.stl",
+      "row": 1,
+      "col": 0,
+      "origin_mm": [
+        0.0,
+        0.0
+      ],
+      "size_mm": [
+        165.1,
+        123.825
+      ]
+    },
+    {
+      "file": "tile_r1_c1.stl",
+      "row": 1,
+      "col": 1,
+      "origin_mm": [
+        165.1,
+        0.0
+      ],
+      "size_mm": [
+        165.1,
+        123.825
+      ]
+    }
+  ],
+  "places": [
+    {
+      "name": "Paradise",
+      "lat": 39.7596,
+      "lon": -121.6219,
+      "mm": [
+        62.92,
+        100.27
+      ],
+      "map": [
+        48.78,
+        114.27
+      ]
+    },
+    {
+      "name": "Magalia",
+      "lat": 39.8121,
+      "lon": -121.5783,
+      "mm": [
+        114.19,
+        180.58
+      ],
+      "map": [
+        88.53,
+        52.0
+      ]
+    },
+    {
+      "name": "Concow",
+      "lat": 39.776,
+      "lon": -121.513,
+      "mm": [
+        190.97,
+        125.35
+      ],
+      "map": [
+        148.05,
+        94.81
+      ]
+    },
+    {
+      "name": "Pulga",
+      "lat": 39.8007,
+      "lon": -121.4486,
+      "mm": [
+        266.69,
+        163.14
+      ],
+      "map": [
+        206.76,
+        65.52
+      ]
+    },
+    {
+      "name": "Camp Fire origin",
+      "lat": 39.81,
+      "lon": -121.437,
+      "mm": [
+        280.33,
+        177.37
+      ],
+      "map": [
+        217.33,
+        54.49
+      ]
+    }
+  ],
+  "config": {
+    "name": "paradise",
+    "region": {
+      "center": [
+        39.775,
+        -121.535
+      ],
+      "width_km": 24,
+      "zoom": 13
+    },
+    "model": {
+      "width_mm": 330.2,
+      "height_mm": 247.65,
+      "base_mm": 6,
+      "max_relief_mm": 35,
+      "vertical_exaggeration": null,
+      "resolution_mm": 0.5,
+      "smooth_mm": 0.75
+    },
+    "tiles": {
+      "cols": 2,
+      "rows": 2,
+      "bed_mm": [
+        256,
+        256
+      ],
+      "pins": {
+        "per_edge": 2,
+        "hole_diameter_mm": 2.0,
+        "depth_mm": 6.0
+      }
+    },
+    "markers": {
+      "enabled": true,
+      "size_mm": 30.0,
+      "clearance_mm": 0.4,
+      "depth_mm": 1.0,
+      "rim_mm": 3.0,
+      "arm_length_mm": 30.0,
+      "arm_width_mm": 8.0
+    },
+    "sim": {
+      "grid_width": 256
+    },
+    "places": [
+      {
+        "name": "Paradise",
+        "lat": 39.7596,
+        "lon": -121.6219
+      },
+      {
+        "name": "Magalia",
+        "lat": 39.8121,
+        "lon": -121.5783
+      },
+      {
+        "name": "Concow",
+        "lat": 39.776,
+        "lon": -121.513
+      },
+      {
+        "name": "Pulga",
+        "lat": 39.8007,
+        "lon": -121.4486
+      },
+      {
+        "name": "Camp Fire origin",
+        "lat": 39.81,
+        "lon": -121.437
+      }
+    ]
+  }
+}
