@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
-import { useEngine } from "../shared/engine";
+import { setVoiceMode, useEngine } from "../shared/engine";
+import { speechSupported } from "../shared/speech";
 import { useScenario, type Scenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import type { CameraCommand } from "../render/TableView";
 import { FlameMark } from "./icons";
+import { Segmented } from "./ui";
 import Sidebar from "./Sidebar";
 import Viewport, { type ViewMode } from "./Viewport";
 
 export default function Console() {
-  const { status, scenario: state, tokens, simGrid, forecast, routes, vision, cameraFrame } = useEngine();
+  const { status, scenario: state, tokens, simGrid, forecast, routes, vision, cameraFrame, voiceMode } = useEngine();
   const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -59,6 +61,15 @@ export default function Console() {
             tick <span className="text-fg-muted">{state.tick}</span>
           </span>
         )}
+        <Segmented
+          value={voiceMode}
+          onChange={setVoiceMode}
+          options={[
+            { value: "off", label: "Voice off" },
+            ...(speechSupported ? [{ value: "console" as const, label: "Console" }] : []),
+            { value: "mac", label: "Mac say" },
+          ]}
+        />
         <ConnectionBadge status={status} />
       </header>
 
