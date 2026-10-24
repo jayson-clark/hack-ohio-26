@@ -27,7 +27,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -124,6 +124,7 @@ class RouteInfo(Model):
     eta_min: float  # drive time in sim minutes
     risk: float  # max P(an edge burns by the time the bus reaches it), 0..1
     status: RouteStatus
+    bus: str | None  # token id when this is a bus token's route; then `town` is "Bus <id>"
 
 
 class Routes(Model):
@@ -134,7 +135,27 @@ class Routes(Model):
     routes: list[RouteInfo]
 
 
-EngineMessage = Annotated[Union[Hello, ScenarioState, Tokens, Routes], Field(discriminator="type")]
+class EventKind(StrEnum):
+    ROAD_CUT = "road_cut"  # fire reached a road on a town's current route
+    ROUTE_CHANGED = "route_changed"  # a town was rerouted to another way out
+    NO_SAFE_ROUTE = "no_safe_route"  # a town has no reachable safe zone
+
+
+class Event(Model):
+    kind: EventKind
+    tick: int
+    town: str | None
+    text: str  # one plain sentence, ready for an event log or a briefing
+
+
+class Events(Model):
+    """Things worth telling the operator about, sent as they happen."""
+
+    type: Literal["events"] = "events"
+    events: list[Event]
+
+
+EngineMessage = Annotated[Union[Hello, ScenarioState, Tokens, Routes, Events], Field(discriminator="type")]
 
 
 # --- UI -> engine ----------------------------------------------------------
