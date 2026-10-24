@@ -1,13 +1,16 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
-export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus | Score;
+export type EngineMessage =
+  Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus | Score | CommanderMessage;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
-export type EventKind = "road_cut" | "route_changed" | "no_safe_route";
+export type EventKind =
+  "road_cut" | "route_changed" | "no_safe_route" | "town_threatened" | "town_safe" | "forecast_shift";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
+export type CommanderKind = "briefing" | "answer";
 export type ClientMessage =
   | VirtualTokenAdd
   | VirtualTokenMove
@@ -172,6 +175,17 @@ export interface TownScore {
   evacuated: number;
   structures: number;
   structures_lost: number;
+}
+/**
+ * Something the incident commander says. Short enough to speak aloud.
+ */
+export interface CommanderMessage {
+  type: "commander_message";
+  kind: CommanderKind;
+  tick: number;
+  text: string;
+  grounded: boolean;
+  event: EventKind | null;
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";

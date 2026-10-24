@@ -7,6 +7,7 @@ windows are views that can connect and disconnect at any time.
 import asyncio
 import logging
 import os
+import time
 from collections import deque
 
 from pydantic import ValidationError
@@ -15,6 +16,8 @@ from websockets.exceptions import ConnectionClosed
 
 import numpy as np
 
+from commander.briefings import BriefingQueue, ForecastWatcher
+from commander.tools import CommanderTools
 from forecast.recommend import Rec, Recommender, TownInfo, describe
 from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
 from protocol import (
@@ -70,6 +73,12 @@ HOST = os.environ.get("ENGINE_HOST", "localhost")
 PORT = int(os.environ.get("ENGINE_PORT", "8765"))
 SCENARIO = os.environ.get("SCENARIO", "paradise")
 CAMERA = os.environ.get("CAMERA", "")  # see vision/camera.py; empty = virtual table only
+# Any web page open in a browser can connect to ws://localhost, so only the
+# app's own pages may: Vite in dev (and Tauri dev, which loads it) and the
+# built Tauri app. Comma-separated, to add e.g. a LAN address.
+ENGINE_ORIGINS = os.environ.get(
+    "ENGINE_ORIGINS", "http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost"
+)
 TICK_HZ = 10
 # Don't restart the forecaster more often than this, or a map with no fire
 # (where a forecast is instant) would round-trip the worker every tick.
@@ -138,6 +147,11 @@ class Engine:
         ] if self.roads else []
         self.game = Game(self.scenario, game_towns)
         self._sent_inactive: list[str] = []
+        # The incident commander: tools over this engine, plus unprompted
+        # briefings from forecast and route events (no LLM needed for those).
+        self.tools = CommanderTools(self)
+        self.watcher = ForecastWatcher()
+        self.briefings = BriefingQueue()
 
     def hello_msg(self) -> str:
         s = self.scenario
@@ -304,6 +318,8 @@ class Engine:
         self.route_tracker.reset()
         self._closed[:] = False
         self.recent_events.clear()
+        self.watcher.reset()
+        self.briefings.reset()
         self.recs = []
         self._rec_started = -RECOMMEND_MIN_TICKS
         broadcast(self.clients, self.recs_msg())
@@ -337,6 +353,7 @@ class Engine:
     def broadcast_events(self, events: list[Event]) -> None:
         if events:
             self.recent_events.extend(events)
+            self.briefings.offer(events, time.monotonic())
             broadcast(self.clients, Events(events=events).model_dump_json())
 
     def check_road_cuts(self) -> None:
@@ -400,6 +417,8 @@ class Engine:
         broadcast(self.clients, self.forecast_frame())
         self.schedule_replan()
         self.maybe_recommend()
+        f = self.latest_forecast
+        self.broadcast_events(self.watcher.update(self.fire.tick, self.tools.get_situation()["towns"], f.probability))
 
     def maybe_recommend(self) -> None:
         """Start a recommendation run if none is going and the last is a few
@@ -496,6 +515,8 @@ class Engine:
             self.poll_vision()
             self.flush_tokens()
             self.step_fire()
+            if (briefing := self.briefings.next(time.monotonic())) is not None:
+                broadcast(self.clients, briefing.model_dump_json())
             if self.tick % TICK_HZ == 0:
                 broadcast(self.clients, self.state_msg())
                 broadcast(self.clients, self.vision_status_msg())
@@ -504,11 +525,18 @@ class Engine:
             await asyncio.sleep(max(0.0, next_tick - loop.time()))
 
 
+def allowed_origins(setting: str = ENGINE_ORIGINS) -> list[str | None]:
+    """Origins the WebSocket server accepts. None is a client that sends no
+    Origin header at all: browsers always send one, so that's a script, a
+    test or a tool on this machine, and refusing it would only get in the way."""
+    return [o.strip() for o in setting.split(",") if o.strip()] + [None]
+
+
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     engine = Engine()
     try:
-        async with serve(engine.handle_client, HOST, PORT, max_size=None):
+        async with serve(engine.handle_client, HOST, PORT, max_size=None, origins=allowed_origins()):
             log.info("listening on ws://%s:%d", HOST, PORT)
             await engine.run()
     finally:
