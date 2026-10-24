@@ -99,3 +99,44 @@ def test_engine_previews_until_monte_carlo_catches_up():
             e.recommender.shutdown()
 
     asyncio.run(go())
+
+
+def test_real_emulator_previews_on_every_scenario():
+    """The trained emulator through the live engine (needs the ml extra and
+    weights): previews work after switching maps, since MLX runs on the
+    engine's own emulator thread, not a fresh worker thread each time."""
+    import asyncio
+
+    import pytest
+
+    pytest.importorskip("mlx.core")
+    from emulator.model import WEIGHTS
+    from server import PREVIEW_MIN_TICKS, Engine
+
+    if not WEIGHTS.exists():
+        pytest.skip("no trained weights")
+
+    async def go():
+        e = Engine()
+        try:
+            assert e.emulator is not None
+            for name in ("valley", "paradise"):
+                e.switch_scenario(name)
+                e.fire.ignite(*(e.game.ignition or (e.scenario.width / 2, e.scenario.height / 2)))
+                e._ignitions += 1
+                for _ in range(15):
+                    e.step_fire()
+                e.tick += PREVIEW_MIN_TICKS
+                e.maybe_preview()
+                await e._preview_job
+                await asyncio.sleep(0)
+                assert e._preview is not None, name
+                tick, grids = e._preview
+                assert grids.shape == (2, e.scenario.height, e.scenario.width)
+                assert (grids[1] >= grids[0] - 1e-6).all()  # T+60 covers at least T+30
+                assert (grids[:, e.fire.state >= 2] == 1).all()  # burning and burned stay certain
+        finally:
+            e.forecaster.shutdown()
+            e.recommender.shutdown()
+
+    asyncio.run(go())
