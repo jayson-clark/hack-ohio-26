@@ -128,8 +128,9 @@ engine/                 Python
   gen_schema.py         protocol JSON schema for `make types`
   tests/                pytest
 assets/
-  scenarios/<name>/     heightmap.npy, fuel.png, roads.geojson, towns.json, config.yaml
-  stl/                  generated print files
+  scenarios/<name>/     terrain.yaml (DEM generator input), heightmap.npy, terrain.json, preview.png,
+                        fuel.png, roads.geojson, towns.json, config.yaml
+  stl/<name>/           generated print tiles (gitignored, regenerate them)
   markers/              printable ArUco/ChArUco sheets
 tools/
   dem_to_assets.py      DEM → heightmap.npy + STL tiles (single source of truth)
@@ -166,7 +167,7 @@ Looks polished and native, on the laptop screen.
 ### Calibration
 
 1. The projector shows a ChArUco pattern at known projector-pixel positions. The camera detects it, giving `H_cam→proj`.
-2. ArUco markers in recessed pockets at the four board corners are detected, giving `H_cam→map`.
+2. ArUco markers on holders pinned to the four board corners, just outside the terrain, are detected, giving `H_cam→map`.
 3. Combine them: `H_map→proj = H_cam→proj · H_map→cam`, which the projector shader uses.
 4. Save to `calibration.json`. The console has a hotkey and button to recalibrate in seconds when someone bumps the table.
 
@@ -316,10 +317,13 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 The 3D prints start the day before the competition, so everything that affects them must be locked in first.
 
 - **The heightmap is the single source of truth.** Choose the area, resolution, and vertical exaggeration, then generate the STL tiles *and* the sim's `heightmap.npy` from the same script (`tools/dem_to_assets.py`).
+  - Every setting lives in `assets/scenarios/<name>/terrain.yaml`: region, model size, base, relief, mesh resolution, tile grid, pins, and marker holders. See the `generate-terrain` skill.
+  - **Paradise defaults:** 24 × 18 km around the Camp Fire (Pulga → Paradise) on a 330 × 248 mm (13 × 9.75 in) board, printed as 2×2 tiles of 165 × 124 mm. 1 mm = 73 m horizontally, 35 mm relief (2.12× exaggeration). The sim grid is 256 × 192 at 94 m per cell.
+  - `terrain.json` records the map-frame positions of the corner markers (for `H_cam→map`; they sit outside the grid, so the coordinates are negative or larger than the grid) and of the towns.
 - **Keep the relief low** (about 3–4 cm max) to limit projection parallax.
 - **Build registration into the prints:**
   - alignment pins between tiles
-  - recessed pockets at the board corners for the calibration ArUco markers, so they never move
+  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. One L-shaped holder STL (print 4) pins into the board's outer walls with the same filament pins, so they never move
 - **Matte white or light-gray PLA,** which is essential for projection.
 - **Tokens:** print them with flat tops, then laminate and attach the ArUco markers.
 - **Toolchain:** Rust, Node, and Python environments installed and building on every laptop.
@@ -357,7 +361,7 @@ Virtual table mode means nobody is blocked waiting for hardware.
 | Risk | Mitigation |
 |---|---|
 | Bright venue washes out the projection | Bring a canopy or black cloth, and test in the actual venue early |
-| Table gets bumped and calibration drifts | Corner markers in fixed pockets, one-click recalibration |
+| Table gets bumped and calibration drifts | Corner markers on pinned holders, one-click recalibration |
 | Projected light confuses marker detection | White halos under tokens, ArUco's contrast robustness, debouncing |
 | WKWebView renders differently from Chrome | Test shaders in Safari / the Tauri build, use the browser fallback |
 | Calibration perfectionism eats time | Use a plain homography first, keep 3D correction in Phase 7 |

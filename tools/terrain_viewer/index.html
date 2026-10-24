@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terrain Viewer</title>
+<!--
+  Previews the STL tiles from tools/dem_to_assets.py. Serve the repo root:
+    python3 -m http.server 8000
+  then open http://localhost:8000/tools/terrain_viewer/?scenario=paradise
+-->
+<style>
+  :root { --bg: #15171a; --panel: #1f2226; --text: #e6e6e6; --muted: #8b9098; --accent: #ff7a3d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 240px; background: var(--panel); border-radius: 10px; padding: 14px; box-shadow: 0 6px 24px #0006; }
+  h1 { font-size: 14px; margin: 0 0 2px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; }
+  #tiles { display: grid; gap: 4px; }
+  label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  input[type=checkbox], input[type=range] { accent-color: var(--accent); }
+  input[type=range] { width: 100%; }
+  .row { display: flex; gap: 6px; }
+  button { flex: 1; background: #2c3036; color: var(--text); border: 0; border-radius: 6px; padding: 5px; cursor: pointer; }
+  button:hover { background: #363b42; }
+  #status { margin-top: 12px; }
+  #grid { display: grid; gap: 3px; margin-bottom: 6px; }
+  #grid div { aspect-ratio: 4 / 3; border-radius: 3px; background: #2c3036; cursor: pointer; display: grid; place-items: center; font-size: 11px; color: var(--muted); }
+  #grid div.on { background: var(--accent); color: #1a1a1a; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1 id="title">Terrain</h1>
+  <div class="muted" id="subtitle">loading…</div>
+
+  <h2>Tiles</h2>
+  <div id="grid"></div>
+  <div class="row"><button id="all">All on</button><button id="none">All off</button></div>
+
+  <h2>View</h2>
+  <label><input type="checkbox" id="drape" checked> Drape preview.png (fake projection)</label>
+  <label><input type="checkbox" id="wire"> Wireframe</label>
+  <label><input type="checkbox" id="holders" checked> Marker holders</label>
+  <div style="margin-top:8px">Explode <span class="muted" id="explodeVal">0 mm</span></div>
+  <input type="range" id="explode" min="0" max="60" value="0">
+  <div id="status" class="muted"></div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
+
+const scenario = new URLSearchParams(location.search).get("scenario") || "paradise";
+const root = "../../assets";
+const $ = (id) => document.getElementById(id);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x15171a);
+const camera = new THREE.PerspectiveCamera(40, 1, 1, 5000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(-300, 400, -200); // from the north-west, like the hillshade
+scene.add(sun);
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+
+const meta = await fetch(`${root}/scenarios/${scenario}/terrain.json`).then((r) => {
+  if (!r.ok) throw new Error(`no terrain.json for "${scenario}"`);
+  return r.json();
+});
+const { width_mm: W, height_mm: H } = meta.model;
+$("title").textContent = meta.name;
+$("subtitle").textContent =
+  `${W}×${H} mm · ${meta.tiles.length} tiles · ${meta.model.vertical_exaggeration.toFixed(2)}× vertical`;
+
+// Board frame is x east, y north, z up. Rotate so z is up in three.js and centre the board.
+const board = new THREE.Group();
+board.rotation.x = -Math.PI / 2;
+board.position.set(-W / 2, 0, H / 2);
+scene.add(board);
+
+const preview = await new THREE.TextureLoader().loadAsync(`${root}/scenarios/${scenario}/preview.png`);
+preview.colorSpace = THREE.SRGBColorSpace;
+const matte = new THREE.MeshStandardMaterial({ color: 0xeeeeea, roughness: 0.9 });
+const draped = new THREE.MeshStandardMaterial({ map: preview, roughness: 0.9 });
+
+const cols = Math.max(...meta.tiles.map((t) => t.col)) + 1;
+$("grid").style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+const tiles = [];
+const loader = new STLLoader();
+let loaded = 0;
+
+function status() {
+  const on = tiles.filter((t) => t.mesh.visible).length;
+  $("status").textContent = loaded < meta.tiles.length
+    ? `Loading STLs… ${loaded}/${meta.tiles.length}`
+    : `${on}/${tiles.length} tiles shown · drag to orbit, scroll to zoom`;
+}
+
+function setVisible(tile, on) {
+  tile.mesh.visible = on;
+  tile.cell.classList.toggle("on", on);
+  status();
+}
+
+for (const t of meta.tiles) {
+  const cell = document.createElement("div");
+  cell.textContent = `r${t.row} c${t.col}`;
+  cell.title = t.file;
+  $("grid").appendChild(cell);
+
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), draped);
+  mesh.position.set(t.origin_mm[0], t.origin_mm[1], 0);
+  board.add(mesh);
+  const tile = { meta: t, mesh, cell };
+  tiles.push(tile);
+  cell.onclick = () => setVisible(tile, !mesh.visible);
+  setVisible(tile, true);
+
+  loader.loadAsync(`${root}/stl/${scenario}/${t.file}`).then((geom) => {
+    // UVs from board position so preview.png lands where the projector would put it.
+    const pos = geom.attributes.position;
+    const uv = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      uv[2 * i] = (pos.getX(i) + t.origin_mm[0]) / W;
+      uv[2 * i + 1] = (pos.getY(i) + t.origin_mm[1]) / H;
+    }
+    geom.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    mesh.geometry = geom;
+    loaded++;
+    status();
+  }).catch(() => {
+    $("status").textContent = `Missing ${t.file}. Run tools/dem_to_assets.py to generate the STLs.`;
+  });
+}
+
+// Marker holders: one STL, rotated onto each corner, with a stand-in marker in the pocket.
+const holders = [];
+const markers = meta.markers?.corners ? meta.markers : null;
+if (markers) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 8;
+  const g = c.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, 8, 8);
+  g.fillStyle = "#000"; g.fillRect(1, 1, 6, 6);
+  g.fillStyle = "#fff";
+  for (let i = 0; i < 9; i++) if ((i * 5 + 3) % 7 < 3) g.fillRect(2 + (i % 3) * 1.33, 2 + Math.floor(i / 3) * 1.33, 1.33, 1.33);
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  const markerMat = new THREE.MeshBasicMaterial({ map: tex });
+  const size = markers.marker_size_mm;
+  const holderMat = new THREE.MeshStandardMaterial({ color: 0xd9d9d4, roughness: 0.9 });
+  loader.loadAsync(`${root}/stl/${scenario}/${markers.holder_file}`).then((geom) => {
+    const rows = Math.max(...meta.tiles.map((t) => t.row)) + 1;
+    const tileAt = { NW: [0, 0], NE: [0, cols - 1], SE: [rows - 1, cols - 1], SW: [rows - 1, 0] };
+    for (const m of markers.corners) {
+      const group = new THREE.Group();
+      group.add(new THREE.Mesh(geom, holderMat));
+      group.rotation.z = (m.holder_rotation_deg * Math.PI) / 180;
+      group.position.set(m.holder_origin_mm[0], m.holder_origin_mm[1], 0);
+      board.add(group);
+      const quad = new THREE.Mesh(new THREE.PlaneGeometry(size, size), markerMat);
+      quad.position.set(m.center_mm[0], m.center_mm[1], markers.marker_top_z_mm + 0.05);
+      board.add(quad);
+      const [row, col] = tileAt[m.corner];
+      holders.push({ group, quad, row, col, base: m });
+    }
+    $("explode").oninput({ target: $("explode") });
+  });
+}
+
+$("all").onclick = () => tiles.forEach((t) => setVisible(t, true));
+$("none").onclick = () => tiles.forEach((t) => setVisible(t, false));
+$("drape").onchange = (e) => tiles.forEach((t) => (t.mesh.material = e.target.checked ? draped : matte));
+$("wire").onchange = (e) => { matte.wireframe = draped.wireframe = e.target.checked; };
+$("holders").onchange = (e) => holders.forEach((h) => (h.group.visible = h.quad.visible = e.target.checked));
+$("explode").oninput = (e) => {
+  const gap = +e.target.value;
+  $("explodeVal").textContent = `${gap} mm`;
+  const rows = Math.max(...meta.tiles.map((t) => t.row)) + 1;
+  for (const { meta: t, mesh } of tiles) {
+    // Push tiles away from the board centre; row 0 is north (+y).
+    mesh.position.x = t.origin_mm[0] + (t.col - (cols - 1) / 2) * gap;
+    mesh.position.y = t.origin_mm[1] - (t.row - (rows - 1) / 2) * gap;
+  }
+  for (const h of holders) {
+    // Holders travel with their corner tile.
+    const dx = (h.col - (cols - 1) / 2) * gap, dy = -(h.row - (rows - 1) / 2) * gap;
+    h.group.position.set(h.base.holder_origin_mm[0] + dx, h.base.holder_origin_mm[1] + dy, 0);
+    h.quad.position.x = h.base.center_mm[0] + dx;
+    h.quad.position.y = h.base.center_mm[1] + dy;
+  }
+};
+
+camera.position.set(0, Math.max(W, H) * 1.15, Math.max(W, H) * 1.05);
+controls.target.set(0, 0, 0);
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

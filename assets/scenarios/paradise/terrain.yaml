@@ -1,0 +1,33 @@
+# Paradise, CA: the 2018 Camp Fire. Covers the ignition near Pulga, the
+# Feather River canyon, Concow, Magalia and Paradise.
+# Generate: uv run tools/dem_to_assets.py assets/scenarios/paradise/terrain.yaml
+# Unset keys fall back to DEFAULTS in tools/dem_to_assets.py.
+
+region:
+  center: [39.775, -121.535]  # lat, lon
+  width_km: 24                # north-south extent follows the model aspect (18 km)
+  zoom: 13
+
+model:
+  width_mm: 330.2             # 13 in
+  height_mm: 247.65           # 9.75 in, keeps the 4:3 region
+  base_mm: 6
+  max_relief_mm: 35           # PLAN.md: keep relief low for projection parallax
+  resolution_mm: 0.5
+  smooth_mm: 0.75
+
+tiles:
+  cols: 2
+  rows: 2
+  bed_mm: [256, 256]
+
+sim:
+  grid_width: 256
+
+# Approximate locations, for checking alignment on the preview.
+places:
+  - {name: Paradise, lat: 39.7596, lon: -121.6219}
+  - {name: Magalia, lat: 39.8121, lon: -121.5783}
+  - {name: Concow, lat: 39.7760, lon: -121.5130}
+  - {name: Pulga, lat: 39.8007, lon: -121.4486}
+  - {name: Camp Fire origin, lat: 39.8100, lon: -121.4370}
