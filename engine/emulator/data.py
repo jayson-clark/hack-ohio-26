@@ -2,7 +2,7 @@
 scenarios, each labelled with a Monte Carlo forecast.
 
 Each sample is a random situation:
-- **map:** paradise or valley;
+- **map:** one of SCENARIOS (the real fires we ship);
 - **fire:** one or two ignitions on fuel, burning for 5-200 ticks;
 - **wind:** 0-15 m/s from any direction, sometimes shifting mid-run;
 - **tokens:** up to 3 crews near the front (some still on their way, some dug
@@ -37,7 +37,8 @@ from scenario import load_scenario
 from sim.effects import WATER_RADIUS, SuppressionSchedule, TimedLayer, TokenEffects, crew_layer, soft_disk
 from sim.fire import BURNING, FUEL, FireSim, Wind
 
-SCENARIOS = {"paradise": 0.7, "valley": 0.3}
+# Real scenarios only; add marshall (#107) once it lands, then retrain.
+SCENARIOS = {"paradise": 1.0}
 LABEL_ROLLOUTS = 64
 SHARD = 100  # samples per file
 
