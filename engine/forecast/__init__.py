@@ -1,3 +1,3 @@
-from forecast.rollout import burn_probability, rollout
+from forecast.rollout import WindSpread, burn_probability, rollout, rollout_paired
 
-__all__ = ["burn_probability", "rollout"]
+__all__ = ["WindSpread", "burn_probability", "rollout", "rollout_paired"]
