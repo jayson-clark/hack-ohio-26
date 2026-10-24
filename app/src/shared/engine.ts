@@ -3,7 +3,16 @@
 
 import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
-import type { ClientMessage, EngineMessage, Event, Hello, RouteInfo, ScenarioState, Token } from "./protocol";
+import type {
+  ClientMessage,
+  EngineMessage,
+  Event,
+  Hello,
+  Recommendation,
+  RouteInfo,
+  ScenarioState,
+  Token,
+} from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
 const RECONNECT_MS = 1000;
@@ -35,6 +44,8 @@ export interface EngineState {
   routes: RouteInfo[];
   /** Recent events, oldest first. Cleared on reconnect. */
   events: Event[];
+  /** Crew placement recommendations, best first (cards and markers: #45). */
+  recommendations: Recommendation[];
 }
 
 let state: EngineState = {
@@ -46,6 +57,7 @@ let state: EngineState = {
   forecast: null,
   routes: [],
   events: [],
+  recommendations: [],
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -69,6 +81,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "routes":
       setState({ routes: msg.routes });
+      break;
+    case "recommendations":
+      setState({ recommendations: msg.recommendations });
       break;
     case "events":
       setState({ events: [...state.events, ...msg.events].slice(-MAX_EVENTS) });
@@ -116,6 +131,11 @@ function connect() {
 
 export function send(msg: ClientMessage) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+/** Place a recommended crew where the engine suggested it. */
+export function acceptRecommendation(id: string) {
+  send({ type: "accept_recommendation", id });
 }
 
 function subscribe(listener: () => void) {

@@ -1,11 +1,12 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
-export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events;
+export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events | Recommendations;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
 export type EventKind = "road_cut" | "route_changed" | "no_safe_route";
-export type ClientMessage = VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind;
+export type ClientMessage =
+  VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind | AcceptRecommendation;
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -81,6 +82,35 @@ export interface Event {
   town: string | null;
   text: string;
 }
+/**
+ * Best first. Sent every few seconds while a fire burns, and empty on reset.
+ */
+export interface Recommendations {
+  type: "recommendations";
+  tick: number;
+  recommendations: Recommendation[];
+}
+export interface Recommendation {
+  id: string;
+  token_type: TokenType;
+  x: number;
+  y: number;
+  benefit: number;
+  acres_saved: number;
+  saves: TownEffect[];
+  worsens: TownEffect[];
+  protects: TownShare[];
+  text: string;
+}
+export interface TownEffect {
+  town: string;
+  hits: number;
+  n: number;
+}
+export interface TownShare {
+  town: string;
+  share: number;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -114,4 +144,11 @@ export interface SetWind {
   type: "set_wind";
   speed_ms: number;
   from_deg: number;
+}
+/**
+ * Place the recommended token (as a virtual token) where it was recommended.
+ */
+export interface AcceptRecommendation {
+  type: "accept_recommendation";
+  id: string;
 }
