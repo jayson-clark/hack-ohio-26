@@ -10,7 +10,7 @@ from forecast.recommend import PlacedCrew, Rec, TownEffect, describe, recommend_
 from forecast.runner import run_forecast
 from protocol import AcceptRecommendation, Recommendation, Token, TokenSource, TokenType, VirtualTokenAdd
 from server import Engine
-from sim.effects import TokenEffects, crew_footprint
+from sim.effects import TokenEffects, crew_footprint, crew_layer
 from test_fire import H, W
 from test_recommend import GAP, TOWN, chokepoint_snapshot
 
@@ -28,10 +28,9 @@ def test_preview_leaves_ramp_up_alone():
 def test_wasted_crew_is_told_to_move_to_the_gap():
     snap = chokepoint_snapshot()
     p30 = run_forecast(snap, n=16, seed=0).probability[0]
-    corner = crew_footprint(W, H, 5.5, 5.5)  # a crew dug in far from the fire
-    current = np.maximum(snap.suppression, corner)
-    crew = PlacedCrew("v1", 5.5, 5.5, without=snap)
-    moves = recommend_moves([crew], current, p30, [TOWN], n=12, seed=3)
+    # A crew dug in (fully ramped) far from the fire.
+    crew = PlacedCrew("v1", 5.5, 5.5, without=snap, keep=crew_layer(W, H, 5.5, 5.5, ramped=1.0))
+    moves = recommend_moves([crew], p30, [TOWN], n=12, seed=3)
     assert moves and moves[0].move_id == "v1" and (moves[0].from_x, moves[0].from_y) == (5.5, 5.5)
     assert math.hypot(moves[0].x - GAP[0], moves[0].y - GAP[1]) < 8 and moves[0].benefit > 0
 
@@ -91,11 +90,14 @@ def test_no_crews_left_asks_for_moves(monkeypatch):
             e.maybe_recommend()
 
         asyncio.run(go())
-        [(crews, current, *_)] = calls
+        [(crews, p30, *_)] = calls
         assert [c.id for c in crews] == ["v1", "v2", "v3"]
-        assert current.max() > 0
-        for c in crews:  # each "without" snapshot is missing exactly that crew's footprint
-            assert c.without.suppression[int(c.y), int(c.x)] == 0 and current[int(c.y), int(c.x)] > 0
+        live = e.fire.suppression
+        assert live.max() > 0 and p30.shape == live.shape
+        for c in crews:  # each "without" snapshot is missing exactly that crew, and keeps its ramp-up
+            assert c.without.suppression[int(c.y), int(c.x)] == 0 and live[int(c.y), int(c.x)] > 0
+            assert c.without.schedule is not None and len(c.without.schedule.layers) == 2
+            assert c.keep.level(0) > 0 and c.keep.footprint[int(c.y), int(c.x)] == 1.0
     finally:
         shut(e)
 
@@ -144,10 +146,11 @@ def test_moves_are_distinct_crews_and_spots():
     snap = chokepoint_snapshot()
     p30 = run_forecast(snap, n=16, seed=0).probability[0]
     a, b = crew_footprint(W, H, 5.5, 5.5), crew_footprint(W, H, 5.5, 58.5)
-    current = np.maximum(snap.suppression, np.maximum(a, b))
-    crews = [PlacedCrew("v1", 5.5, 5.5, without=dataclasses.replace(snap, suppression=b)),
-             PlacedCrew("v2", 5.5, 58.5, without=dataclasses.replace(snap, suppression=a))]
-    moves = recommend_moves(crews, current, p30, [TOWN], n=8, seed=1)
+    crews = [PlacedCrew("v1", 5.5, 5.5, without=dataclasses.replace(snap, suppression=b),
+                        keep=crew_layer(W, H, 5.5, 5.5, ramped=1.0)),
+             PlacedCrew("v2", 5.5, 58.5, without=dataclasses.replace(snap, suppression=a),
+                        keep=crew_layer(W, H, 5.5, 58.5, ramped=1.0))]
+    moves = recommend_moves(crews, p30, [TOWN], n=8, seed=1)
     assert len({m.move_id for m in moves}) == len(moves)
     for i, m in enumerate(moves):
         for o in moves[i + 1:]:

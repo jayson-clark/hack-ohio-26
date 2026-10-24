@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from forecast.rollout import rollout_paired
-from sim.effects import CREW_RADIUS, crew_footprint
+from sim.effects import CREW_RADIUS, TimedLayer, crew_layer
 from sim.fire import FUEL, FireSnapshot
 from uq.mc import benefit_confidence, mean_ci, overlap, wilson
 
@@ -89,12 +89,14 @@ class Rec:
 
 @dataclass(frozen=True)
 class PlacedCrew:
-    """A crew on the table, and the snapshot as it would be without it."""
+    """A crew on the table, the snapshot as it would be without it, and the
+    crew itself as a suppression layer (continuing its ramp-up where it is)."""
 
     id: str
     x: float
     y: float
-    without: FireSnapshot  # same fire, suppression computed without this crew
+    without: FireSnapshot  # same fire, suppression (and its schedule) without this crew
+    keep: TimedLayer | np.ndarray  # this crew staying where it is
 
 
 def candidates(snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], k: int = N_CANDIDATES) -> list[tuple[float, float]]:
@@ -132,16 +134,19 @@ def evaluate_spots(snapshot, spots, towns, n=N_ROLLOUTS, seed=0) -> list[Rec]:
     return _evaluate(snapshot, spots, towns, _town_masks(towns, h, w), n, seed)
 
 
-def _evaluate(snapshot, spots, towns, masks, n, seed, keep: np.ndarray | None = None) -> list[Rec]:
-    """Paired run of the baseline plus a crew at each spot.
+def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[int] | None = None) -> list[Rec]:
+    """Paired run of the baseline plus a fresh crew at each spot, digging in
+    from its start tick (0 = now; later if it has to travel there, #104) and
+    ramping up as a placed crew does (#56).
 
-    With `keep` (a suppression grid), the comparison baseline is instead
+    With `keep` (a TimedLayer or grid), the comparison baseline is instead
     "snapshot plus keep": that's how a move is scored, as the snapshot without
     the crew, then either the crew where it is (keep) or at the new spot."""
     h, w = snapshot.state.shape
-    variants = np.stack([crew_footprint(w, h, x, y) for x, y in spots])
+    starts = starts or [0] * len(spots)
+    variants = [crew_layer(w, h, x, y, t_on=t0) for (x, y), t0 in zip(spots, starts)]
     if keep is not None:
-        variants = np.concatenate([keep[None].astype(np.float32), variants])
+        variants = [keep] + variants
     first = rollout_paired(snapshot, n, HORIZON_TICKS, variants, seed=seed)
     if keep is not None:
         first = first[1:]  # index 0 is now "crew where it is"
@@ -213,7 +218,6 @@ def recommend(
 
 def recommend_moves(
     crews: list[PlacedCrew],
-    current: np.ndarray,
     p30: np.ndarray,
     towns: list[TownInfo],
     *,
@@ -228,9 +232,8 @@ def recommend_moves(
     a move's benefit is "where it is" minus "at the new spot". The best moves
     are re-run on fresh seeds and only ones that still help are kept.
 
-    `current` is the live suppression grid (all crews in place). A moved crew
-    is scored at full strength, though in the sim it digs in again over
-    CREW_RAMP_TICKS, so short-horizon gains are a little optimistic."""
+    A moved crew digs in again from scratch (#56), so a move has to beat the
+    crew staying put even after losing its ramp-up."""
     if not crews or not towns:
         return []
     h, w = p30.shape
@@ -241,7 +244,7 @@ def recommend_moves(
                  if all(np.hypot(s[0] - c.x, s[1] - c.y) >= 2 * CREW_RADIUS for c in crews)]
         if not spots:
             continue
-        for r in _evaluate(crew.without, spots, towns, masks, n, seed + i, keep=current):
+        for r in _evaluate(crew.without, spots, towns, masks, n, seed + i, keep=crew.keep):
             found.append((crew, r))
     # Distinct moves: each crew moves at most once, and no two crews go to the same spot.
     best: list[tuple[PlacedCrew, Rec]] = []
@@ -254,7 +257,7 @@ def recommend_moves(
     out = []
     for j, (crew, r) in enumerate(best):
         [again] = _evaluate(crew.without, [(r.x, r.y)], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919 + j,
-                            keep=current)
+                            keep=crew.keep)
         if again.benefit_lo > 0:  # only moves that help at the low end of their interval (#11)
             again.move_id, again.from_x, again.from_y = crew.id, crew.x, crew.y
             out.append(again)
@@ -296,9 +299,9 @@ class Recommender:
     def submit(self, snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
         return self.run(_recommend_job, snapshot, p30, towns, seed)
 
-    def submit_moves(self, crews: list[PlacedCrew], current: np.ndarray, p30: np.ndarray,
+    def submit_moves(self, crews: list[PlacedCrew], p30: np.ndarray,
                      towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
-        return self.run(_moves_job, crews, current, p30, towns, seed)
+        return self.run(_moves_job, crews, p30, towns, seed)
 
     def run(self, fn, *args) -> asyncio.Future:
         """Any other picklable analysis job (the commander's what-ifs), on
@@ -323,5 +326,5 @@ def _recommend_job(snapshot, p30, towns, seed):
     return recommend(snapshot, p30, towns, seed=seed)
 
 
-def _moves_job(crews, current, p30, towns, seed):
-    return recommend_moves(crews, current, p30, towns, seed=seed)
+def _moves_job(crews, p30, towns, seed):
+    return recommend_moves(crews, p30, towns, seed=seed)
