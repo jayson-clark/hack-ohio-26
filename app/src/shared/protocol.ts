@@ -52,6 +52,7 @@ export interface Hello {
   type: "hello";
   protocol_version: number;
   scenario: string;
+  crew_radius: number;
   map_width: number;
   map_height: number;
   sim_minutes_per_tick: number;

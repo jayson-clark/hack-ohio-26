@@ -8,7 +8,11 @@ import type { Scenario } from "../shared/scenario";
 const PX_PER_CELL = 8;
 // A dug-in crew's reach (CREW_RADIUS in engine/sim/effects.py), so a
 // recommendation's ring shows the ground the crew would hold.
-const CREW_REACH = 6;
+// Set from hello.crew_radius by the projection; 14 until the engine says.
+let crewReach = 14;
+export function setRecReach(cells: number) {
+  crewReach = cells;
+}
 export const REC_COLOR = "#facc15";
 
 export const ROUTE_COLORS: Record<RouteStatus, string> = {
@@ -131,8 +135,8 @@ export function drawRoutes(
     // spot now to the suggested one.
     if (r.action === "move" && r.from_x != null && r.from_y != null) {
       const a = Math.atan2(r.y - r.from_y, r.x - r.from_x);
-      const ex = r.x - Math.cos(a) * (CREW_REACH + 0.8);
-      const ey = r.y - Math.sin(a) * (CREW_REACH + 0.8);
+      const ex = r.x - Math.cos(a) * (crewReach + 0.8);
+      const ey = r.y - Math.sin(a) * (crewReach + 0.8);
       ctx.beginPath();
       ctx.moveTo(r.from_x, r.from_y);
       ctx.lineTo(ex, ey);
@@ -150,7 +154,7 @@ export function drawRoutes(
       ctx.fill();
     }
     ctx.beginPath();
-    ctx.arc(r.x, r.y, CREW_REACH, 0, Math.PI * 2);
+    ctx.arc(r.x, r.y, crewReach, 0, Math.PI * 2);
     ctx.setLineDash([1.6, 1.1]);
     ctx.strokeStyle = "rgba(8, 10, 14, 0.8)";
     ctx.lineWidth = 1.6;

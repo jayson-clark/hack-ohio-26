@@ -50,6 +50,7 @@ uniform vec4 uTokens[MAX_TOKENS]; // x, y (cells), type index, selected
 uniform int uTokenCount;
 uniform vec3 uTokenColors[4];
 uniform float uHalo;
+uniform float uCrewReach; // cells: a crew's reach (hello.crew_radius)
 uniform float uRing;
 
 #ifdef DRAPED
@@ -165,6 +166,19 @@ vec3 tokens(vec3 col, vec2 cell) {
     float d = distance(cell, tk.xy);
     float aa = max(fwidth(d), 1e-4);
     vec3 tc = uTokenColors[int(tk.z)];
+    // A crew's reach (#98), so it's visible what it holds. Its full-strength
+    // core (60%) sits under the white halo, so mark the outer edge instead: a
+    // faint tint fading out like its suppression, and a dashed ring at the
+    // full radius, dashed like the recommendation rings that use the same
+    // radius. Type 0 is crew (TOKEN_TYPES).
+    if (tk.z < 0.5) {
+      float core = 0.6 * uCrewReach;
+      float reach = clamp((uCrewReach - d) / (uCrewReach - core), 0.0, 1.0);
+      col = mix(col, tc, 0.18 * reach);
+      vec2 rel = cell - tk.xy;
+      float dash = step(0.0, sin(atan(rel.y, rel.x) * 18.0));
+      col = mix(col, tc, (1.0 - smoothstep(0.3, 0.3 + aa * 1.5, abs(d - uCrewReach))) * dash * 0.9);
+    }
     // Colored ring for the type, white disc under the marker.
     col = mix(col, tc, 1.0 - smoothstep(uRing - aa, uRing + aa, d));
     col = mix(col, vec3(1.0), 1.0 - smoothstep(uHalo - aa, uHalo + aa, d));
