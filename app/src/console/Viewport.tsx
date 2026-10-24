@@ -14,6 +14,7 @@ import TableView, { type CameraCommand, type CameraPreset } from "../render/Tabl
 import CameraView, { VisionReadout } from "./CameraView";
 import { CameraIcon, CubeIcon, ProjectorIcon } from "./icons";
 import { Chip, Segmented, ToggleGroup } from "./ui";
+import { DispatchChip } from "./StationsPanel";
 
 export type ViewMode = "table" | "projection" | "camera";
 
@@ -124,6 +125,7 @@ export default function Viewport(props: Props) {
         </div>
       </div>
 
+      {mode !== "camera" && <DispatchChip />}
       <div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-end justify-between gap-3">
         {mode === "camera" ? (
           <Chip className="font-mono tabular-nums">
