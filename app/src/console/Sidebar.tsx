@@ -5,6 +5,7 @@ import { elevationAt, type Scenario } from "../shared/scenario";
 import { TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { CloseIcon, PinIcon } from "./icons";
+import CommanderPanel from "./CommanderPanel";
 import ProjectorControls from "./ProjectorControls";
 import { Kbd, Panel } from "./ui";
 
@@ -24,6 +25,7 @@ export default function Sidebar(props: Props) {
     <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto pb-3">
       <DeployPanel {...props} />
       <FirePanel {...props} />
+      <CommanderPanel />
       <TokensPanel {...props} />
       {props.scenario && <PlacesPanel scenario={props.scenario} onFocus={props.onFocusPlace} />}
       <Panel title="Projector">
