@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 14
+PROTOCOL_VERSION = 15
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -85,6 +85,7 @@ class Hello(Model):
     type: Literal["hello"] = "hello"
     protocol_version: int = PROTOCOL_VERSION
     scenario: str
+    crew_radius: float  # cells: a crew's reach (sim.effects.CREW_RADIUS), for drawing it
     map_width: int
     map_height: int
     sim_minutes_per_tick: float
