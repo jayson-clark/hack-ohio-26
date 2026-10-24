@@ -2,7 +2,7 @@
 // Like labels.ts, it's a canvas in map coordinates that the projection shader
 // samples, so routes drape over the terrain and land on the physical roads.
 
-import type { Recommendation, RouteInfo, RouteStatus } from "../shared/protocol";
+import type { Recommendation, RouteInfo, RouteStatus, StationInfo, UnitInfo } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 
 const PX_PER_CELL = 8;
@@ -34,6 +34,8 @@ export function drawRoutes(
   routes: RouteInfo[],
   recs: Recommendation[] = [],
   threatened: string[] = [],
+  stations: StationInfo[] = [],
+  units: UnitInfo[] = [],
 ) {
   const ctx = canvas.getContext("2d")!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -173,4 +175,55 @@ export function drawRoutes(
     ctx.fillStyle = "#111";
     ctx.fillText(String(i + 1), r.x, r.y + 0.15);
   });
+  drawDispatch(ctx, stations, units);
+}
+
+const UNIT_COLORS: Record<string, string> = { crew: "#fbbf24", firebreak: "#fb923c", water: "#38bdf8" };
+
+/** Fire stations, and units driving or flying in (#104): a dashed line from
+ * where each unit is now to its token, a dot for the unit, and its ETA. */
+function drawDispatch(ctx: CanvasRenderingContext2D, stations: StationInfo[], units: UnitInfo[]) {
+  for (const st of stations) {
+    if (st.kind !== "ground") continue; // air bases are off the map
+    ctx.fillStyle = "rgba(8, 10, 14, 0.85)";
+    ctx.fillRect(st.x - 1.6, st.y - 1.6, 3.2, 3.2);
+    ctx.fillStyle = "#ef4444";
+    ctx.fillRect(st.x - 1.1, st.y - 1.1, 2.2, 2.2);
+  }
+  for (const u of units) {
+    if (u.status !== "en_route" || u.path.length < 2) continue;
+    const color = UNIT_COLORS[u.token_type] ?? "#fff";
+    const [tx, ty] = u.path[u.path.length - 1];
+    ctx.beginPath();
+    ctx.moveTo(u.x, u.y);
+    // The rest of the route: path points nearer the target than the unit is.
+    const left = Math.hypot(tx - u.x, ty - u.y);
+    for (const [x, y] of u.path) if (Math.hypot(tx - x, ty - y) < left) ctx.lineTo(x, y);
+    ctx.lineTo(tx, ty);
+    ctx.setLineDash([1.2, 1.0]);
+    ctx.strokeStyle = "rgba(8, 10, 14, 0.8)";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(u.x, u.y, 1.4, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = 0.4;
+    ctx.strokeStyle = "rgba(8, 10, 14, 0.9)";
+    ctx.stroke();
+    if (u.eta_min != null) {
+      ctx.font = "600 2.6px system-ui, sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      const label = `${Math.max(1, Math.round(u.eta_min))} min`;
+      ctx.lineWidth = 0.8;
+      ctx.strokeText(label, tx + 3.2, ty - 3.2);
+      ctx.fillStyle = color;
+      ctx.fillText(label, tx + 3.2, ty - 3.2);
+    }
+  }
 }

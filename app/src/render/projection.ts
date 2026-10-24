@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
-import type { Recommendation, RouteInfo, Token } from "../shared/protocol";
+import type { Recommendation, RouteInfo, StationInfo, Token, UnitInfo } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { HALO_RADIUS, TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { drawLabels } from "./labels";
@@ -61,6 +61,7 @@ export interface Projection {
   setForecast(forecast: ForecastGrids | null): void;
   setRoutes(routes: RouteInfo[]): void;
   setRecommendations(recs: Recommendation[]): void;
+  setDispatch(stations: StationInfo[], units: UnitInfo[]): void;
   setThreatened(towns: string[]): void;
   update(timeSec: number): void;
   dispose(): void;
@@ -89,6 +90,8 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
   const routesCanvas = createRoutesCanvas(s);
   let lastRoutes: RouteInfo[] = [];
   let lastRecs: Recommendation[] = [];
+  let lastStations: StationInfo[] = [];
+  let lastUnits: UnitInfo[] = [];
   let lastThreatened: string[] = [];
   const routesTex = new THREE.CanvasTexture(routesCanvas);
   routesTex.flipY = false;
@@ -148,7 +151,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     setCrewReach(cells) {
       u.uCrewReach.value = cells;
       setRecReach(cells);
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
       routesTex.needsUpdate = true;
     },
 
@@ -200,19 +203,26 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     // Routes and recommendation markers share one canvas, so each redraws both.
     setRoutes(routes) {
       lastRoutes = routes;
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
       routesTex.needsUpdate = true;
     },
 
     setRecommendations(recs) {
       lastRecs = recs;
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
+      routesTex.needsUpdate = true;
+    },
+
+    setDispatch(stations, units) {
+      lastStations = stations;
+      lastUnits = units;
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
       routesTex.needsUpdate = true;
     },
 
     setThreatened(towns) {
       lastThreatened = towns;
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
       routesTex.needsUpdate = true;
     },
 

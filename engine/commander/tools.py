@@ -21,6 +21,7 @@ import numpy as np
 
 from forecast.recommend import TownInfo, evaluate_spots
 from forecast.rollout import rollout
+from protocol import TokenType
 from sim.fire import BURNED, BURNING, SIM_MINUTES_PER_TICK, FireSnapshot, Wind
 from uq.mc import confidence_word, wilson
 
@@ -127,8 +128,9 @@ def whatif_job(snapshot: FireSnapshot, wind: Wind, towns: list[TownInfo], n: int
     return arrivals, float(np.isfinite(first).sum(axis=(1, 2)).mean())
 
 
-def placement_job(snapshot: FireSnapshot, x: float, y: float, towns: list[TownInfo], n: int, seed: int):
-    return evaluate_spots(snapshot, [(x, y)], towns, n=n, seed=seed)[0]
+def placement_job(snapshot: FireSnapshot, x: float, y: float, towns: list[TownInfo], n: int, seed: int,
+                  start: int = 0):
+    return evaluate_spots(snapshot, [(x, y)], towns, n=n, seed=seed, starts=[start])[0]
 
 
 # --- The tools ---------------------------------------------------------------
@@ -298,10 +300,16 @@ class CommanderTools:
             raise ValueError("that spot is off the map")
         if not e.fire.counts()[0]:
             return {"error": "nothing is burning, so a crew has nothing to hold"}
-        job = e.recommender.run(placement_job, e.snapshot(), x, y, e.towns, PLACEMENT_ROLLOUTS, e.fire.tick)
+        # The crew only starts digging in once a unit drives there (#104).
+        station, eta = e.best_station(TokenType.CREW, x, y) if e.dispatcher.units else (None, None)
+        if e.dispatcher.units and eta is None:
+            return {"error": "no free crew can reach that spot right now (all busy, or the roads there are cut)"}
+        start = math.ceil(eta / SIM_MINUTES_PER_TICK) if eta is not None else 0
+        job = e.recommender.run(placement_job, e.snapshot(), x, y, e.towns, PLACEMENT_ROLLOUTS, e.fire.tick, start)
         rec = await job
+        arrival = {"from_station": station, "minutes_to_arrive": eta} if station else {}
         return {
-            "placement": {"type": "crew", "at": label, "x": round(x, 1), "y": round(y, 1)},
+            "placement": {"type": "crew", "at": label, "x": round(x, 1), "y": round(y, 1), **arrival},
             "acres_saved_within_60_min": self._acres(rec.cells_saved),
             "keeps_fire_out_of": [{"town": s.town, "simulations": s.hits, "of": s.n} for s in rec.saves],
             "lets_fire_into": [{"town": s.town, "simulations": s.hits, "of": s.n} for s in rec.worsens],

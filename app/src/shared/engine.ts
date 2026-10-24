@@ -12,6 +12,7 @@ import type {
   Hello,
   Recommendation,
   RouteInfo,
+  UnitInfo,
   ScenarioState,
   Score,
   Token,
@@ -50,6 +51,8 @@ export interface EngineState {
   forecast: ForecastGrids | null;
   /** Every town's evacuation route, replanned after each forecast. */
   routes: RouteInfo[];
+  /** Fire units (#104): where each is, and its route and ETA while en route. */
+  units: UnitInfo[];
   /** Recent events, oldest first. Cleared on reconnect. */
   events: Event[];
   /** Crew placement recommendations, best first (cards and markers: #45). */
@@ -77,6 +80,7 @@ let state: EngineState = {
   simGrid: null,
   forecast: null,
   routes: [],
+  units: [],
   events: [],
   recommendations: [],
   vision: null,
@@ -106,6 +110,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "tokens":
       setState({ tokens: msg.tokens });
+      break;
+    case "units":
+      setState({ units: msg.units });
       break;
     case "routes":
       setState({ routes: msg.routes });

@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 15
+PROTOCOL_VERSION = 16
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -91,6 +91,7 @@ class Hello(Model):
     sim_minutes_per_tick: float
     forecast_horizons_min: list[float]  # order of the grids in a FORECAST_GRID frame
     speech_to_text: bool  # push-to-talk works (the engine has the voice extra installed)
+    stations: list["StationInfo"]  # where fire units come from (#104); air bases may be off the map
 
 
 class WindState(Model):
@@ -152,6 +153,9 @@ class EventKind(StrEnum):
     TOWN_SAFE = "town_safe"  # a threatened town has dropped out of the fire's 30-min path
     FORECAST_SHIFT = "forecast_shift"  # the next hour's likely burn area moved a lot
     ROUND_ENDED = "round_ended"  # with the final score
+    UNIT_ARRIVED = "unit_arrived"  # a dispatched crew, dozer or tanker reached its token
+    UNIT_BLOCKED = "unit_blocked"  # burning roads keep a ground unit from getting through
+    TANKERS_GROUNDED = "tankers_grounded"  # too windy to fly
 
 
 class Event(Model):
@@ -202,11 +206,49 @@ class Recommendation(Model):
     benefit_lo: float  # 90% interval on benefit; only placements with benefit_lo > 0 are sent (#11)
     benefit_hi: float
     confidence: str  # how firmly to state it: "high" or "moderate"
+    station: str | None  # which station's unit would go (#104)
+    eta_min: float | None  # and how long it takes to get there, sim minutes
     acres_saved: float  # mean acres the placement keeps from burning by T+60
     saves: list[TownEffect]  # without it the fire reaches the town; with it, it doesn't
     worsens: list[TownEffect]  # the reverse: the placement deflects fire onto the town
     protects: list[TownShare]  # towns where less burns with it, biggest drop first
     text: str  # one sentence for a card or a briefing
+
+
+class StationInfo(Model):
+    name: str
+    x: float  # map coords; an air base can be off the map
+    y: float
+    kind: str  # "ground" (engines, crews, dozers by road) or "air" (tankers)
+
+
+class UnitStatus(StrEnum):
+    AVAILABLE = "available"
+    EN_ROUTE = "en_route"
+    WORKING = "working"
+    BLOCKED = "blocked"  # no open road gets there; retrying
+    GROUNDED = "grounded"  # tankers can't fly in this wind; retrying
+
+
+class UnitInfo(Model):
+    id: str  # e.g. "Jarbo Gap Station 36 crew"
+    station: str
+    token_type: TokenType
+    status: UnitStatus
+    token_id: str | None  # the token (order) it's assigned to
+    x: float  # where it is now, map coords
+    y: float
+    eta_min: float | None  # sim minutes until it arrives, while en route
+    path: list[list[float]]  # its route, origin to target, while en route
+
+
+class Units(Model):
+    """Every fire unit (#104). Sent when one changes status, and a few times
+    a second while any is en route, so the map can draw them driving in."""
+
+    type: Literal["units"] = "units"
+    tick: int
+    units: list[UnitInfo]
 
 
 class Recommendations(Model):
@@ -331,7 +373,7 @@ class CommanderSpeech(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          CommanderSpeech, Transcript],
+          CommanderSpeech, Transcript, Units],
     Field(discriminator="type"),
 ]
 
@@ -471,3 +513,6 @@ class Protocol(Model):
 
     engine: EngineMessage
     client: ClientMessage
+
+
+Hello.model_rebuild()  # StationInfo is defined after Hello

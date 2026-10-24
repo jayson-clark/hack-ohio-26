@@ -11,17 +11,28 @@ export type EngineMessage =
   | Score
   | CommanderMessage
   | CommanderSpeech
-  | Transcript;
+  | Transcript
+  | Units;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
 export type EventKind =
-  "road_cut" | "route_changed" | "no_safe_route" | "town_threatened" | "town_safe" | "forecast_shift" | "round_ended";
+  | "road_cut"
+  | "route_changed"
+  | "no_safe_route"
+  | "town_threatened"
+  | "town_safe"
+  | "forecast_shift"
+  | "round_ended"
+  | "unit_arrived"
+  | "unit_blocked"
+  | "tankers_grounded";
 export type RecAction = "place" | "move";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
 export type CommanderKind = "briefing" | "answer";
+export type UnitStatus = "available" | "en_route" | "working" | "blocked" | "grounded";
 export type ClientMessage =
   | VirtualTokenAdd
   | VirtualTokenMove
@@ -58,6 +69,13 @@ export interface Hello {
   sim_minutes_per_tick: number;
   forecast_horizons_min: number[];
   speech_to_text: boolean;
+  stations: StationInfo[];
+}
+export interface StationInfo {
+  name: string;
+  x: number;
+  y: number;
+  kind: string;
 }
 /**
  * Sent once a second, and immediately after ignite, reset, set_wind,
@@ -142,6 +160,8 @@ export interface Recommendation {
   benefit_lo: number;
   benefit_hi: number;
   confidence: string;
+  station: string | null;
+  eta_min: number | null;
   acres_saved: number;
   saves: TownEffect[];
   worsens: TownEffect[];
@@ -240,6 +260,26 @@ export interface Transcript {
   type: "transcript";
   text: string;
   error: string | null;
+}
+/**
+ * Every fire unit (#104). Sent when one changes status, and a few times
+ * a second while any is en route, so the map can draw them driving in.
+ */
+export interface Units {
+  type: "units";
+  tick: number;
+  units: UnitInfo[];
+}
+export interface UnitInfo {
+  id: string;
+  station: string;
+  token_type: TokenType;
+  status: UnitStatus;
+  token_id: string | null;
+  x: number;
+  y: number;
+  eta_min: number | null;
+  path: number[][];
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";

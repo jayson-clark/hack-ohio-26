@@ -16,6 +16,7 @@ Runs in its own worker process (Recommender), like the forecaster.
 """
 
 import asyncio
+import math
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ import numpy as np
 
 from forecast.rollout import rollout_paired
 from sim.effects import CREW_RADIUS, TimedLayer, crew_layer
-from sim.fire import FUEL, FireSnapshot
+from sim.fire import FUEL, SIM_MINUTES_PER_TICK, FireSnapshot
 from uq.mc import benefit_confidence, mean_ci, overlap, wilson
 
 N_CANDIDATES = 8
@@ -81,6 +82,8 @@ class Rec:
     saves: list[TownEffect] = field(default_factory=list)  # baseline reaches the town, crew stops it
     worsens: list[TownEffect] = field(default_factory=list)  # the reverse (fire deflected onto it)
     protects: list[TownShare] = field(default_factory=list)  # towns where less burns, biggest first
+    # Minutes for the unit to get there (#104); None when units appear instantly.
+    eta_min: float | None = None
     # Set when every crew is already placed (#77): move this crew here instead.
     move_id: str | None = None
     from_x: float | None = None
@@ -97,6 +100,7 @@ class PlacedCrew:
     y: float
     without: FireSnapshot  # same fire, suppression (and its schedule) without this crew
     keep: TimedLayer | np.ndarray  # this crew staying where it is
+    eta: np.ndarray | None = None  # minutes for this crew to reach each cell from where it is (#104)
 
 
 def candidates(snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], k: int = N_CANDIDATES) -> list[tuple[float, float]]:
@@ -128,10 +132,11 @@ def _town_masks(towns: list[TownInfo], h: int, w: int) -> np.ndarray:
     return np.stack([np.hypot(cx - t.x, cy - t.y) <= t.radius for t in towns]).astype(np.float32)
 
 
-def evaluate_spots(snapshot, spots, towns, n=N_ROLLOUTS, seed=0) -> list[Rec]:
-    """Paired effect of a crew at each (x, y), without picking or re-running."""
+def evaluate_spots(snapshot, spots, towns, n=N_ROLLOUTS, seed=0, starts: list[int] | None = None) -> list[Rec]:
+    """Paired effect of a crew at each (x, y), without picking or re-running.
+    `starts` are the ticks until each crew could be there (#104); default now."""
     h, w = snapshot.state.shape
-    return _evaluate(snapshot, spots, towns, _town_masks(towns, h, w), n, seed)
+    return _evaluate(snapshot, spots, towns, _town_masks(towns, h, w), n, seed, starts=starts)
 
 
 def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[int] | None = None) -> list[Rec]:
@@ -181,6 +186,30 @@ def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[in
     return recs
 
 
+def _arrival(eta: np.ndarray | None, x: float, y: float) -> tuple[int, float | None]:
+    """(start tick, minutes) for a unit reaching (x, y), from an arrival-time map (#104)."""
+    if eta is None:
+        return 0, None
+    h, w = eta.shape
+    m = float(eta[min(max(int(y), 0), h - 1), min(max(int(x), 0), w - 1)])
+    if not math.isfinite(m):
+        return 10**9, m  # no free unit can get there
+    return int(math.ceil(m / SIM_MINUTES_PER_TICK)), m
+
+
+def _reachable(spots, eta):
+    return [s for s in spots if eta is None or math.isfinite(_arrival(eta, *s)[1])]
+
+
+def _eval_at(snapshot, spots, towns, masks, n, seed, eta, keep=None) -> list[Rec]:
+    """_evaluate with each crew starting when a unit can get there."""
+    arrivals = [_arrival(eta, x, y) for x, y in spots]
+    recs = _evaluate(snapshot, spots, towns, masks, n, seed, keep=keep, starts=[a[0] for a in arrivals])
+    for r, (_, m) in zip(recs, arrivals):
+        r.eta_min = None if m is None else round(m, 1)
+    return recs
+
+
 def recommend(
     snapshot: FireSnapshot,
     p30: np.ndarray,
@@ -190,6 +219,7 @@ def recommend(
     n: int = N_ROLLOUTS,
     top: int = TOP,
     seed: int = 0,
+    eta: np.ndarray | None = None,
 ) -> list[Rec]:
     """The best `top` crew placements, best first, each re-scored on fresh
     seeds (#11):
@@ -199,19 +229,22 @@ def recommend(
     - If the top two still overlap, so the data can't say which is better,
       they're re-run head to head on more rollouts, rather than spending more
       rollouts on every candidate.
+    - With `eta` (minutes for the fastest free crew to reach each cell, #104),
+      each candidate's crew only starts digging in when it could get there,
+      and spots no free crew can reach are skipped.
     """
-    spots = candidates(snapshot, p30, towns, k)
+    spots = _reachable(candidates(snapshot, p30, towns, k), eta)
     if not spots:
         return []
     h, w = snapshot.state.shape
     masks = _town_masks(towns, h, w)
-    first_pass = _evaluate(snapshot, spots, towns, masks, n, seed)
+    first_pass = _eval_at(snapshot, spots, towns, masks, n, seed, eta)
     best = sorted(first_pass, key=lambda r: r.benefit, reverse=True)[:top]
-    held_out = sorted(_evaluate(snapshot, [(r.x, r.y) for r in best], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919),
+    held_out = sorted(_eval_at(snapshot, [(r.x, r.y) for r in best], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919, eta),
                       key=lambda r: r.benefit, reverse=True)
     if len(held_out) >= 2 and overlap((held_out[0].benefit_lo, held_out[0].benefit_hi),
                                       (held_out[1].benefit_lo, held_out[1].benefit_hi)):
-        pair = _evaluate(snapshot, [(r.x, r.y) for r in held_out[:2]], towns, masks, REFINE_ROLLOUTS, seed + 15485)
+        pair = _eval_at(snapshot, [(r.x, r.y) for r in held_out[:2]], towns, masks, REFINE_ROLLOUTS, seed + 15485, eta)
         held_out = sorted(pair + held_out[2:], key=lambda r: r.benefit, reverse=True)
     return [r for r in held_out if r.benefit_lo > 0]
 
@@ -240,11 +273,11 @@ def recommend_moves(
     masks = _town_masks(towns, h, w)
     found: list[tuple[PlacedCrew, Rec]] = []
     for i, crew in enumerate(crews):
-        spots = [s for s in candidates(crew.without, p30, towns, k)
+        spots = [s for s in _reachable(candidates(crew.without, p30, towns, k), crew.eta)
                  if all(np.hypot(s[0] - c.x, s[1] - c.y) >= 2 * CREW_RADIUS for c in crews)]
         if not spots:
             continue
-        for r in _evaluate(crew.without, spots, towns, masks, n, seed + i, keep=crew.keep):
+        for r in _eval_at(crew.without, spots, towns, masks, n, seed + i, crew.eta, keep=crew.keep):
             found.append((crew, r))
     # Distinct moves: each crew moves at most once, and no two crews go to the same spot.
     best: list[tuple[PlacedCrew, Rec]] = []
@@ -256,19 +289,25 @@ def recommend_moves(
         best.append((crew, r))
     out = []
     for j, (crew, r) in enumerate(best):
-        [again] = _evaluate(crew.without, [(r.x, r.y)], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919 + j,
-                            keep=crew.keep)
+        [again] = _eval_at(crew.without, [(r.x, r.y)], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919 + j,
+                           crew.eta, keep=crew.keep)
         if again.benefit_lo > 0:  # only moves that help at the low end of their interval (#11)
             again.move_id, again.from_x, again.from_y = crew.id, crew.x, crew.y
             out.append(again)
     return sorted(out, key=lambda r: r.benefit, reverse=True)
 
 
-def describe(rec: Rec, acres_per_cell: float, from_place: str | None = None) -> str:
+def describe(rec: Rec, acres_per_cell: float, from_place: str | None = None, station: str | None = None) -> str:
     """One sentence for a recommendation card or a briefing. For a move,
-    `from_place` names where the crew is now ("near Pulga")."""
+    `from_place` names where the crew is now ("near Pulga"). With dispatch
+    (#104), `station` and the rec's ETA say who'd go and how long it takes."""
     acres = rec.cells_saved * acres_per_cell
-    who = "A crew here" if rec.move_id is None else f"Moving the crew {from_place or 'you placed'} here"
+    if rec.move_id is not None:
+        who = f"Moving the crew {from_place or 'you placed'} here"
+    elif station and rec.eta_min is not None:
+        who = f"A crew from {station}, about {round(rec.eta_min)} minutes out,"
+    else:
+        who = "A crew here"
     if rec.saves:
         best = max(rec.saves, key=lambda e: e.hits)
         text = f"{who} keeps the fire out of {best.town} in {best.hits} of {best.n} simulations"
@@ -296,8 +335,9 @@ class Recommender:
         ctx = multiprocessing.get_context("spawn")
         self._pool = ProcessPoolExecutor(max_workers=1, mp_context=ctx)
 
-    def submit(self, snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
-        return self.run(_recommend_job, snapshot, p30, towns, seed)
+    def submit(self, snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], seed: int,
+               eta: np.ndarray | None = None) -> asyncio.Future[list[Rec]]:
+        return self.run(_recommend_job, snapshot, p30, towns, seed, eta)
 
     def submit_moves(self, crews: list[PlacedCrew], p30: np.ndarray,
                      towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
@@ -322,8 +362,8 @@ def _noop() -> None:
     return None
 
 
-def _recommend_job(snapshot, p30, towns, seed):
-    return recommend(snapshot, p30, towns, seed=seed)
+def _recommend_job(snapshot, p30, towns, seed, eta=None):
+    return recommend(snapshot, p30, towns, seed=seed, eta=eta)
 
 
 def _moves_job(crews, p30, towns, seed):
