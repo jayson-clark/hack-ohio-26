@@ -34,6 +34,8 @@ varying vec3 vWorldPos;
 
 uniform sampler2D uHeight; // elevation normalized to 0..1
 uniform sampler2D uLabels; // static overlay: towns and names
+uniform sampler2D uRoutes; // evacuation routes, redrawn per routes message
+uniform float uShowRoutes;
 uniform sampler2D uFire;   // r = burning, g = burned (linear filtered masks),
                            // b, a = forecast P(burned) at the first two horizons
 uniform vec2 uGrid;        // map size in cells
@@ -178,6 +180,9 @@ void main() {
   vec2 cell = vUv * uGrid;
   vec3 col = terrain(vUv, cell);
   if (uHasFire > 0.5) col = fire(col, vUv, cell);
+  // Routes pulse gently so they read as live guidance, not map ink.
+  vec4 rt = texture2D(uRoutes, vUv);
+  col = mix(col, rt.rgb, rt.a * uShowRoutes * (0.82 + 0.18 * sin(uTime * 3.0)));
   vec4 lab = texture2D(uLabels, vUv);
   col = mix(col, lab.rgb, lab.a * uLayers.z);
   col = tokens(col, cell);

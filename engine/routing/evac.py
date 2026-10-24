@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from protocol import RouteInfo, Routes
 from routing.roads import RoadNetwork
 
 LAMBDA = 8.0  # how many extra "lengths" a certain-to-burn edge costs
@@ -172,4 +173,23 @@ def _route_one(net, adj, curves, start, zones, speed, bin_ticks, mpt, town) -> R
         eta_min=round(t_at[best_zone] * mpt, 1),
         risk=round(risk, 3),
         status="risky" if risk >= RISKY_P else "clear",
+    )
+
+
+def routes_message(routes: list[Route], tick: int) -> Routes:
+    """The `routes` message for the UI, with every number as a plain float."""
+    return Routes(
+        tick=tick,
+        routes=[
+            RouteInfo(
+                town=r.town,
+                safe_zone=r.safe_zone,
+                points=[[float(x), float(y)] for x, y in r.points],
+                length_m=float(r.length_m),
+                eta_min=float(r.eta_min),
+                risk=float(r.risk),
+                status=r.status,
+            )
+            for r in routes
+        ],
     )

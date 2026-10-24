@@ -11,7 +11,7 @@ import Sidebar from "./Sidebar";
 import Viewport, { type ViewMode } from "./Viewport";
 
 export default function Console() {
-  const { status, scenario: state, tokens, simGrid, forecast } = useEngine();
+  const { status, scenario: state, tokens, simGrid, forecast, routes } = useEngine();
   const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -72,6 +72,7 @@ export default function Console() {
             tokens={tokens}
             simGrid={simGrid}
             forecast={forecast}
+            routes={routes}
             layers={layers}
             onToggleLayer={(k) => setLayers((l) => ({ ...l, [k]: !l[k] }))}
             placeType={placeType}
