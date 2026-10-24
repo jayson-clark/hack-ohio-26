@@ -71,6 +71,8 @@ export interface Projection {
   setRecommendations(recs: Recommendation[]): void;
   setDispatch(stations: StationInfo[], units: UnitInfo[]): void;
   setThreatened(towns: string[]): void;
+  /** Projector calibration (row-major map -> projector), or null to letterbox. Flat views only. */
+  setMapToProj(h: number[] | null): void;
   update(timeSec: number): void;
   dispose(): void;
 }
@@ -143,6 +145,8 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       uHalo: { value: HALO_RADIUS },
       uCrewReach: { value: 14 },
       uRing: { value: HALO_RADIUS + 1.6 },
+      uMapToProj: { value: new THREE.Matrix3() },
+      uCalibrated: { value: 0 },
       uProjector: { value: new THREE.Vector3(0, 1500, 0) },
       uAmbient: { value: 0.07 },
       uTiles: {
@@ -239,6 +243,11 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       lastThreatened = towns;
       drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
       routesTex.needsUpdate = true;
+    },
+
+    setMapToProj(h) {
+      if (h) (u.uMapToProj.value as THREE.Matrix3).set(h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
+      u.uCalibrated.value = h ? 1 : 0;
     },
 
     update(timeSec) {

@@ -11,11 +11,15 @@ from the camera's axis (about h * d / camera height, the same parallax as the
 projector; see PLAN.md, Calibration).
 """
 
+import logging
+
 import cv2
 import numpy as np
 
 from scenario import Scenario
 from vision.markers import CORNER_IDS, Detection
+
+log = logging.getLogger("vision")
 
 
 class BoardHomography:
@@ -26,6 +30,7 @@ class BoardHomography:
         self.width, self.height = scenario.width, scenario.height
         self.cam_to_map: np.ndarray | None = None  # 3x3 float64
         self.corners_seen: list[str] = []
+        self.misplaced = False  # all four seen, but not in order round the board
 
     def update(self, detections: list[Detection]) -> bool:
         """Re-solve from this frame's detections. True if all four were seen."""
@@ -34,6 +39,14 @@ class BoardHomography:
         if len(self.corners_seen) < len(CORNER_IDS):
             return False
         cam_pts = np.array([by_id[i].center for i in self._ids], np.float32)
+        if not cv2.isContourConvex(cam_pts.reshape(-1, 1, 2)):
+            # Two corner markers swapped (NW, NE, SE, SW should go round the
+            # board): the solve would fold the map over itself.
+            if not self.misplaced:
+                log.warning("corner markers out of order (%s): two are swapped", ", ".join(self.corners_seen))
+            self.misplaced = True
+            return False
+        self.misplaced = False
         self.cam_to_map = cv2.getPerspectiveTransform(cam_pts, self._map_pts)
         return True
 

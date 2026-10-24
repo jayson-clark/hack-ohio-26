@@ -20,15 +20,26 @@ interface Props {
   showGlyphs?: boolean;
   onSelect?: (id: string | null) => void;
   onHover?: (p: { x: number; y: number } | null) => void;
+  /** Screen -> map, for a calibrated projector: a CSS matrix3d has no usable getScreenCTM. */
+  toMap?: (clientX: number, clientY: number) => { x: number; y: number };
 }
 
-export default function MapOverlay({ map, tokens, placeType, showGlyphs = false, onSelect, onHover }: Props) {
+export default function MapOverlay({
+  map,
+  tokens,
+  placeType,
+  showGlyphs = false,
+  onSelect,
+  onHover,
+  toMap: screenToMap,
+}: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef<string | null>(null);
   const move = useMemo(() => createMover(map), [map]);
   const { units } = useEngine();
 
   function toMap(e: React.PointerEvent | React.MouseEvent) {
+    if (screenToMap) return screenToMap(e.clientX, e.clientY);
     const svg = svgRef.current!;
     const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM()!.inverse());
     return { x: pt.x, y: pt.y };
