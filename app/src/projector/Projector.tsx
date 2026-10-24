@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { useEngine } from "../shared/engine";
-import { useScenario } from "../shared/scenario";
+import { useEngineScenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
 import type { PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS } from "../render/projection";
@@ -14,7 +14,7 @@ import AttractMode, { useAttract } from "./AttractMode";
 
 export default function Projector() {
   const { tokens, simGrid, forecast, routes, score } = useEngine();
-  const { scenario, error } = useScenario();
+  const { scenario, error } = useEngineScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
   const attract = useAttract();
 

@@ -39,6 +39,7 @@ export type ClientMessage =
   | VirtualTokenRemove
   | Ignite
   | Reset
+  | LoadScenario
   | SetWind
   | AcceptRecommendation
   | StartRound
@@ -310,6 +311,15 @@ export interface Ignite {
  */
 export interface Reset {
   type: "reset";
+}
+/**
+ * Switch to another scenario under assets/scenarios/. The engine rebuilds
+ * the fire, layers, routing and game from it, returns to the sandbox, and
+ * re-sends hello (the map size can change, so the UI must re-read terrain).
+ */
+export interface LoadScenario {
+  type: "load_scenario";
+  scenario: string;
 }
 export interface SetWind {
   type: "set_wind";

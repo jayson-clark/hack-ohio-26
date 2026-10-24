@@ -40,6 +40,7 @@ from protocol import (
     Events,
     Hello,
     Ignite,
+    LoadScenario,
     PttStart,
     PttStop,
     Reset,
@@ -84,7 +85,7 @@ from protocol import TownShare as TownShareInfo
 from routing.evac import Route, burning_edges, plan_routes, replan_routes, routes_message
 from routing.tracker import RouteTracker
 from routing.roads import load_network
-from scenario import load_scenario
+from scenario import ASSETS, load_scenario
 from sim.effects import CREW_RADIUS, TokenEffects
 from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
 from sim.dispatch import Dispatcher
@@ -119,19 +120,13 @@ class Engine:
     def __init__(self) -> None:
         self.clients: set[ServerConnection] = set()
         self.tick = 0
-        self.scenario = load_scenario(SCENARIO)
-        self.tracker = TokenTracker()
-        self.virtual = VirtualTable(self.tracker, self.scenario.width, self.scenario.height)
         self._sent_token_version = -1
-        self.camera = camera.from_env(CAMERA, self.scenario)
         self._sent_feed_seq = 0
-        self.fire = FireSim(self.scenario)
-        self.effects = TokenEffects(self.scenario.width, self.scenario.height)
         self.forecaster = Forecaster()
         self._forecast_job: asyncio.Future[Forecast] | None = None
         self._forecast_started = -FORECAST_MIN_TICKS
-        # Bumped on reset, so a forecast that was in flight when the map was
-        # reset is dropped rather than shown over the fresh map.
+        # Bumped on reset and on a scenario switch, so a forecast in flight
+        # when the map changed is dropped rather than shown over the new map.
         self._fire_epoch = 0
         # The newest finished forecast, or None before the first one (and
         # after a reset). Routing and the commander read it from here:
@@ -139,55 +134,36 @@ class Engine:
         # (N, H, W) ticks-after-.tick until each cell burns (inf = not by the
         # last horizon); .probability is float32 (len(HORIZONS_MIN), H, W).
         self.latest_forecast: Forecast | None = None
-        # Evacuation routes (PLAN.md, Evacuation routing), replanned off the
-        # tick loop whenever a forecast lands. No road layer means no routes.
-        s = self.scenario
-        self.roads = load_network(s.dir, s.width, s.height)
         self.route_tracker = RouteTracker()
-        # Plan once here (no fire yet, so plain shortest paths). This also
-        # builds the graph's lazy caches before any worker thread touches it.
-        self.routes: list[Route] = []
-        if self.roads is not None:
-            self.routes, _ = self.route_tracker.choose(plan_routes(self.roads, None), {}, 0)
         self._routes_tick = 0
         self._route_job: asyncio.Task | None = None
         self._route_pending = False
-        # Road edges with a cell burning right now, checked every tick so a
-        # road the fire reaches between forecasts closes immediately.
-        self._closed = np.zeros(len(self.roads.edges) if self.roads else 0, bool)
         self._bus_signature: tuple = ()
         # The last few events, for the commander's tools and briefings.
         self.recent_events: deque[Event] = deque(maxlen=20)
         # Crew recommendations, from their own worker after a forecast lands.
         self.recommender = Recommender()
-        self.towns = [TownInfo(t.name, t.x, t.y, t.radius, t.population) for t in self.roads.towns] if self.roads else []
         self.recs: list[Recommendation] = []
         self._recs_tick = 0
         self._rec_job: asyncio.Future[list[Rec]] | None = None
         self._rec_started = -RECOMMEND_MIN_TICKS
-        # Resource limits, scoring and rounds (sim/game.py). Towns come from the
-        # road layer's towns.json, so no road layer means nothing to score.
-        game_towns = [
-            GameTown(t.name, t.x, t.y, t.radius, t.population, t.structures) for t in self.roads.towns
-        ] if self.roads else []
-        self.game = Game(self.scenario, game_towns)
-        # Fire units come from stations (#104): a crew, dozer or tanker token is
-        # an order, and acts on the fire only once its unit gets there. No
-        # stations.json (or no roads) means tokens act at once, as before.
-        path = self.scenario.dir / "stations.json"
-        self.stations = [Station(**st) for st in json.loads(path.read_text())["stations"]] if path.exists() else []
-        self.unit_router = UnitRouter(self.roads, self.scenario.cell_size_m) if self.roads and self.stations else None
-        self.dispatcher = Dispatcher(self.stations if self.unit_router else [], self.unit_router)
-        self._acting: list[Token] = []  # tokens acting on the fire (within limits, unit arrived)
-        self._units_sig: tuple = ()
         # Pause and speed (#54). Speed is sim steps per engine tick; the
         # fractional part carries over, so 0.5 steps every other tick.
         self.paused = False
         self.speed = 1.0
         self._step_budget = 0.0
         self._sent_inactive: list[str] = []
+        # Everything derived from the scenario (the map, layers, routing, game,
+        # dispatch and the speech vocabulary) lives in load(), so a scenario
+        # switch (#57) can rebuild it. It runs before the commander below,
+        # whose tools read the scenario when they're built.
+        self.tracker = TokenTracker()
+        self.camera = None
+        self.load(SCENARIO)
         # The incident commander: tools over this engine, plus unprompted
         # briefings from forecast and route events (no LLM needed for those).
+        # They read the engine's live attributes; switch_scenario rebuilds the
+        # tools' grid-sized town masks.
         self.tools = CommanderTools(self)
         self.watcher = ForecastWatcher()
         self.briefings = BriefingQueue()
@@ -197,6 +173,50 @@ class Engine:
         self.voice_mode = VoiceMode.OFF
         self.mac_voice = MacVoice()
         self._utterances = itertools.count(1)
+
+    def load(self, name: str) -> None:
+        """Build (or rebuild) every scenario-derived piece of state. Called
+        once at startup and again on a load_scenario message. Does not touch
+        the worker processes, pause/speed, voice, the commander or the token
+        tracker; switch_scenario handles those."""
+        self.scenario = load_scenario(name)
+        s = self.scenario
+        self.virtual = VirtualTable(self.tracker, s.width, s.height)
+        # The camera's homography is per scenario; stop the old capture thread
+        # rather than leaving it running beside the new one.
+        if self.camera is not None:
+            self.camera.stop()
+        self.camera = camera.from_env(CAMERA, s)
+        self.fire = FireSim(s)
+        self.effects = TokenEffects(s.width, s.height)
+        # Evacuation routes (PLAN.md, Evacuation routing), replanned off the
+        # tick loop whenever a forecast lands. No road layer means no routes.
+        self.roads = load_network(s.dir, s.width, s.height)
+        # Plan once here (no fire yet, so plain shortest paths). This also
+        # builds the graph's lazy caches before any worker thread touches it.
+        self.routes: list[Route] = []
+        if self.roads is not None:
+            self.routes, _ = self.route_tracker.choose(plan_routes(self.roads, None), {}, 0)
+        # Road edges with a cell burning right now, checked every tick so a
+        # road the fire reaches between forecasts closes immediately.
+        self._closed = np.zeros(len(self.roads.edges) if self.roads else 0, bool)
+        self.towns = [TownInfo(t.name, t.x, t.y, t.radius, t.population) for t in self.roads.towns] if self.roads else []
+        # Resource limits, scoring and rounds (sim/game.py). Towns come from the
+        # road layer's towns.json, so no road layer means nothing to score.
+        game_towns = [
+            GameTown(t.name, t.x, t.y, t.radius, t.population, t.structures) for t in self.roads.towns
+        ] if self.roads else []
+        self.game = Game(s, game_towns)
+        # Fire units come from stations (#104): a crew, dozer or tanker token is
+        # an order, and acts on the fire only once its unit gets there. No
+        # stations.json (or no roads) means tokens act at once, as before.
+        path = s.dir / "stations.json"
+        self.stations = [Station(**st) for st in json.loads(path.read_text())["stations"]] if path.exists() else []
+        self.unit_router = UnitRouter(self.roads, s.cell_size_m) if self.roads and self.stations else None
+        self.dispatcher = Dispatcher(self.stations if self.unit_router else [], self.unit_router)
+        self._acting: list[Token] = []  # tokens acting on the fire (within limits, unit arrived)
+        # Cleared on every load, so a new scenario's units are always sent.
+        self._units_sig: tuple = ()
         # Push-to-talk: the engine records and transcribes (commander/listen.py).
         exits = [z.name for z in self.roads.safe_zones] if self.roads else []
         roads = [speakable(n[n.index("(") + 1 : -1]) for n in exits if n.endswith(")")]
@@ -349,6 +369,8 @@ class Engine:
             case Reset():
                 self.game.reset()
                 self.reset_map()
+            case LoadScenario():
+                self.switch_scenario(msg.scenario)
             case StartRound():
                 self.paused = False  # starting a round means playing it
                 self.game.start(0)  # reset_map puts the fire back at tick 0
@@ -390,6 +412,67 @@ class Engine:
         # Push token changes immediately rather than waiting for the next tick,
         # so dragging feels responsive.
         self.flush_tokens()
+
+    def switch_scenario(self, name: str) -> None:
+        """Load another scenario and rebuild the world around it. The fire,
+        layers, routing, game, dispatch and vocabulary are rebuilt, virtual
+        tokens are cleared (their coordinates belong to the old map; camera
+        tokens follow the camera), and every window re-reads terrain from the
+        fresh hello. An unknown or broken scenario is ignored with a log."""
+        if name == self.scenario.name:
+            return
+        if not (ASSETS / name).is_dir():
+            log.warning("load_scenario: no scenario %r under %s", name, ASSETS)
+            return
+        # Stop anything tied to the old listener before load() replaces it.
+        if self.listener.recording:
+            self.listener.stop()
+        previous = self.scenario.name
+        try:
+            self.load(name)
+        except Exception as e:  # a bad scenario shouldn't take the engine down
+            # load() replaces self.scenario first, so rebuild by the old name.
+            log.error("load_scenario %r failed: %r; staying on %s", name, e, previous)
+            self.load(previous)
+            return
+        log.info("switched to scenario %s (%dx%d)", name, self.scenario.width, self.scenario.height)
+        # Drop fire-derived and commander state, like a reset does, then tell
+        # every window about the new map. hello first: the map size can change,
+        # so the UI must re-read terrain before it interprets any grid.
+        self.tick = 0
+        self.fire.reset()
+        self.effects.reset()
+        self._fire_epoch += 1
+        self._forecast_started = -FORECAST_MIN_TICKS
+        self.latest_forecast = None
+        self._closed[:] = False
+        self._bus_signature = ()
+        self.tracker.update(TokenSource.VIRTUAL, [])
+        # Held routes refer to the old road graph's node and edge indices.
+        self.route_tracker.reset()
+        self._routes_tick = 0
+        self.tools.on_scenario()
+        self._sent_inactive = []
+        self._sent_token_version = -1
+        self.recent_events.clear()
+        self.watcher.reset()
+        self.briefings.reset()
+        self.commander.reset()
+        if self._query_task is not None:
+            self._query_task.cancel()
+        self.mac_voice.interrupt()
+        self.recs = []
+        self._rec_started = -RECOMMEND_MIN_TICKS
+        broadcast(self.clients, self.hello_msg())
+        broadcast(self.clients, self.state_msg())
+        broadcast(self.clients, self.tokens_msg())
+        broadcast(self.clients, self.vision_status_msg())
+        broadcast(self.clients, self.sim_grid_frame())
+        broadcast(self.clients, self.forecast_frame())
+        if self.roads is not None:
+            broadcast(self.clients, self.routes_msg())
+        broadcast(self.clients, self.recs_msg())
+        broadcast(self.clients, self.score_msg())
 
     def reset_map(self) -> None:
         """Put the fire out, drop everything derived from it, and tell the UI."""

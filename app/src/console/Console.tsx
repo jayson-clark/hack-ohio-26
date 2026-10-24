@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
-import { pttStart, pttStop, setVoiceMode, useEngine } from "../shared/engine";
+import { pttStart, pttStop, send, setVoiceMode, useEngine } from "../shared/engine";
 import { speechSupported } from "../shared/speech";
-import { useScenario, type Scenario } from "../shared/scenario";
+import { SCENARIOS, useEngineScenario, type Scenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
@@ -32,7 +32,7 @@ export default function Console() {
     listening,
     heard,
   } = useEngine();
-  const { scenario, error } = useScenario();
+  const { scenario, error } = useEngineScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<ViewMode>("table");
@@ -165,12 +165,25 @@ export default function Console() {
   );
 }
 
+// Also the scenario picker (#57): choosing one tells the engine to switch, and
+// every window follows the hello it sends back.
 function ScenarioBadge({ scenario }: { scenario: Scenario }) {
   const { info } = scenario;
   const km = (cells: number) => ((cells * info.grid.cell_size_m) / 1000).toFixed(0);
   return (
-    <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-1 px-2 py-1 text-[11px]">
-      <span className="font-medium capitalize text-fg">{info.name}</span>
+    <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-1 px-1 py-0.5 text-[11px]">
+      <select
+        value={info.name}
+        title="Switch scenario (resets the fire and clears virtual tokens)"
+        onChange={(e) => send({ type: "load_scenario", scenario: e.target.value })}
+        className="cursor-pointer rounded bg-transparent px-1 py-0.5 font-medium capitalize text-fg outline-none hover:bg-surface-2"
+      >
+        {SCENARIOS.map((name) => (
+          <option key={name} value={name} className="bg-surface-1 capitalize">
+            {name}
+          </option>
+        ))}
+      </select>
       <span className="hidden text-fg-subtle 2xl:inline">
         {km(scenario.width)} × {km(scenario.height)} km · {scenario.width}×{scenario.height} cells
       </span>
