@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from protocol import CommanderKind, CommanderMessage, Event, EventKind
+from protocol import CommanderKind, CommanderMessage, EndReason, Event, EventKind, Score
 from sim.fire import SIM_MINUTES_PER_TICK
 
 THREAT_ON = 0.6  # share of simulations with fire in the town within 30 min
@@ -37,6 +37,7 @@ PRIORITY = {
     EventKind.ROUTE_CHANGED: 1,
     EventKind.FORECAST_SHIFT: 2,
     EventKind.TOWN_SAFE: 3,
+    EventKind.ROUND_ENDED: 0,
 }
 MIN_GAP_S = 8.0  # wall seconds between spoken briefings
 DEDUPE_S = 45.0  # don't repeat the same kind of news about the same town
@@ -44,6 +45,23 @@ STALE_S = 20.0  # drop news that waited this long in wall time...
 # ...or this long in sim time. The sim can run up to 8x (#71), where 8 s of
 # wall time is over an hour of fire: "within 30 minutes" is meaningless by then.
 STALE_SIM_MIN = 15.0
+
+
+_END = {
+    EndReason.TIME: "time ran out",
+    EndReason.CONTAINED: "the fire is out",
+    EndReason.STOPPED: "it was stopped",
+}
+
+
+def round_summary(score: Score) -> str:
+    """'The round is over: time ran out. 1,240 of 52,000 people evacuated, ...'"""
+    why = _END.get(score.end_reason, "it ended")
+    return (
+        f"The round is over: {why}. {score.people_evacuated:,} of {score.people_total:,} people evacuated, "
+        f"{score.structures_lost:,} of {score.structures_total:,} structures lost, "
+        f"and {round(score.acres_burned):,} acres burned."
+    )
 
 
 def _share(reach: dict | None) -> float:
@@ -140,6 +158,10 @@ class BriefingQueue:
 
     def offer(self, events: list[Event], now: float) -> None:
         for e in events:
+            if e.kind == EventKind.ROUND_ENDED:
+                # Nothing else about the fire matters once the round is over.
+                self.pending = [_Pending(e, now)]
+                continue
             key = (e.kind, e.town)
             if now - self._said.get(key, -DEDUPE_S) < DEDUPE_S:
                 continue
