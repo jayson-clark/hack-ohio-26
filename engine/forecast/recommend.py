@@ -101,6 +101,12 @@ def _town_masks(towns: list[TownInfo], h: int, w: int) -> np.ndarray:
     return np.stack([np.hypot(cx - t.x, cy - t.y) <= t.radius for t in towns]).astype(np.float32)
 
 
+def evaluate_spots(snapshot, spots, towns, n=N_ROLLOUTS, seed=0) -> list[Rec]:
+    """Paired effect of a crew at each (x, y), without picking or re-running."""
+    h, w = snapshot.state.shape
+    return _evaluate(snapshot, spots, towns, _town_masks(towns, h, w), n, seed)
+
+
 def _evaluate(snapshot, spots, towns, masks, n, seed) -> list[Rec]:
     """Paired run of the baseline plus a crew at each spot."""
     h, w = snapshot.state.shape
@@ -186,11 +192,25 @@ class Recommender:
         self._pool = ProcessPoolExecutor(max_workers=1, mp_context=ctx)
 
     def submit(self, snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
+        return self.run(_recommend_job, snapshot, p30, towns, seed)
+
+    def run(self, fn, *args) -> asyncio.Future:
+        """Any other picklable analysis job (the commander's what-ifs), on
+        the same worker so it never competes with the live forecast."""
         loop = asyncio.get_running_loop()
-        return loop.run_in_executor(self._pool, _recommend_job, snapshot, p30, towns, seed)
+        return loop.run_in_executor(self._pool, fn, *args)
+
+    def warm(self) -> asyncio.Future:
+        """Start the worker now (a spawned process takes ~1 s to import
+        NumPy), so the first real job doesn't pay for it."""
+        return self.run(_noop)
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _noop() -> None:
+    return None
 
 
 def _recommend_job(snapshot, p30, towns, seed):
