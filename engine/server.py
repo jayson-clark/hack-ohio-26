@@ -80,7 +80,7 @@ from routing.evac import Route, burning_edges, plan_routes, replan_routes, route
 from routing.tracker import RouteTracker
 from routing.roads import load_network
 from scenario import load_scenario
-from sim.effects import TokenEffects
+from sim.effects import CREW_RADIUS, TokenEffects
 from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
 from sim.game import Game, GameTown
 from vision import camera
@@ -191,6 +191,7 @@ class Engine:
         s = self.scenario
         return Hello(
             scenario=s.name,
+            crew_radius=CREW_RADIUS,
             map_width=s.width,
             map_height=s.height,
             sim_minutes_per_tick=SIM_MINUTES_PER_TICK,

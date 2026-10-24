@@ -26,7 +26,17 @@ import numpy as np
 
 from protocol import Token, TokenType
 
-CREW_RADIUS = 6.0  # cells (~560 m)
+# Cells (~1.3 km); full strength out to 60% of it (soft_disk). Measured with
+# three crews on the Camp Fire start (#97):
+#  - At 6 the fire just burned round them: crews at Concow's edge took it from
+#    74% to 43% burned, and in open country they cut the burn by 4%.
+#  - At 10 the reach ends inside the token's own projected disc (HALO_RADIUS
+#    + 1.6 = 10.6 cells), so crews hold no more than the ground they cover and
+#    still look like they do nothing.
+#  - At 14 crews at a town's edge hold it to 1% burned and cut open-country
+#    burn by 23%, and their reach shows past the token. Three crews can save
+#    one town, not all of them, so where they go is still the decision.
+CREW_RADIUS = 14.0
 CREW_MAX = 0.9
 CREW_RAMP_TICKS = 20
 # A crew that is picked up and set down elsewhere has to dig in again.

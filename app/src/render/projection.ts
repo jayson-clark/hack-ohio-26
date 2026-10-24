@@ -8,7 +8,7 @@ import type { Recommendation, RouteInfo, Token } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { HALO_RADIUS, TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { drawLabels } from "./labels";
-import { createRoutesCanvas, drawRoutes } from "./routes";
+import { createRoutesCanvas, drawRoutes, setRecReach } from "./routes";
 import { MAX_TOKENS, fragmentShader, vertexShader } from "./shaders";
 
 export interface Layers {
@@ -55,6 +55,7 @@ function blur(a: Float32Array, tmp: Float32Array, w: number, h: number) {
 export interface Projection {
   material: THREE.ShaderMaterial;
   setTokens(tokens: Token[], selectedId: string | null): void;
+  setCrewReach(cells: number): void;
   setLayers(layers: Layers): void;
   setFire(frame: BinaryFrame | null): void;
   setForecast(forecast: ForecastGrids | null): void;
@@ -127,6 +128,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       uTokenCount: { value: 0 },
       uTokenColors: { value: TOKEN_TYPES.map((t) => rgb(TOKEN_STYLE[t].color)) },
       uHalo: { value: HALO_RADIUS },
+      uCrewReach: { value: 14 },
       uRing: { value: HALO_RADIUS + 1.6 },
       uProjector: { value: new THREE.Vector3(0, 1500, 0) },
       uAmbient: { value: 0.07 },
@@ -142,6 +144,13 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
 
   return {
     material,
+
+    setCrewReach(cells) {
+      u.uCrewReach.value = cells;
+      setRecReach(cells);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      routesTex.needsUpdate = true;
+    },
 
     setTokens(tokens, selectedId) {
       const n = Math.min(tokens.length, MAX_TOKENS);

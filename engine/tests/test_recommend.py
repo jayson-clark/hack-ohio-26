@@ -9,6 +9,7 @@ from forecast.recommend import Rec, TownEffect, TownInfo, TownShare, candidates,
 from forecast.runner import run_forecast
 from protocol import Recommendation, TokenType
 from server import Engine
+from sim.effects import CREW_RADIUS
 from sim.fire import FireSim, Wind, build_layers
 from test_fire import H, W, flat, run
 
@@ -60,7 +61,7 @@ def test_candidates_sit_on_the_front_and_keep_apart():
     for i, (x, y) in enumerate(spots):
         assert 0.2 <= p30[int(y), int(x)] <= 0.8
         for x2, y2 in spots[i + 1:]:
-            assert math.hypot(x - x2, y - y2) >= 12  # 2 x CREW_RADIUS
+            assert math.hypot(x - x2, y - y2) >= 2 * CREW_RADIUS
 
 
 def test_no_front_no_recommendations():
