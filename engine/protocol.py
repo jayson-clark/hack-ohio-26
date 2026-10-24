@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 10
+PROTOCOL_VERSION = 11
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -89,6 +89,7 @@ class Hello(Model):
     map_height: int
     sim_minutes_per_tick: float
     forecast_horizons_min: list[float]  # order of the grids in a FORECAST_GRID frame
+    speech_to_text: bool  # push-to-talk works (the engine has the voice extra installed)
 
 
 class WindState(Model):
@@ -289,6 +290,14 @@ class CommanderMessage(Model):
     event: EventKind | None  # what triggered a briefing
 
 
+class Transcript(Model):
+    """What push-to-talk heard. A non-empty text is also asked of the commander."""
+
+    type: Literal["transcript"] = "transcript"
+    text: str
+    error: str | None  # why there's no text: not installed, no mic, didn't catch that
+
+
 class CommanderSpeech(Model):
     """Text for the console to speak (voice mode "console"). An answer
     streams as several of these with the same `utterance`, one per sentence;
@@ -303,7 +312,7 @@ class CommanderSpeech(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          CommanderSpeech],
+          CommanderSpeech, Transcript],
     Field(discriminator="type"),
 ]
 
@@ -391,6 +400,18 @@ class SetVoice(Model):
     mode: VoiceMode
 
 
+class PttStart(Model):
+    """Push-to-talk pressed: the engine starts recording and the commander stops talking."""
+
+    type: Literal["ptt_start"] = "ptt_start"
+
+
+class PttStop(Model):
+    """Push-to-talk released: the engine transcribes and asks the commander."""
+
+    type: Literal["ptt_stop"] = "ptt_stop"
+
+
 class AcceptRecommendation(Model):
     """Place the recommended token (as a virtual token) where it was recommended."""
 
@@ -417,6 +438,8 @@ ClientMessage = Annotated[
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
         SetVoice,
+        PttStart,
+        PttStop,
     ],
     Field(discriminator="type"),
 ]

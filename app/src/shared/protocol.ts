@@ -10,7 +10,8 @@ export type EngineMessage =
   | VisionStatus
   | Score
   | CommanderMessage
-  | CommanderSpeech;
+  | CommanderSpeech
+  | Transcript;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -34,7 +35,9 @@ export type ClientMessage =
   | SetSpeed
   | StepOnce
   | CommanderQuery
-  | SetVoice;
+  | SetVoice
+  | PttStart
+  | PttStop;
 export type VoiceMode = "off" | "console" | "mac";
 
 /**
@@ -52,6 +55,7 @@ export interface Hello {
   map_height: number;
   sim_minutes_per_tick: number;
   forecast_horizons_min: number[];
+  speech_to_text: boolean;
 }
 /**
  * Sent once a second, and immediately after ignite, reset, set_wind,
@@ -217,6 +221,14 @@ export interface CommanderSpeech {
   text: string;
   urgent: boolean;
 }
+/**
+ * What push-to-talk heard. A non-empty text is also asked of the commander.
+ */
+export interface Transcript {
+  type: "transcript";
+  text: string;
+  error: string | null;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -306,4 +318,16 @@ export interface CommanderQuery {
 export interface SetVoice {
   type: "set_voice";
   mode: VoiceMode;
+}
+/**
+ * Push-to-talk pressed: the engine starts recording and the commander stops talking.
+ */
+export interface PttStart {
+  type: "ptt_start";
+}
+/**
+ * Push-to-talk released: the engine transcribes and asks the commander.
+ */
+export interface PttStop {
+  type: "ptt_stop";
 }
