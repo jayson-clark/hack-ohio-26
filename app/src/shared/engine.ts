@@ -103,7 +103,23 @@ function setState(patch: Partial<EngineState>) {
 function handleMessage(msg: EngineMessage) {
   switch (msg.type) {
     case "hello":
-      setState({ hello: msg });
+      // A different scenario (load_scenario, #57) means everything tied to the
+      // old map is stale: grids are a different size and the towns differ.
+      if (state.hello && state.hello.scenario !== msg.scenario) {
+        setState({
+          hello: msg,
+          simGrid: null,
+          forecast: null,
+          routes: [],
+          units: [],
+          events: [],
+          recommendations: [],
+          transcript: [],
+          score: null,
+        });
+      } else {
+        setState({ hello: msg });
+      }
       break;
     case "scenario_state":
       setState({ scenario: msg });

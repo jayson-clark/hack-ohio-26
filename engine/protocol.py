@@ -31,7 +31,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 16
+PROTOCOL_VERSION = 17
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -414,6 +414,15 @@ class Reset(Model):
     type: Literal["reset"] = "reset"
 
 
+class LoadScenario(Model):
+    """Switch to another scenario under assets/scenarios/. The engine rebuilds
+    the fire, layers, routing and game from it, returns to the sandbox, and
+    re-sends hello (the map size can change, so the UI must re-read terrain)."""
+
+    type: Literal["load_scenario"] = "load_scenario"
+    scenario: str = Field(min_length=1, max_length=64)
+
+
 class SetWind(Model):
     type: Literal["set_wind"] = "set_wind"
     speed_ms: float = Field(ge=0, le=40)
@@ -495,7 +504,7 @@ class EndRound(Model):
 
 ClientMessage = Annotated[
     Union[
-        VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation,
+        VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, LoadScenario, SetWind, AcceptRecommendation,
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
         SetVoice,

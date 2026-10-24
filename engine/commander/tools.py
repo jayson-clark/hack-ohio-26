@@ -138,9 +138,14 @@ def placement_job(snapshot: FireSnapshot, x: float, y: float, towns: list[TownIn
 class CommanderTools:
     def __init__(self, engine: "Engine") -> None:
         self.e = engine
-        s = engine.scenario
+        self.on_scenario()
+
+    def on_scenario(self) -> None:
+        """Rebuild the scenario-derived caches. Called at startup and whenever
+        the engine switches scenarios (#57), since the masks are grid-sized."""
+        s = self.e.scenario
         self.acres_per_cell = s.cell_size_m**2 / SQ_M_PER_ACRE
-        self.masks = _masks(engine.towns, s.height, s.width) if engine.towns else np.zeros((0, s.height, s.width), bool)
+        self.masks = _masks(self.e.towns, s.height, s.width) if self.e.towns else np.zeros((0, s.height, s.width), bool)
         self.places = self._place_index()
 
     async def call(self, name: str, args: dict) -> dict:

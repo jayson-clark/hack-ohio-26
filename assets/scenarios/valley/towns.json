@@ -1,0 +1,43 @@
+{
+  "generated_by": "tools/make_valley.py",
+  "towns": [
+    {
+      "name": "Millbrook",
+      "x": 34.0,
+      "y": 59.5,
+      "radius": 14.0,
+      "population": 4200,
+      "structures": 1800
+    },
+    {
+      "name": "Cedar Flats",
+      "x": 96.0,
+      "y": 57.5,
+      "radius": 10.0,
+      "population": 1500,
+      "structures": 650
+    },
+    {
+      "name": "Ridgeview",
+      "x": 128.0,
+      "y": 37.5,
+      "radius": 7.0,
+      "population": 500,
+      "structures": 240
+    }
+  ],
+  "safe_zones": [
+    {
+      "name": "West Junction (Valley Road)",
+      "x": 1.0,
+      "y": 59.5,
+      "road": "Valley Road"
+    },
+    {
+      "name": "East Gate (Valley Road)",
+      "x": 158.0,
+      "y": 59.5,
+      "road": "Valley Road"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "duration_min": 360,
+  "ignition": [
+    150.0,
+    65.5
+  ],
+  "bus_people_per_min": 30
+}
