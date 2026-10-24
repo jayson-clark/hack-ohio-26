@@ -2,10 +2,14 @@
 // Like labels.ts, it's a canvas in map coordinates that the projection shader
 // samples, so routes drape over the terrain and land on the physical roads.
 
-import type { RouteInfo, RouteStatus } from "../shared/protocol";
+import type { Recommendation, RouteInfo, RouteStatus } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 
 const PX_PER_CELL = 8;
+// A dug-in crew's reach (CREW_RADIUS in engine/sim/effects.py), so a
+// recommendation's ring shows the ground the crew would hold.
+const CREW_REACH = 6;
+export const REC_COLOR = "#facc15";
 
 export const ROUTE_COLORS: Record<RouteStatus, string> = {
   clear: "#4ade80",
@@ -20,7 +24,13 @@ export function createRoutesCanvas(s: Scenario): HTMLCanvasElement {
   return canvas;
 }
 
-export function drawRoutes(canvas: HTMLCanvasElement, s: Scenario, routes: RouteInfo[]) {
+export function drawRoutes(
+  canvas: HTMLCanvasElement,
+  s: Scenario,
+  routes: RouteInfo[],
+  recs: Recommendation[] = [],
+  threatened: string[] = [],
+) {
   const ctx = canvas.getContext("2d")!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -87,6 +97,21 @@ export function drawRoutes(canvas: HTMLCanvasElement, s: Scenario, routes: Route
     ctx.fillText(r.safe_zone, tx, ty);
   }
 
+  // A town the fire is about to reach (#46) gets a wide orange ring, so it
+  // stands out on the table; one with no way out also gets the red ring below.
+  for (const name of threatened) {
+    const place = s.info.places.find((p) => p.name === name);
+    if (!place) continue;
+    ctx.beginPath();
+    ctx.arc(place.map[0], place.map[1], 6.5, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(8, 10, 14, 0.8)";
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    ctx.strokeStyle = "#fb923c";
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+  }
+
   // A town with no way out gets a red ring.
   for (const r of routes) {
     if (r.status !== "cut") continue;
@@ -98,4 +123,28 @@ export function drawRoutes(canvas: HTMLCanvasElement, s: Scenario, routes: Route
     ctx.lineWidth = 0.9;
     ctx.stroke();
   }
+
+  // Recommended crew placements (#45): a dashed ring at the crew's reach and
+  // the card's number, so the table and the console's cards match up.
+  recs.forEach((r, i) => {
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, CREW_REACH, 0, Math.PI * 2);
+    ctx.setLineDash([1.6, 1.1]);
+    ctx.strokeStyle = "rgba(8, 10, 14, 0.8)";
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.strokeStyle = REC_COLOR;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, 2.8, 0, Math.PI * 2);
+    ctx.fillStyle = REC_COLOR;
+    ctx.fill();
+    ctx.font = "700 3.6px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#111";
+    ctx.fillText(String(i + 1), r.x, r.y + 0.15);
+  });
 }

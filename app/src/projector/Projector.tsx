@@ -1,23 +1,26 @@
 // Projector view: no UI chrome, just the projection filling the screen.
-// Clicks still place virtual tokens; keys 1-4 choose what a click places.
+// Clicks still place virtual tokens; keys 1-4 choose what a click places, and
+// I makes the next clicks light fires (no console needed at the table).
 
 import { useEffect, useState } from "react";
 import { useEngine } from "../shared/engine";
-import type { TokenType } from "../shared/protocol";
 import { useScenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
+import type { PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
+import { RoundSummaryProjected } from "../console/RoundSummary";
 
 export default function Projector() {
-  const { tokens, simGrid, forecast, routes } = useEngine();
+  const { tokens, simGrid, forecast, routes, score } = useEngine();
   const { scenario, error } = useScenario();
-  const [placeType, setPlaceType] = useState<TokenType>("crew");
+  const [placeType, setPlaceType] = useState<PlaceType>("crew");
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const index = Number(e.key) - 1;
       if (index >= 0 && index < TOKEN_TYPES.length) setPlaceType(TOKEN_TYPES[index]);
+      if (e.key === "i") setPlaceType("ignite");
       // Browser fallback: F toggles fullscreen (Tauri opens it fullscreen already).
       if (e.key === "f") {
         if (document.fullscreenElement) document.exitFullscreen();
@@ -29,7 +32,9 @@ export default function Projector() {
   }, []);
 
   return (
-    <div className="h-full cursor-crosshair bg-black">
+    // Ignite mode shows only as a different cursor: anything drawn here would
+    // land on the table.
+    <div className={`relative h-full bg-black ${placeType === "ignite" ? "cursor-cell" : "cursor-crosshair"}`}>
       {scenario ? (
         <ProjectionView
           scenario={scenario}
@@ -44,6 +49,7 @@ export default function Projector() {
       ) : (
         error && <p className="p-6 font-mono text-sm text-red-400">{error}</p>
       )}
+      <RoundSummaryProjected score={score} />
     </div>
   );
 }

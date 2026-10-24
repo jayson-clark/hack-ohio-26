@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
-import type { RouteInfo, Token } from "../shared/protocol";
+import type { Recommendation, RouteInfo, Token } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { HALO_RADIUS, TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { drawLabels } from "./labels";
@@ -59,6 +59,8 @@ export interface Projection {
   setFire(frame: BinaryFrame | null): void;
   setForecast(forecast: ForecastGrids | null): void;
   setRoutes(routes: RouteInfo[]): void;
+  setRecommendations(recs: Recommendation[]): void;
+  setThreatened(towns: string[]): void;
   update(timeSec: number): void;
   dispose(): void;
 }
@@ -84,6 +86,9 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
   labelsTex.anisotropy = 4;
 
   const routesCanvas = createRoutesCanvas(s);
+  let lastRoutes: RouteInfo[] = [];
+  let lastRecs: Recommendation[] = [];
+  let lastThreatened: string[] = [];
   const routesTex = new THREE.CanvasTexture(routesCanvas);
   routesTex.flipY = false;
   routesTex.generateMipmaps = true;
@@ -183,8 +188,22 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       fireTex.needsUpdate = true;
     },
 
+    // Routes and recommendation markers share one canvas, so each redraws both.
     setRoutes(routes) {
-      drawRoutes(routesCanvas, s, routes);
+      lastRoutes = routes;
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      routesTex.needsUpdate = true;
+    },
+
+    setRecommendations(recs) {
+      lastRecs = recs;
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      routesTex.needsUpdate = true;
+    },
+
+    setThreatened(towns) {
+      lastThreatened = towns;
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
       routesTex.needsUpdate = true;
     },
 

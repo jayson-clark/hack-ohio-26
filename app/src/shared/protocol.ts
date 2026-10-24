@@ -1,12 +1,22 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
 export type EngineMessage =
-  Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus | Score | CommanderMessage;
+  | Hello
+  | ScenarioState
+  | Tokens
+  | Routes
+  | Events
+  | Recommendations
+  | VisionStatus
+  | Score
+  | CommanderMessage
+  | CommanderSpeech
+  | Transcript;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
 export type EventKind =
-  "road_cut" | "route_changed" | "no_safe_route" | "town_threatened" | "town_safe" | "forecast_shift";
+  "road_cut" | "route_changed" | "no_safe_route" | "town_threatened" | "town_safe" | "forecast_shift" | "round_ended";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
@@ -24,7 +34,11 @@ export type ClientMessage =
   | SetRunning
   | SetSpeed
   | StepOnce
-  | CommanderQuery;
+  | CommanderQuery
+  | SetVoice
+  | PttStart
+  | PttStop;
+export type VoiceMode = "off" | "console" | "mac";
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -41,6 +55,7 @@ export interface Hello {
   map_height: number;
   sim_minutes_per_tick: number;
   forecast_horizons_min: number[];
+  speech_to_text: boolean;
 }
 /**
  * Sent once a second, and immediately after ignite, reset, set_wind,
@@ -194,6 +209,26 @@ export interface CommanderMessage {
   grounded: boolean;
   event: EventKind | null;
 }
+/**
+ * Text for the console to speak (voice mode "console"). An answer
+ * streams as several of these with the same `utterance`, one per sentence;
+ * a briefing is one. Already rewritten for speech ("Highway 70").
+ */
+export interface CommanderSpeech {
+  type: "commander_speech";
+  utterance: string;
+  kind: CommanderKind;
+  text: string;
+  urgent: boolean;
+}
+/**
+ * What push-to-talk heard. A non-empty text is also asked of the commander.
+ */
+export interface Transcript {
+  type: "transcript";
+  text: string;
+  error: string | null;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -276,4 +311,23 @@ export interface StepOnce {
 export interface CommanderQuery {
   type: "commander_query";
   text: string;
+}
+/**
+ * How the commander speaks. Off by default; the console sends its saved choice on connect.
+ */
+export interface SetVoice {
+  type: "set_voice";
+  mode: VoiceMode;
+}
+/**
+ * Push-to-talk pressed: the engine starts recording and the commander stops talking.
+ */
+export interface PttStart {
+  type: "ptt_start";
+}
+/**
+ * Push-to-talk released: the engine transcribes and asks the commander.
+ */
+export interface PttStop {
+  type: "ptt_stop";
 }

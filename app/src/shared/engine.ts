@@ -3,6 +3,7 @@
 
 import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
+import { interrupt, speak } from "./speech";
 import type {
   ClientMessage,
   CommanderMessage,
@@ -14,7 +15,9 @@ import type {
   ScenarioState,
   Score,
   Token,
+  Transcript,
   VisionStatus,
+  VoiceMode,
 } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
@@ -59,6 +62,11 @@ export interface EngineState {
   score: Score | null;
   /** What the commander has said (briefings and answers), oldest first. For #29. */
   transcript: CommanderMessage[];
+  /** How the commander speaks (off by default); remembered per browser. */
+  voiceMode: VoiceMode;
+  /** Push-to-talk: held down now, and what it heard last time (cleared when pressed again). */
+  listening: boolean;
+  heard: Transcript | null;
 }
 
 let state: EngineState = {
@@ -75,6 +83,9 @@ let state: EngineState = {
   cameraFrame: null,
   score: null,
   transcript: [],
+  voiceMode: loadVoiceMode(),
+  listening: false,
+  heard: null,
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -101,6 +112,12 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "recommendations":
       setState({ recommendations: msg.recommendations });
+      break;
+    case "transcript":
+      setState({ heard: msg });
+      break;
+    case "commander_speech":
+      if (state.voiceMode === "console") speak(msg);
       break;
     case "commander_message":
       setState({ transcript: [...state.transcript, msg].slice(-MAX_TRANSCRIPT) });
@@ -143,7 +160,10 @@ function connect() {
   socket.binaryType = "arraybuffer";
   ws = socket;
 
-  socket.onopen = () => setState({ status: "open", events: [] });
+  socket.onopen = () => {
+    setState({ status: "open", events: [] });
+    send({ type: "set_voice", mode: state.voiceMode });
+  };
   socket.onclose = () => {
     ws = null;
     setState({ status: "closed" });
@@ -160,6 +180,44 @@ function connect() {
 
 export function send(msg: ClientMessage) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+const VOICE_KEY = "firewatch.voiceMode";
+
+function loadVoiceMode(): VoiceMode {
+  try {
+    const v = localStorage.getItem(VOICE_KEY);
+    if (v === "console" || v === "mac") return v;
+  } catch {
+    // storage can be blocked; voice just starts off
+  }
+  return "off";
+}
+
+/** Turn the commander's voice off, on in this console, or on through the Mac's `say`. */
+export function setVoiceMode(mode: VoiceMode) {
+  try {
+    localStorage.setItem(VOICE_KEY, mode);
+  } catch {
+    // not remembered, but still applied
+  }
+  setState({ voiceMode: mode });
+  send({ type: "set_voice", mode });
+}
+
+/** Push-to-talk down: the commander stops talking and the engine starts recording. */
+export function pttStart() {
+  if (state.listening) return;
+  interrupt();
+  setState({ listening: true, heard: null });
+  send({ type: "ptt_start" });
+}
+
+/** Push-to-talk up: the engine transcribes, sends a transcript, and asks the commander. */
+export function pttStop() {
+  if (!state.listening) return;
+  setState({ listening: false });
+  send({ type: "ptt_stop" });
 }
 
 /** Ask the incident commander a question; the answer arrives as a commander_message. */
