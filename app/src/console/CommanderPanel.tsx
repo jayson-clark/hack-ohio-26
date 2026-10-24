@@ -4,8 +4,9 @@
 // transcript where they were asked.
 
 import { useEffect, useRef, useState } from "react";
-import { askCommander, useEngine } from "../shared/engine";
-import type { CommanderMessage } from "../shared/protocol";
+import { askCommander, pttStart, pttStop, setVoiceMode, useEngine } from "../shared/engine";
+import type { CommanderMessage, VoiceMode } from "../shared/protocol";
+import { speechSupported } from "../shared/speech";
 import { Panel } from "./ui";
 
 const SUGGESTIONS = ["Which town is most at risk?", "What if the wind shifts west?", "Where should the next crew go?"];
@@ -17,7 +18,7 @@ interface Asked {
 }
 
 export default function CommanderPanel() {
-  const { status, hello, transcript } = useEngine();
+  const { status, hello, transcript, voiceMode, listening, heard } = useEngine();
   const [asked, setAsked] = useState<Asked[]>([]);
   const [draft, setDraft] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
@@ -49,7 +50,7 @@ export default function CommanderPanel() {
   asked.filter((a) => a.at >= transcript.length).forEach((q) => items.push({ q }));
 
   return (
-    <Panel title="Commander">
+    <Panel title="Commander" right={<VoiceMenu mode={voiceMode} />}>
       <div ref={scroller} className="-mx-1 max-h-72 space-y-2 overflow-y-auto px-1">
         {items.length === 0 && (
           <p className="py-2 text-[11px] leading-relaxed text-fg-subtle">
@@ -104,6 +105,7 @@ export default function CommanderPanel() {
           placeholder={online ? "Ask the commander…" : "Engine offline"}
           className="h-8 min-w-0 flex-1 rounded-lg border border-edge bg-surface-2 px-2.5 text-xs text-fg outline-none select-text placeholder:text-fg-subtle focus:border-edge-strong"
         />
+        <TalkButton available={online && (hello?.speech_to_text ?? false)} listening={listening} />
         <button
           type="submit"
           disabled={!online || !draft.trim()}
@@ -112,7 +114,57 @@ export default function CommanderPanel() {
           Ask
         </button>
       </form>
+      {heard && (heard.text || heard.error) && (
+        <p className="mt-1 truncate text-[10px] text-fg-subtle">{heard.text ? `Heard “${heard.text}”` : heard.error}</p>
+      )}
     </Panel>
+  );
+}
+
+// Spoken briefings are off by default: an operator mostly wants them on the
+// screen, and turns voice on when eyes are elsewhere.
+function VoiceMenu({ mode }: { mode: VoiceMode }) {
+  return (
+    <select
+      value={mode}
+      onChange={(e) => setVoiceMode(e.target.value as VoiceMode)}
+      title="Read briefings and answers aloud"
+      className="rounded bg-transparent px-1 text-[11px] text-fg-subtle outline-none hover:bg-surface-2 hover:text-fg"
+    >
+      <option value="off" className="bg-surface-1">
+        Voice off
+      </option>
+      {speechSupported && (
+        <option value="console" className="bg-surface-1">
+          Voice: this console
+        </option>
+      )}
+      <option value="mac" className="bg-surface-1">
+        Voice: Mac speaker
+      </option>
+    </select>
+  );
+}
+
+/** Push-to-talk (also: hold Space anywhere outside a text field). */
+function TalkButton({ available, listening }: { available: boolean; listening: boolean }) {
+  return (
+    <button
+      type="button"
+      disabled={!available}
+      title={available ? "Hold (or hold Space) and ask out loud" : "Speech-to-text isn't installed: cd engine && uv sync --extra voice"}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        pttStart();
+      }}
+      onPointerUp={pttStop}
+      onPointerCancel={pttStop}
+      className={`h-8 shrink-0 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        listening ? "border-ember-400 bg-ember-500/20 text-ember-300" : "border-edge bg-surface-2 text-fg hover:bg-surface-3"
+      }`}
+    >
+      {listening ? "Listening…" : "Talk"}
+    </button>
   );
 }
 

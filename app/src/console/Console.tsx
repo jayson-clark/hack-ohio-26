@@ -1,77 +1,93 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { BinaryFrame } from "../shared/binary";
-import { pttStart, pttStop, send, setVoiceMode, useEngine } from "../shared/engine";
-import { speechSupported } from "../shared/speech";
-import { SCENARIOS, useEngineScenario, type Scenario } from "../shared/scenario";
-import { TOKEN_TYPES } from "../shared/tokens";
-import { removeToken, type PlaceType } from "../shared/virtualTokens";
+// The operator's console, the product (#122). Built for an incident manager
+// or planning chief: what's happening, what needs a decision, and what each
+// option would do. Three modes over one incident map:
+//
+// - Monitor: the decision queue, the town board, units and orders.
+// - Plan: try orders and an assumed wind against doing nothing (#123).
+// - Review: how it has gone so far, and the event log.
+//
+// Nothing here plays the world (lighting fires, setting the wind, running the
+// clock); that's exercise control (?view=control), which stands in for the
+// real incident and its drone footage.
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { getPlatform } from "../platform";
+import { pttStart, pttStop, useEngine } from "../shared/engine";
+import { compass } from "../shared/places";
+import type { Recommendation, TokenType } from "../shared/protocol";
+import { formatSimMinutes } from "../shared/round";
+import { useEngineScenario } from "../shared/scenario";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
-import type { CameraCommand } from "../render/TableView";
-import { EventAlerts } from "./EventLog";
+import CommanderPanel from "./CommanderPanel";
+import Decisions from "./Decisions";
+import EvacuationPanel from "./EvacuationPanel";
+import { EventLogPanel } from "./EventLog";
 import { FlameMark } from "./icons";
-import { RoundSummaryCard } from "./RoundSummary";
-import { Segmented } from "./ui";
-import Sidebar from "./Sidebar";
-import SimControls from "./SimControls";
+import IncidentMap, { type ConsoleMode, type Focus } from "./IncidentMap";
+import { newDraft, PLAN_TYPES, type DraftOrder } from "./plan";
+import PlanPanel, { type PlanWind } from "./PlanPanel";
+import Resources from "./Resources";
+import ReviewPanel from "./ReviewPanel";
 import SoundToggle from "./SoundToggle";
-import Viewport, { type ViewMode } from "./Viewport";
+import TownBoard from "./TownBoard";
+import { ConnectionBadge, Panel } from "./ui";
+
+const MODES: { value: ConsoleMode; label: string; hint: string }[] = [
+  { value: "monitor", label: "Monitor", hint: "What's happening and what needs a decision" },
+  { value: "plan", label: "Plan", hint: "Try orders and weather before committing" },
+  { value: "review", label: "Review", hint: "How it has gone so far" },
+];
+
+const ORDER_TOOLS: TokenType[] = ["crew", "firebreak", "water", "bus"];
 
 export default function Console() {
-  const {
-    status,
-    scenario: state,
-    tokens,
-    simGrid,
-    forecast,
-    routes,
-    vision,
-    cameraFrame,
-    score,
-    voiceMode,
-    hello,
-    listening,
-    heard,
-  } = useEngine();
+  const { status, scenario: live, situation, hello, score } = useEngine();
   const { scenario, error } = useEngineScenario();
-  const [placeType, setPlaceType] = useState<PlaceType>("crew");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<ViewMode>("table");
-  const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
-  const [camera, setCamera] = useState<CameraCommand | null>(null);
+  const [mode, setMode] = useState<ConsoleMode>("monitor");
+  const [layers, setLayers] = useState<Layers>({ ...DEFAULT_LAYERS, contours: false });
+  const [tool, setTool] = useState<TokenType | null>(null);
+  const [focus, setFocus] = useState<Focus | null>(null);
+  const [drafts, setDrafts] = useState<DraftOrder[]>([]);
+  const [planWind, setPlanWind] = useState<PlanWind>({ custom: false, speed_ms: 8, from_deg: 45 });
+  const [horizon, setHorizon] = useState(120);
   const seq = useRef(0);
 
-  // Drop the selection when its token goes away.
   useEffect(() => {
-    if (selectedId && !tokens.some((t) => t.id === selectedId)) setSelectedId(null);
-  }, [tokens, selectedId]);
-
-  // Keyboard: 1-4 pick a token type, I picks ignite, Delete removes the selection, Esc clears it.
-  const live = useRef({ tokens, selectedId });
-  live.current = { tokens, selectedId };
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-      const index = Number(e.key) - 1;
-      if (index >= 0 && index < TOKEN_TYPES.length) setPlaceType(TOKEN_TYPES[index]);
-      if (e.key === "i") setPlaceType("ignite");
-      if (e.key === "Escape") setSelectedId(null);
-      if (e.key === "Delete" || e.key === "Backspace") {
-        const t = live.current.tokens.find((tk) => tk.id === live.current.selectedId);
-        if (t?.source === "virtual") removeToken(t.id);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.title = "Firewatch";
   }, []);
 
-  // Hold Space to talk to the commander (outside text fields).
+  const focusOn = (x: number, y: number) => setFocus({ seq: ++seq.current, x, y });
+  const switchMode = (m: ConsoleMode) => {
+    setMode(m);
+    // A tool picked in Plan only edits the plan; carried into Monitor it would
+    // send real units with the next click. Every mode starts out just looking.
+    setTool(null);
+  };
+  function tryInPlan(r: Recommendation) {
+    setDrafts((ds) => [...ds, newDraft(r.token_type, r.x, r.y)]);
+    switchMode("plan");
+  }
+
+  // Keys: 1-4 pick an order tool, Esc goes back to looking, M/P/R switch
+  // modes, and holding Space talks to the commander.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   useEffect(() => {
     const typing = (e: KeyboardEvent) =>
-      e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
     function down(e: KeyboardEvent) {
-      if (e.code !== "Space" || e.repeat || typing(e)) return;
-      e.preventDefault();
-      pttStart();
+      if (typing(e)) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (!e.repeat) pttStart();
+        return;
+      }
+      const tools = modeRef.current === "plan" ? PLAN_TYPES : modeRef.current === "monitor" ? ORDER_TOOLS : [];
+      const i = Number(e.key) - 1;
+      if (i >= 0 && i < tools.length) setTool(tools[i]);
+      if (e.key === "Escape") setTool(null);
+      const m = MODES.find((x) => x.value[0] === e.key.toLowerCase());
+      if (m && !e.metaKey && !e.ctrlKey) switchMode(m.value);
     }
     function up(e: KeyboardEvent) {
       if (e.code === "Space" && !typing(e)) pttStop();
@@ -84,194 +100,152 @@ export default function Console() {
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", pttStop);
     };
+    // switchMode only touches state through setters, so the first one is fine.
   }, []);
+
+  // scenario_state.tick counts engine ticks since startup; the fire's own
+  // clock (reset with the map) is the one the score and forecasts use.
+  const perTick = hello?.sim_minutes_per_tick ?? 1;
+  const fireTick = score?.tick ?? null;
+  const forecastAge =
+    fireTick != null && situation?.forecast_tick != null ? (fireTick - situation.forecast_tick) * perTick : null;
+
+  // The town board (in Monitor), units, orders and the commander sit in their
+  // own column on wide screens, and under the mode's panels otherwise.
+  const side = scenario && (
+    <>
+      {mode === "monitor" && (
+        <Panel title="Towns">
+          <TownBoard scenario={scenario} onFocus={focusOn} />
+        </Panel>
+      )}
+      {mode === "monitor" && <EvacuationPanel onFocus={focusOn} />}
+      <Panel title="Units and orders">
+        <Resources scenario={scenario} onFocus={focusOn} />
+      </Panel>
+      <CommanderPanel />
+    </>
+  );
 
   return (
     <div className="flex h-full flex-col">
-      {/* Everything here stays on one line: low-value text (scenario size, tick)
-          only shows on wide screens, so the demo controls always fit. */}
       <header className="flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge px-4">
         <div className="flex items-center gap-2">
           <FlameMark />
           <span className="text-[13px] font-semibold tracking-[0.14em]">FIREWATCH</span>
         </div>
-        {scenario && <ScenarioBadge scenario={scenario} />}
+        {scenario && <span className="text-xs capitalize text-fg-muted">{scenario.info.name} incident</span>}
+        <nav className="ml-2 flex rounded-lg border border-edge bg-surface-1 p-0.5">
+          {MODES.map((m) => (
+            <button
+              key={m.value}
+              title={`${m.hint} (${m.label[0]})`}
+              onClick={() => switchMode(m.value)}
+              className={`h-7 rounded-md px-3 text-xs font-medium transition-colors ${
+                mode === m.value ? "bg-surface-3 text-fg" : "text-fg-muted hover:text-fg"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </nav>
         <div className="flex-1" />
-        <SimControls state={state} />
-        <FireStats scenario={scenario} simGrid={simGrid} />
-        <div className="h-5 w-px bg-edge" />
-        {state && (
-          <span className="hidden font-mono text-[11px] tabular-nums text-fg-subtle 2xl:inline">
-            tick <span className="text-fg-muted">{state.tick}</span>
+        {live && (
+          <>
+            {fireTick != null && (
+              <HeaderStat label="Clock" title="Sim time since the map was last reset">
+                T+{formatSimMinutes(fireTick * perTick)}
+              </HeaderStat>
+            )}
+            <HeaderStat label="Wind" title="Observed wind (where it blows from)">
+              {compass(live.wind.from_deg)} {live.wind.speed_ms.toFixed(0)} m/s
+            </HeaderStat>
+            <HeaderStat label="Forecast" title="How old the forecast behind the town board is">
+              {forecastAge == null ? "—" : forecastAge < 2 ? "current" : `${Math.round(forecastAge)} min old`}
+            </HeaderStat>
+          </>
+        )}
+        {live?.paused && (
+          <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
+            Paused
           </span>
         )}
-        <TalkButton available={hello?.speech_to_text ?? false} listening={listening} heard={heard} />
-        <span className="flex items-center gap-1.5">
-          <span className="text-[11px] text-fg-subtle">Voice</span>
-          <Segmented
-            value={voiceMode}
-            onChange={setVoiceMode}
-            options={[
-              { value: "off", label: "Off" },
-              ...(speechSupported ? [{ value: "console" as const, label: "Console" }] : []),
-              { value: "mac", label: "Mac" },
-            ]}
-          />
-        </span>
+        <div className="h-5 w-px bg-edge" />
+        <button
+          onClick={() => getPlatform().then((p) => p.openControl())}
+          title="Open exercise control: the stand-in for the real world (fire, weather, the table)"
+          className="h-7 rounded-md border border-edge bg-surface-1 px-2.5 text-xs text-fg-muted hover:bg-surface-2 hover:text-fg"
+        >
+          Exercise control ↗
+        </button>
         <SoundToggle />
         <ConnectionBadge status={status} />
       </header>
 
       <div className="flex min-h-0 flex-1 gap-3 p-3">
+        <aside className="flex w-[360px] shrink-0 flex-col gap-3 overflow-y-auto pb-3">
+          {scenario && mode === "monitor" && (
+            <>
+              <Panel title="Decisions">
+                <Decisions scenario={scenario} onFocus={focusOn} onTryInPlan={tryInPlan} />
+              </Panel>
+            </>
+          )}
+          {scenario && mode === "plan" && (
+            <Panel title="Plan">
+              <PlanPanel
+                scenario={scenario}
+                drafts={drafts}
+                onDrafts={setDrafts}
+                wind={planWind}
+                onWind={setPlanWind}
+                horizon={horizon}
+                onHorizon={setHorizon}
+                onDispatched={() => {
+                  setTool(null);
+                  setMode("monitor");
+                }}
+              />
+            </Panel>
+          )}
+          {mode === "review" && (
+            <>
+              <Panel title="Outcome">
+                <ReviewPanel />
+              </Panel>
+              <EventLogPanel />
+            </>
+          )}
+          <div className="flex flex-col gap-3 xl:hidden">{side}</div>
+        </aside>
+
         <main className="relative min-w-0 flex-1">
-          <Viewport
+          <IncidentMap
             scenario={scenario}
             error={error}
             mode={mode}
-            onModeChange={setMode}
-            tokens={tokens}
-            simGrid={simGrid}
-            forecast={forecast}
-            routes={routes}
-            vision={vision}
-            cameraFrame={cameraFrame}
             layers={layers}
             onToggleLayer={(k) => setLayers((l) => ({ ...l, [k]: !l[k] }))}
-            placeType={placeType}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            camera={camera}
-            onCameraPreset={(preset) => setCamera({ seq: ++seq.current, kind: "preset", preset })}
+            tool={tool}
+            onTool={setTool}
+            drafts={drafts}
+            onDrafts={setDrafts}
+            onAddDraft={(t, x, y) => setDrafts((ds) => [...ds, newDraft(t, x, y)])}
+            focus={focus}
           />
-          <EventAlerts />
-          <RoundSummaryCard score={score} />
         </main>
-        <Sidebar
-          scenario={scenario}
-          wind={state?.wind ?? null}
-          score={score}
-          tokens={tokens}
-          placeType={placeType}
-          onPlaceType={setPlaceType}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          onFocusPlace={(x, y) => {
-            setMode("table");
-            setCamera({ seq: ++seq.current, kind: "focus", x, y });
-          }}
-        />
+
+        <aside className="hidden w-[340px] shrink-0 flex-col gap-3 overflow-y-auto pb-3 xl:flex">{side}</aside>
       </div>
     </div>
   );
 }
 
-// Also the scenario picker (#57): choosing one tells the engine to switch, and
-// every window follows the hello it sends back.
-function ScenarioBadge({ scenario }: { scenario: Scenario }) {
-  const { info } = scenario;
-  const km = (cells: number) => ((cells * info.grid.cell_size_m) / 1000).toFixed(0);
+function HeaderStat({ label, title, children }: { label: string; title: string; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-1 px-1 py-0.5 text-[11px]">
-      <select
-        value={info.name}
-        title="Switch scenario (resets the fire and clears virtual tokens)"
-        onChange={(e) => send({ type: "load_scenario", scenario: e.target.value })}
-        className="cursor-pointer rounded bg-transparent px-1 py-0.5 font-medium capitalize text-fg outline-none hover:bg-surface-2"
-      >
-        {SCENARIOS.map((name) => (
-          <option key={name} value={name} className="bg-surface-1 capitalize">
-            {name}
-          </option>
-        ))}
-      </select>
-      <span className="hidden text-fg-subtle 2xl:inline">
-        {km(scenario.width)} × {km(scenario.height)} km · {scenario.width}×{scenario.height} cells
-      </span>
-    </div>
-  );
-}
-
-const SQ_M_PER_ACRE = 4046.86;
-
-function FireStats({ scenario, simGrid }: { scenario: Scenario | null; simGrid: BinaryFrame | null }) {
-  const stats = useMemo(() => {
-    if (!simGrid) return null;
-    let burning = 0;
-    let burned = 0;
-    for (const c of simGrid.payload) {
-      if (c === 2) burning++;
-      else if (c === 3) burned++;
-    }
-    return { burning, burned };
-  }, [simGrid]);
-
-  if (!stats || !scenario) {
-    return <span className="text-[11px] text-fg-subtle">No fire data yet</span>;
-  }
-  const acres = (cells: number) =>
-    Math.round((cells * scenario.info.grid.cell_size_m ** 2) / SQ_M_PER_ACRE).toLocaleString();
-  return (
-    <div className="flex items-center gap-4 text-[11px]">
-      <span className="flex items-center gap-1.5">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-ember-500" />
-        <span className="text-fg-subtle">Burning</span>
-        <span className="font-mono tabular-nums text-ember-300">{acres(stats.burning)} ac</span>
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="text-fg-subtle">Burned</span>
-        <span className="font-mono tabular-nums text-fg">{acres(stats.burned)} ac</span>
-      </span>
-    </div>
-  );
-}
-
-function ConnectionBadge({ status }: { status: string }) {
-  const open = status === "open";
-  const color = open ? "bg-emerald-400" : status === "connecting" ? "bg-amber-400" : "bg-red-500";
-  return (
-    <span
-      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${
-        open ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300" : "border-edge bg-surface-1 text-fg-muted"
-      }`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${color} ${open ? "" : "animate-pulse"}`} />
-      {/* "Connected" on a laptop, "Engine connected" where there's room. */}
-      <span className="hidden 2xl:inline">Engine </span>
-      <span className="2xl:lowercase">{open ? "Connected" : status === "connecting" ? "Connecting…" : "Offline"}</span>
+    <span className="flex items-baseline gap-1.5 text-[11px]" title={title}>
+      <span className="text-fg-subtle">{label}</span>
+      <span className="font-mono tabular-nums text-fg">{children}</span>
     </span>
-  );
-}
-
-function TalkButton({
-  available,
-  listening,
-  heard,
-}: {
-  available: boolean;
-  listening: boolean;
-  heard: { text: string; error: string | null } | null;
-}) {
-  // Push-to-talk for the incident commander (also: hold Space). Moves into the commander panel (#29).
-  const label = listening ? "Listening…" : "Hold to talk";
-  const note = heard ? (heard.text ? `“${heard.text}”` : heard.error) : null;
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <button
-        disabled={!available}
-        title={available ? "Hold (or hold Space) and ask the commander a question" : "Speech-to-text isn't installed: cd engine && uv sync --extra voice"}
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          pttStart();
-        }}
-        onPointerUp={pttStop}
-        onPointerCancel={pttStop}
-        className={`h-7 shrink-0 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-          listening ? "border-ember-400 bg-ember-500/20 text-ember-300" : "border-edge bg-surface-2 text-fg hover:bg-surface-3"
-        }`}
-      >
-        {label}
-      </button>
-      {note && <span className="max-w-[18rem] truncate text-[11px] text-fg-muted">{note}</span>}
-    </div>
   );
 }

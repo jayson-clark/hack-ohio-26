@@ -13,13 +13,13 @@ Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop a
 - An answer with `grounded: false` never happens on purpose. The guard retries once, then falls back to templates. If answers keep falling back, check the engine log for `ungrounded numbers`.
 
 ## Voice (text-to-speech)
-- Off by default. Use the console header toggle: **Console** (Web Speech in that window; browsers only allow speech after a click, and the toggle click counts) or **Mac say** (the engine runs macOS `say`).
+- Off by default. Use the voice menu in the console's Commander panel header: **this console** (Web Speech in that window; browsers only allow speech after a click, and choosing it counts) or **Mac speaker** (the engine runs macOS `say`).
 - Speech text goes through `voice.speakable()` ("Oroville via Highway 70"). Add new road or unit spellings there.
 
 ## Push-to-talk (speech-to-text)
 - Optional extra (it pulls in mlx-whisper and PyTorch): `cd engine && uv sync --extra voice`, then run the engine with `uv run --extra voice server.py`. A plain `make engine` won't have it, and the "Hold to talk" button stays disabled.
 - The first run downloads `mlx-community/whisper-small.en-mlx` (~480 MB) to `~/.cache/huggingface`. Do that before the venue.
 - **Microphone permission:** the first press makes macOS ask whether the app that launched the engine (Terminal, iTerm, or the Tauri app) may use the mic. If you said no, enable it in System Settings → Privacy & Security → Microphone. The UI shows "can't open the microphone".
-- Hold the button, or hold Space, in the console. Releasing it transcribes (~0.1 s on Apple silicon), shows what was heard, and asks the commander.
+- Hold the Commander panel's **Talk** button, or hold Space, in the console. Releasing it transcribes (~0.1 s on Apple silicon), shows what was heard, and asks the commander.
 - Test without speaking: `say -o q.wav --file-format=WAVE --data-format=LEI16@16000 "How long until the fire reaches Pulga?"`, then feed the samples to `Listener.transcribe` (see `engine/tests/test_listen.py`).
 - Place names misheard? The prompt is built from `towns.json` towns and exit roads (`listen.vocabulary_prompt`). Keep it a natural sentence, because a bare list pushes Whisper into Title Case.

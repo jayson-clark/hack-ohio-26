@@ -12,9 +12,11 @@ either way:
 - acres burned: burning and burned cells.
 - structures lost: each town's structures times the share of its burnable
   cells that have caught. Towns are disks from towns.json.
-- people evacuated: an in-limit bus parked inside a town carries residents
-  out at BUS_PEOPLE_PER_MIN while that town's route isn't cut. That's a
-  stand-in for buses driving their routes, which #6 may add later.
+- people evacuated: a town ordered out (#121) empties at the rate the
+  evacuation clock gives it once its cars are moving, and an in-limit bus
+  parked inside a town carries residents out at BUS_PEOPLE_PER_MIN while
+  that town's route isn't cut. The bus is a stand-in for buses driving their
+  routes, which #6 may add later.
 
 Per-scenario settings come from an optional assets/scenarios/<name>/game.json
 (keys as in DEFAULTS), so a scenario can tune its round without code changes.
@@ -151,10 +153,12 @@ class Game:
         self.inactive = inactive
         return keep
 
-    def update(self, tick: int, state: np.ndarray, buses: list[Token], cut_towns: set[str]) -> None:
+    def update(self, tick: int, state: np.ndarray, buses: list[Token], cut_towns: set[str],
+               evac_flows: dict[str, float] | None = None) -> None:
         """Score the map after a sim step, move people out, and end the round
         if it's over. `buses` are the active bus tokens; `cut_towns` are towns
-        whose route currently has no safe way out."""
+        whose route currently has no safe way out; `evac_flows` are people a
+        sim minute leaving each town ordered out (routing/clearance.py)."""
         if self.frozen:
             return
         if not self._town_burnable:
@@ -166,6 +170,10 @@ class Game:
             n = int(burnable.sum())
             share = float((caught & mask).sum()) / n if n else 0.0
             self.structures_lost[i] = round(t.structures * min(1.0, share))
+
+        for i, t in enumerate(self.towns):
+            if (flow := (evac_flows or {}).get(t.name)):
+                self.evacuated[i] = min(float(t.population), self.evacuated[i] + flow * SIM_MINUTES_PER_TICK)
 
         rate = self.config["bus_people_per_min"] * SIM_MINUTES_PER_TICK
         for b in buses:

@@ -124,6 +124,7 @@ def test_steady_paradise_fire_does_not_storm():
             assert sum(per_town.values()) <= 8, per_town
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())

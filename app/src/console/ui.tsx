@@ -118,3 +118,28 @@ export function Button({
     </button>
   );
 }
+
+/** Engine connection state, for a window's header. */
+export function ConnectionBadge({ status }: { status: string }) {
+  const open = status === "open";
+  const color = open ? "bg-emerald-400" : status === "connecting" ? "bg-amber-400" : "bg-red-500";
+  return (
+    <span
+      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${
+        open ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300" : "border-edge bg-surface-1 text-fg-muted"
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${color} ${open ? "" : "animate-pulse"}`} />
+      {/* "Connected" on a laptop, "Engine connected" where there's room. */}
+      <span className="hidden 2xl:inline">Engine </span>
+      <span className="2xl:lowercase">{open ? "Connected" : status === "connecting" ? "Connecting…" : "Offline"}</span>
+    </span>
+  );
+}
+
+/** Small uppercase label above a group of values. */
+export function Label({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] text-fg-subtle ${className}`}>{children}</div>
+  );
+}

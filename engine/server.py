@@ -20,12 +20,13 @@ from websockets.exceptions import ConnectionClosed
 import numpy as np
 
 from commander.agent import Commander
-from commander.briefings import BriefingQueue, ForecastWatcher, round_summary
+from commander.briefings import BriefingQueue, ForecastWatcher, evacuate_text, round_summary
 from commander.listen import Listener, vocabulary_prompt
 from commander.voice import MacVoice, speakable
 from commander.tools import CommanderTools
+from forecast.plan import PLAN_ROLLOUTS, PlanOutcome, evaluate_plan
 from forecast.recommend import PlacedCrew, Rec, Recommender, TownInfo, describe
-from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
+from forecast.runner import EVAC_HORIZON_MIN, HORIZONS_MIN, Forecast, Forecaster, LongForecast, LongForecaster
 from protocol import (
     AcceptRecommendation,
     CalibrationStep,
@@ -36,12 +37,19 @@ from protocol import (
     CommanderSpeech,
     CameraState,
     EndRound,
+    EvacStatus,
+    EvaluatePlan,
     Event,
     EventKind,
     Events,
     Hello,
     Ignite,
+    KofN,
     LoadScenario,
+    OrderEvacuation,
+    PlanOrderResult,
+    PlanResult,
+    PlanTown,
     PttStart,
     PttStop,
     Reset,
@@ -53,6 +61,7 @@ from protocol import (
     SetSpeed,
     SetVoice,
     SetWind,
+    Situation,
     StartRound,
     StepOnce,
     Token,
@@ -83,12 +92,14 @@ from protocol import (
 )
 from protocol import TownEffect as TownEffectInfo
 from protocol import TownShare as TownShareInfo
+from routing.clearance import MOBILIZE_MIN, TownClock, clock_message, compute_clock
 from routing.evac import Route, burning_edges, plan_routes, replan_routes, routes_message
 from routing.tracker import RouteTracker
 from routing.roads import load_network
 from scenario import ASSETS, load_scenario
-from sim.effects import CREW_RADIUS, TokenEffects
+from sim.effects import CREW_RADIUS, SuppressionSchedule, TokenEffects
 from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
+from uq.mc import wilson
 from sim.dispatch import Dispatcher
 from sim.game import Game, GameTown
 from routing.units import TURNOUT_MIN, Station, UnitRouter
@@ -127,6 +138,7 @@ def _load_emulator():
     return emu
 # Recommendations rerun at most this often (a run is ~0.3 s in its own worker).
 RECOMMEND_MIN_TICKS = 20
+LONG_FORECAST_MIN_TICKS = 10  # sim ticks between the evacuation clock's long forecasts (#121)
 SQ_M_PER_ACRE = 4046.86
 
 log = logging.getLogger("engine")
@@ -151,6 +163,13 @@ class Engine:
         self._ignitions = 0
         self._forecast_job: asyncio.Future[Forecast] | None = None
         self._forecast_started = -FORECAST_MIN_TICKS
+        # The evacuation clock's long forecast (#121), in its own workers, and
+        # the clock's recomputes, in a thread like route replans.
+        self.long_forecaster = LongForecaster()
+        self._long_job: asyncio.Task | None = None
+        self._long_started = -LONG_FORECAST_MIN_TICKS
+        self._clock_job: asyncio.Task | None = None
+        self._clock_pending = False
         # Bumped on reset and on a scenario switch, so a forecast in flight
         # when the map changed is dropped rather than shown over the new map.
         self._fire_epoch = 0
@@ -179,6 +198,10 @@ class Engine:
         self.speed = 1.0
         self._step_budget = 0.0
         self._sent_inactive: list[str] = []
+        # Plans run one at a time; one that a newer plan replaced while it
+        # waited is skipped, so editing a plan quickly never builds a queue.
+        self._plan_lock = asyncio.Lock()
+        self._plan_latest = 0
         # Everything derived from the scenario (the map, layers, routing, game,
         # dispatch and the speech vocabulary) lives in load(), so a scenario
         # switch (#57) can rebuild it. It runs before the commander below,
@@ -241,6 +264,16 @@ class Engine:
             GameTown(t.name, t.x, t.y, t.radius, t.population, t.structures) for t in self.roads.towns
         ] if self.roads else []
         self.game = Game(s, game_towns)
+        # The evacuation clock (#121): orders given (town -> sim tick), the long
+        # forecast it reads, and the latest clock. Computed once here with no
+        # forecast, which also builds the graph's caches before any thread does.
+        self.evac_orders: dict[str, int] = {}
+        self.long_forecast: LongForecast | None = None
+        self._evac_due: set[str] = set()  # towns already told to order out
+        self.evac_clock: list[TownClock] = []
+        self._clock_tick = 0
+        if self.roads is not None:
+            self.evac_clock = self.compute_clock(0)
         # Fire units come from stations (#104): a crew, dozer or tanker token is
         # an order, and acts on the fire only once its unit gets there. No
         # stations.json (or no roads) means tokens act at once, as before.
@@ -320,11 +353,21 @@ class Engine:
             ],
         )
 
+    def clock_msg(self) -> str:
+        f = self.long_forecast
+        return clock_message(self.evac_clock, self._clock_tick, None if f is None else f.tick,
+                             EVAC_HORIZON_MIN).model_dump_json()
+
     def routes_msg(self) -> str:
         return routes_message(self.routes, self._routes_tick).model_dump_json()
 
     def recs_msg(self) -> str:
         return Recommendations(tick=self._recs_tick, recommendations=self.recs).model_dump_json()
+
+    def situation_msg(self) -> str:
+        f = self.latest_forecast
+        return Situation(tick=self.fire.tick, forecast_tick=None if f is None else f.tick,
+                         towns=self.tools.town_threats()).model_dump_json()
     def vision_status_msg(self) -> str:
         if self.camera is None:
             status = VisionStatus(
@@ -387,8 +430,13 @@ class Engine:
             await ws.send(self.forecast_frame())
             if self.roads is not None:
                 await ws.send(self.routes_msg())
+                await ws.send(self.clock_msg())
             await ws.send(self.recs_msg())
             await ws.send(self.units_msg())
+            await ws.send(self.situation_msg())
+            if self.recent_events:
+                # So a window opened mid-incident has the recent log, not an empty one.
+                await ws.send(Events(events=list(self.recent_events)).model_dump_json())
             await ws.send(self.score_msg())
             async for raw in ws:
                 try:
@@ -441,6 +489,11 @@ class Engine:
                     broadcast(self.clients, self.state_msg())
             case AcceptRecommendation():
                 self.accept_recommendation(msg.id)
+            case OrderEvacuation():
+                self.order_evacuation(msg.town, msg.ordered)
+            case EvaluatePlan():
+                self._plan_latest = msg.id
+                asyncio.create_task(self.evaluate_plan(msg))
             case CommanderQuery():
                 self.ask(msg.text)
             case PttStart():
@@ -517,8 +570,10 @@ class Engine:
         broadcast(self.clients, self.vision_status_msg())
         broadcast(self.clients, self.sim_grid_frame())
         broadcast(self.clients, self.forecast_frame())
+        self._long_started = -LONG_FORECAST_MIN_TICKS
         if self.roads is not None:
             broadcast(self.clients, self.routes_msg())
+            broadcast(self.clients, self.clock_msg())
         broadcast(self.clients, self.recs_msg())
         broadcast(self.clients, self.score_msg())
         broadcast(self.clients, self.calibration_msg())
@@ -533,6 +588,10 @@ class Engine:
         self._preview = None
         self.route_tracker.reset()
         self._closed[:] = False
+        self.evac_orders.clear()
+        self.long_forecast = None
+        self._long_started = -LONG_FORECAST_MIN_TICKS
+        self._evac_due.clear()
         self.recent_events.clear()
         self.watcher.reset()
         self.briefings.reset()
@@ -552,7 +611,9 @@ class Engine:
         broadcast(self.clients, self.forecast_frame())
         broadcast(self.clients, self.state_msg())
         broadcast(self.clients, self.score_msg())
+        broadcast(self.clients, self.situation_msg())
         self.schedule_replan()
+        self.schedule_clock()
 
     def active_tokens(self) -> list[Token]:
         """Tokens within the round's limits; tokens over a limit do nothing."""
@@ -591,6 +652,7 @@ class Engine:
         self._closed = hot
         if not newly.any():
             return
+        self.schedule_clock()
         hit = [r for r in self.routes if r.edges and newly[r.edges].any()]
         if hit:
             tick = self.fire.tick
@@ -629,12 +691,13 @@ class Engine:
         broadcast(self.clients, self.sim_grid_frame())
         self.flush_dispatch()
         self.maybe_forecast()
+        self.maybe_long_forecast()
 
     def score_step(self, tokens: list[Token]) -> None:
         phase = self.game.phase
         buses = [t for t in tokens if t.token_type == TokenType.BUS]
         cut = {r.town for r in self.routes if r.bus is None and r.status == "cut"}
-        self.game.update(self.fire.tick, self.fire.state, buses, cut)
+        self.game.update(self.fire.tick, self.fire.state, buses, cut, self.evac_flows())
         if self.game.phase != phase:
             broadcast(self.clients, self.score_msg())
             self.announce_round_end(phase)
@@ -892,6 +955,98 @@ class Engine:
         self.recs = [r for r in self.recs if r.id != rec_id]
         broadcast(self.clients, self.recs_msg())
 
+    def plan_arrivals(self, orders, wind_ms: float) -> list[PlanOrderResult]:
+        """Which free unit would take each order and when it could act (#123).
+        Greedy, in order: each order takes the fastest unit not already taken,
+        the way dispatch would send them one after another."""
+        if not self.dispatcher.units:
+            return [PlanOrderResult(token_type=o.token_type, x=o.x, y=o.y, station=None, eta_min=0.0,
+                                    counted=o.token_type != TokenType.BUS) for o in orders]
+        taken: set[str] = set()
+        out = []
+        for o in orders:
+            best = None
+            for u in self.dispatcher.units:
+                if u.token_type != o.token_type or u.status != "available" or u.id in taken:
+                    continue
+                m, _ = self.dispatcher._eta(u, u.home, (o.x, o.y), wind_ms)
+                if m != float("inf") and (best is None or m < best[1]):
+                    best = (u, m + TURNOUT_MIN)
+            if best is not None:
+                taken.add(best[0].id)
+            out.append(PlanOrderResult(
+                token_type=o.token_type, x=o.x, y=o.y,
+                station=None if best is None else best[0].station.name,
+                eta_min=None if best is None else round(best[1], 1),
+                counted=best is not None,
+            ))
+        return out
+
+    async def evaluate_plan(self, msg: EvaluatePlan) -> None:
+        """Run the operator's plan against doing nothing (#123) in the
+        Recommender worker, then broadcast the result and its PLAN_GRID."""
+        async with self._plan_lock:
+            if self._plan_latest and msg.id != self._plan_latest:
+                return  # a newer plan came in while this one waited
+            await self._evaluate_plan(msg)
+
+    async def _evaluate_plan(self, msg: EvaluatePlan) -> None:
+        w = msg.wind
+        wind = self.fire.wind if w is None else Wind(speed_ms=max(0.0, w.speed_ms), from_deg=w.from_deg % 360)
+        horizon = min(max(msg.horizon_min, 30.0), 240.0)
+        tick, epoch = self.fire.tick, self._fire_epoch
+        orders = self.plan_arrivals(msg.orders, wind.speed_ms)
+
+        def reply(error: str | None, outcome: PlanOutcome | None = None) -> None:
+            empty = KofN(k=0, n=0, lo=0.0, hi=1.0)
+            o = outcome
+            broadcast(self.clients, PlanResult(
+                id=msg.id, tick=tick, n=0 if o is None else o.n, horizon_min=horizon,
+                wind=WindState(speed_ms=wind.speed_ms, from_deg=wind.from_deg), orders=orders,
+                acres_base=0 if o is None else round(o.acres_base, 1),
+                acres_plan=0 if o is None else round(o.acres_plan, 1),
+                acres_saved=0 if o is None else round(o.acres_saved[0], 1),
+                acres_saved_lo=0 if o is None else round(o.acres_saved[1], 1),
+                acres_saved_hi=0 if o is None else round(o.acres_saved[2], 1),
+                people_base=0 if o is None else round(o.people_base),
+                people_plan=0 if o is None else round(o.people_plan),
+                towns=[] if o is None else [
+                    PlanTown(town=t.town, base=self._kofn(t.base_hits, o.n) or empty,
+                             plan=self._kofn(t.plan_hits, o.n) or empty, saves=t.saves, worsens=t.worsens,
+                             base_median_min=t.base_median_min, plan_median_min=t.plan_median_min)
+                    for t in o.towns
+                ],
+                error=error,
+            ).model_dump_json())
+
+        if not self.fire.counts()[0]:
+            return reply("Nothing is burning, so there's nothing to plan against.")
+        tokens = [Token(id=f"plan{i}", token_type=o.token_type, x=o.x, y=o.y, angle=0.0, source=TokenSource.VIRTUAL)
+                  for i, o in enumerate(orders) if o.counted]
+        layers = [self.effects.arrival_layer(t, int(round((o.eta_min or 0) / SIM_MINUTES_PER_TICK)))
+                  for t, o in zip(tokens, [o for o in orders if o.counted])]
+        s = self.scenario
+        plan = SuppressionSchedule(np.zeros((s.height, s.width), np.float32), [l for l in layers if l is not None])
+        acres_per_cell = s.cell_size_m**2 / SQ_M_PER_ACRE
+        try:
+            outcome = await self.recommender.run(
+                evaluate_plan, self.snapshot(), plan, self.towns, wind,
+                int(round(horizon / SIM_MINUTES_PER_TICK)), acres_per_cell, PLAN_ROLLOUTS, tick)
+        except Exception as e:
+            log.exception("plan evaluation failed")
+            return reply(f"The plan couldn't be simulated: {e}")
+        if epoch != self._fire_epoch:
+            return reply("The map was reset while the plan ran.")
+        reply(None, outcome)
+        broadcast(self.clients, pack_binary(BinaryType.PLAN_GRID, msg.id, s.width, s.height, outcome.grids.tobytes()))
+
+    @staticmethod
+    def _kofn(k: int, n: int) -> KofN | None:
+        if n == 0:
+            return None
+        lo, hi = wilson(k, n)
+        return KofN(k=k, n=n, lo=round(float(lo), 3), hi=round(float(hi), 3))
+
     def schedule_replan(self) -> None:
         """Replan every town's route in a worker thread (~20 ms), one job at a
         time. Anything that asks while a job runs gets one more run after it,
@@ -928,7 +1083,97 @@ class Engine:
         self.routes, events = self.route_tracker.choose(best, rescored, tick)
         self._routes_tick = tick
         broadcast(self.clients, self.routes_msg())
+        broadcast(self.clients, self.situation_msg())
         self.broadcast_events(events)
+
+    def maybe_long_forecast(self) -> None:
+        """Start the evacuation clock's long forecast if none is running and
+        the last is LONG_FORECAST_MIN_TICKS old."""
+        if self.roads is None or (self._long_job is not None and not self._long_job.done()):
+            return
+        if self.fire.tick - self._long_started < LONG_FORECAST_MIN_TICKS:
+            return
+        self._long_started = self.fire.tick
+        epoch = self._fire_epoch
+        self._long_job = asyncio.create_task(self.long_forecaster.run(self.snapshot()))
+        self._long_job.add_done_callback(lambda j: self.long_forecast_done(j, epoch))
+
+    def long_forecast_done(self, job: asyncio.Task, epoch: int) -> None:
+        if job.cancelled() or epoch != self._fire_epoch:
+            return
+        if (e := job.exception()) is not None:
+            log.error("long forecast failed: %r", e)
+            return
+        self.long_forecast = job.result()
+        self.schedule_clock()
+
+    def order_evacuation(self, town: str, ordered: bool) -> None:
+        """Order a town out (from now), or take the order back."""
+        if not any(t.name == town for t in self.towns):
+            return
+        if ordered:
+            self.evac_orders.setdefault(town, self.fire.tick)
+        else:
+            self.evac_orders.pop(town, None)
+        self.schedule_clock()
+
+    def evac_flows(self) -> dict[str, float]:
+        """People a sim minute leaving each ordered town whose cars are moving."""
+        tick, orders = self.fire.tick, self.evac_orders
+        return {c.town: c.people_per_min for c in self.evac_clock
+                if c.status == EvacStatus.EVACUATING and c.town in orders
+                and (tick - orders[c.town]) * SIM_MINUTES_PER_TICK >= MOBILIZE_MIN}
+
+    def compute_clock(self, tick: int) -> list[TownClock]:
+        f = self.long_forecast
+        return compute_clock(
+            self.roads,
+            None if f is None else f.first_burn,
+            tick=tick,
+            forecast_tick=tick if f is None else f.tick,
+            horizon_min=EVAC_HORIZON_MIN,
+            orders=dict(self.evac_orders),
+            evacuated=list(self.game.evacuated),
+            minutes_per_tick=SIM_MINUTES_PER_TICK,
+            closed=self._closed.copy(),
+        )
+
+    def schedule_clock(self) -> None:
+        """Recompute the evacuation clock in a worker thread (tens of ms), one
+        job at a time, like schedule_replan."""
+        if self.roads is None:
+            return
+        if self._clock_job is not None and not self._clock_job.done():
+            self._clock_pending = True
+            return
+        self._clock_pending = False
+        self._clock_job = asyncio.create_task(self.recompute_clock(self._fire_epoch))
+        self._clock_job.add_done_callback(lambda _: self._clock_pending and self.schedule_clock())
+
+    async def recompute_clock(self, epoch: int) -> None:
+        tick = self.fire.tick
+        try:
+            clocks = await asyncio.to_thread(self.compute_clock, tick)
+        except Exception:
+            log.exception("evacuation clock failed")
+            return
+        if epoch != self._fire_epoch:
+            return
+        self.evac_clock, self._clock_tick = clocks, tick
+        broadcast(self.clients, self.clock_msg())
+        self.broadcast_events(self.evac_events(clocks, tick))
+
+    def evac_events(self, clocks: list[TownClock], tick: int) -> list[Event]:
+        """An evacuate_now event when a town that isn't ordered out reaches
+        its order time, once until it drops back to watch."""
+        events = []
+        for c in clocks:
+            if c.status in (EvacStatus.ORDER_NOW, EvacStatus.LATE) and c.town not in self._evac_due:
+                self._evac_due.add(c.town)
+                events.append(Event(kind=EventKind.EVACUATE_NOW, tick=tick, town=c.town, text=evacuate_text(c, tick)))
+            elif c.status == EvacStatus.WATCH:
+                self._evac_due.discard(c.town)
+        return events
 
     def maybe_preview(self) -> None:
         """Start an emulator preview when what the forecast depends on has
@@ -974,12 +1219,14 @@ class Engine:
             self.maybe_preview()
             if (briefing := self.briefings.next(time.monotonic(), self.fire.tick, self.paused)) is not None:
                 broadcast(self.clients, briefing.model_dump_json())
-                urgent = briefing.event in (EventKind.NO_SAFE_ROUTE, EventKind.TOWN_THREATENED)
+                urgent = briefing.event in (EventKind.NO_SAFE_ROUTE, EventKind.TOWN_THREATENED, EventKind.EVACUATE_NOW)
                 self.speak(f"b{next(self._utterances)}", CommanderKind.BRIEFING, briefing.text, urgent)
             if self.tick % TICK_HZ == 0:
                 broadcast(self.clients, self.state_msg())
                 broadcast(self.clients, self.vision_status_msg())
                 broadcast(self.clients, self.score_msg())
+                if self.evac_orders:
+                    self.schedule_clock()  # people left and the queues change as towns empty
             next_tick += period
             await asyncio.sleep(max(0.0, next_tick - loop.time()))
 
@@ -1000,6 +1247,7 @@ async def main() -> None:
             await engine.run()
     finally:
         engine.forecaster.shutdown()
+        engine.long_forecaster.shutdown()
         engine.recommender.shutdown()
         if engine.camera is not None:
             engine.camera.stop()

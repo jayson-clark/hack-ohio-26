@@ -163,6 +163,7 @@ def test_engine_round_flow():
             assert engine.game.phase == RoundPhase.SANDBOX
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())

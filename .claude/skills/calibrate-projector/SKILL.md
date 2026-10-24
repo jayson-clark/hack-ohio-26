@@ -3,7 +3,7 @@ name: calibrate-projector
 description: Calibrate the projector so the map lands on the printed terrain (projected ring pattern, H_map→proj, calibration.json), check alignment with the test grid, or debug a projection that's offset, keystoned, or won't calibrate. Use when setting up the table, after the projector or camera moves, or when touching engine/vision/projector.py or the projector's homography.
 ---
 
-Design: PLAN.md, Calibration. Engine: `engine/vision/projector.py` (`Calibrator` wizard, `PatternFinder`). UI: `app/src/console/CalibrationPanel.tsx`, the `CALIBRATED` path in `render/shaders.ts`, and `render/ProjectionView.tsx`.
+Design: PLAN.md, Calibration. Engine: `engine/vision/projector.py` (`Calibrator` wizard, `PatternFinder`). UI: `app/src/control/CalibrationPanel.tsx`, the `CALIBRATED` path in `render/shaders.ts`, and `render/ProjectionView.tsx`.
 
 ## On the real table
 

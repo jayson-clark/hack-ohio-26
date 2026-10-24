@@ -95,6 +95,7 @@ def test_engine_previews_until_monte_carlo_catches_up():
             assert e._preview is None
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())

@@ -4,7 +4,7 @@
 
 import { useEffect } from "react";
 import { calibrationStep, useEngine } from "../shared/engine";
-import { Button, Kbd } from "./ui";
+import { Button, Kbd } from "../console/ui";
 
 export default function CalibrationPanel() {
   const { calibration: cal, vision } = useEngine();

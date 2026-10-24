@@ -15,6 +15,10 @@ app/src/shared/binary.ts), followed by a payload:
   scaled to 0-255. `tick` is the sim tick the forecast started from. Sent
   whenever a forecast finishes (a few per second), and once, all zero, on
   reset.
+- PLAN_GRID: two width*height uint8 grids, P(burned by the plan's horizon)
+  as 0-255: first without the plan's orders, then with them, both under the
+  plan's wind. `tick` is the PlanResult.id it belongs to (not a sim tick).
+  Sent right after each PlanResult that has no error.
 - CAMERA_FRAME: one JPEG of the webcam with the vision overlay drawn on it
   (markers, map outline, placed tokens), for the console's camera view.
   width/height are the JPEG's size and `tick` counts feed frames. A few per
@@ -40,6 +44,7 @@ class BinaryType(IntEnum):
     SIM_GRID = 1
     FORECAST_GRID = 2
     CAMERA_FRAME = 3
+    PLAN_GRID = 4
 
 
 # type: u8, 3 pad bytes, tick: u32, width: u16, height: u16 (little-endian)
@@ -145,6 +150,57 @@ class Routes(Model):
     routes: list[RouteInfo]
 
 
+class EvacStatus(StrEnum):
+    WATCH = "watch"  # the order can wait
+    ORDER_SOON = "order_soon"  # the latest safe order time is under half an hour away
+    ORDER_NOW = "order_now"  # past it: order now and most simulations still get everyone out
+    LATE = "late"  # past it, and in most simulations the fire beats the last car
+    EVACUATING = "evacuating"  # ordered; people are leaving
+    CLEAR = "clear"  # everyone is out
+    TRAPPED = "trapped"  # no open way out
+
+
+class EvacExit(Model):
+    safe_zone: str
+    share: float  # of the town's vehicles, 0..1, in proportion to the bottleneck
+    bottleneck_vph: float  # vehicles an hour through its tightest road
+    drive_min: float  # sim minutes, free-flowing
+
+
+class TownEvac(Model):
+    town: str
+    status: EvacStatus
+    ordered_tick: int | None  # when the order went out, if it has
+    people: int  # still in town
+    vehicles: int
+    mobilize_min: float  # sim minutes from the order (or what's left of it) until cars move
+    clearance_min: float | None  # sim minutes to drain through the bottleneck; None with no way out
+    last_car_out_tick: int | None  # sim tick the last car leaves, if ordered now (or as ordered)
+    order_by_tick: int | None  # latest sim tick to order and still clear in time (unordered towns)
+    order_by_bound: bool  # order_by_tick is only a lower bound: clearing takes longer than the forecast sees
+    fire_tick: int | None  # sim tick the fire could be in town (10% of simulations by then)
+    reach: int  # simulations with fire in town within the forecast
+    n: int  # simulations
+    p_safe: float  # share of simulations where the last car gets out before the fire
+    p_safe_lo: float  # 90% Wilson interval
+    p_safe_hi: float
+    p_safe_bound: bool  # the last car leaves after the forecast ends, so p_safe is an upper bound
+    exits: list[EvacExit]
+    shares_with: list[str]  # ordered towns queueing on the same bottleneck
+
+
+class EvacClock(Model):
+    """When each town has to be ordered out (#121): fire arrival from a long
+    forecast against the time to empty the town through shared exits. Sent
+    when that forecast lands, on an order, and on connect."""
+
+    type: Literal["evac_clock"] = "evac_clock"
+    tick: int  # sim tick the numbers are for
+    forecast_tick: int | None  # sim tick the long forecast started from
+    horizon_min: float  # how far ahead it looks
+    towns: list[TownEvac]  # most urgent first
+
+
 class EventKind(StrEnum):
     ROAD_CUT = "road_cut"  # fire reached a road on a town's current route
     ROUTE_CHANGED = "route_changed"  # a town was rerouted to another way out
@@ -156,6 +212,7 @@ class EventKind(StrEnum):
     UNIT_ARRIVED = "unit_arrived"  # a dispatched crew, dozer or tanker reached its token
     UNIT_BLOCKED = "unit_blocked"  # burning roads keep a ground unit from getting through
     TANKERS_GROUNDED = "tankers_grounded"  # too windy to fly
+    EVACUATE_NOW = "evacuate_now"  # a town's latest safe order time has come (#121)
 
 
 class Event(Model):
@@ -400,9 +457,86 @@ class CommanderSpeech(Model):
     urgent: bool  # a briefing worth a radio tone first (threatened town, no way out)
 
 
+class KofN(Model):
+    """How many of the forecast's simulations something happened in, with a
+    90% interval on the true chance (sampling uncertainty, #11)."""
+
+    k: int
+    n: int
+    lo: float  # 0..1
+    hi: float
+
+
+class TownThreat(Model):
+    town: str
+    population: int
+    structures: int
+    fire_inside: bool  # some of the town is burning or burned now
+    within_30: KofN | None  # fire reaches the town within 30 min; None before any forecast
+    within_60: KofN | None
+    median_min: float | None  # median minutes until fire, if at least half the simulations reach it
+    soonest_min: float | None  # 10th-percentile minutes until fire ("could be as soon as"), if that many reach it
+    route_status: RouteStatus | None  # None when the scenario has no roads
+    exit: str | None  # the safe zone the route leads to
+    drive_min: float | None
+
+
+class Situation(Model):
+    """The operator's town board: how soon the fire could reach each town.
+    Sent after each Monte Carlo forecast (never from the emulator), on reset,
+    and on connect."""
+
+    type: Literal["situation"] = "situation"
+    tick: int
+    forecast_tick: int | None  # sim tick the forecast behind it started from
+    towns: list[TownThreat]
+
+
+class PlanOrderResult(Model):
+    token_type: TokenType
+    x: float
+    y: float
+    station: str | None  # the free unit that would go, when dispatch is on (#104)
+    eta_min: float | None  # sim minutes until it could act; None when no free unit can get there
+    counted: bool  # false when no unit can get there, so it adds nothing to the plan
+
+
+class PlanTown(Model):
+    town: str
+    base: KofN  # fire reaches the town by the horizon, without the plan
+    plan: KofN  # and with it
+    saves: int  # simulations where the plan keeps fire out that otherwise got in
+    worsens: int  # the reverse
+    base_median_min: float | None
+    plan_median_min: float | None
+
+
+class PlanResult(Model):
+    """The answer to an evaluate_plan: the plan against doing nothing, on
+    paired simulations under the same assumed wind. Broadcast; a console
+    keeps only the id it asked for."""
+
+    type: Literal["plan_result"] = "plan_result"
+    id: int  # the EvaluatePlan.id this answers
+    tick: int  # sim tick the plan was run from
+    n: int  # paired simulations
+    horizon_min: float
+    wind: WindState  # the wind it assumed
+    orders: list[PlanOrderResult]
+    acres_base: float  # mean acres burned by the horizon without the plan
+    acres_plan: float
+    acres_saved: float  # paired mean difference, with a 90% interval
+    acres_saved_lo: float
+    acres_saved_hi: float
+    people_base: float  # mean residents whose part of town burns, without the plan
+    people_plan: float
+    towns: list[PlanTown]
+    error: str | None  # set (and everything else empty) when the plan couldn't run
+
+
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          CommanderSpeech, Transcript, Units, Calibration],
+          CommanderSpeech, Transcript, Units, EvacClock, Situation, PlanResult, Calibration],
     Field(discriminator="type"),
 ]
 
@@ -518,6 +652,14 @@ class AcceptRecommendation(Model):
     id: str
 
 
+class OrderEvacuation(Model):
+    """Order a town out (or take the order back)."""
+
+    type: Literal["order_evacuation"] = "order_evacuation"
+    town: str
+    ordered: bool
+
+
 class StartRound(Model):
     """Reset the map and start a timed, limited round, igniting at the
     scenario's ignition point if it has one."""
@@ -544,15 +686,35 @@ class CalibrationStep(Model):
     action: CalibrationAction
 
 
+class PlanOrder(Model):
+    token_type: TokenType
+    x: float
+    y: float
+
+
+class EvaluatePlan(Model):
+    """Try a set of orders, and optionally a different wind, from the fire as
+    it is now, without changing anything. Answered by a plan_result (and a
+    PLAN_GRID frame). A newer plan replaces one still running."""
+
+    type: Literal["evaluate_plan"] = "evaluate_plan"
+    id: int  # chosen by the console, echoed back
+    orders: list[PlanOrder]
+    wind: WindState | None  # None assumes the current wind
+    horizon_min: float = 120
+
+
 ClientMessage = Annotated[
     Union[
         VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, LoadScenario, SetWind, AcceptRecommendation,
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
+        OrderEvacuation,
         SetVoice,
         PttStart,
         PttStop,
         CalibrationStep,
+        EvaluatePlan,
     ],
     Field(discriminator="type"),
 ]

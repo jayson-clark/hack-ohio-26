@@ -21,7 +21,7 @@ import numpy as np
 
 from forecast.recommend import TownInfo, evaluate_spots
 from forecast.rollout import rollout
-from protocol import TokenType
+from protocol import KofN, TokenType, TownThreat
 from sim.fire import BURNED, BURNING, SIM_MINUTES_PER_TICK, FireSnapshot, Wind
 from uq.mc import confidence_word, wilson
 
@@ -97,11 +97,25 @@ TOOL_SPECS = [
         "name": "get_routes",
         "description": (
             "Every town's current evacuation route: status (clear, risky or cut), which exit, drive time, "
-            "and the chance the worst road on it burns before the bus passes. Also the latest reroutes."
+            "and the chance the worst road on it burns before the bus passes. Also the latest reroutes, and "
+            "the evacuation order clock: for each town whether it's ordered out, how long it takes to get "
+            "everyone out through roads shared with other ordered towns, how long until the order has to go "
+            "out, and in how many simulations the last car gets out before the fire."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
     },
 ]
+
+
+_ORDER_ADVICE = {
+    "watch": "the order can wait",
+    "order_soon": "order within the half hour",
+    "order_now": "order now",
+    "late": "past the safe order time: order now, not everyone may get out",
+    "evacuating": "ordered out, people leaving",
+    "clear": "everyone is out",
+    "trapped": "no open way out",
+}
 
 
 # --- Worker-side jobs (picklable, run in the Recommender process) -----------
@@ -239,6 +253,49 @@ class CommanderTools:
             rows.append(row)
         return rows
 
+    def town_threats(self) -> list[TownThreat]:
+        """The console's town board (#122): the same numbers as _town_table,
+        as protocol models, plus the 10th-percentile arrival."""
+        e = self.e
+        f = e.latest_forecast
+        routes = {r.town: r for r in e.routes}
+        burnt = (e.fire.state == BURNING) | (e.fire.state == BURNED)
+        arrivals = None
+        if f is not None and len(e.towns):
+            arrivals = _town_arrivals(f.first_burn, self.masks, e.fire.tick - f.tick)
+        structures = {t.name: t.structures for t in e.roads.towns} if e.roads else {}
+        out = []
+        for i, t in enumerate(e.towns):
+            within = [None, None]
+            median = soonest = None
+            if arrivals is not None:
+                a = arrivals[:, i] * SIM_MINUTES_PER_TICK
+                n = len(a)
+                for j, minutes in enumerate((30, 60)):
+                    k = int((a <= minutes).sum())
+                    lo, hi = wilson(k, n)
+                    within[j] = KofN(k=k, n=n, lo=round(float(lo), 3), hi=round(float(hi), 3))
+                reached = np.sort(a[np.isfinite(a)])
+                if len(reached) * 2 >= n:
+                    median = round(float(np.median(reached)), 1)
+                if len(reached) * 10 >= n and len(reached):
+                    soonest = round(float(np.quantile(a, 0.1)), 1)
+            r = routes.get(t.name)
+            out.append(TownThreat(
+                town=t.name,
+                population=t.population,
+                structures=structures.get(t.name, 0),
+                fire_inside=bool(burnt[self.masks[i]].any()),
+                within_30=within[0],
+                within_60=within[1],
+                median_min=median,
+                soonest_min=soonest,
+                route_status=None if r is None else r.status,
+                exit=None if r is None else r.safe_zone,
+                drive_min=None if r is None or r.safe_zone is None else round(r.eta_min, 1),
+            ))
+        return out
+
     @staticmethod
     def _reach(a: np.ndarray) -> dict:
         """Counts of simulations reaching the town within 30 and 60 minutes, and the median time."""
@@ -337,7 +394,36 @@ class CommanderTools:
             for r in e.routes
         ]
         changes = [ev.text for ev in e.recent_events if ev.kind != "road_cut"][-5:]
-        return {"routes": routes, "recent_changes": changes}
+        orders = [self._order_row(c) for c in e.evac_clock]
+        return {"routes": routes, "recent_changes": changes, "evacuation_orders": orders}
+
+    def _order_row(self, c) -> dict:
+        """One town's evacuation clock (#121), in the terms the commander speaks."""
+        tick = self.e.fire.tick
+        row = {
+            "town": c.town,
+            "advice": _ORDER_ADVICE[c.status],
+            "ordered_out": c.ordered_tick is not None,
+            "people_still_in_town": c.people,
+            "minutes_to_get_everyone_out": None if not np.isfinite(c.clearance_min)
+            else round(c.mobilize_min + c.clearance_min),
+            "exits": [x.safe_zone for x in c.exits],
+            "queues_with_ordered_towns": c.shares_with,
+        }
+        left = None if c.order_by_tick is None else round((c.order_by_tick - tick) * SIM_MINUTES_PER_TICK)
+        if c.order_by_bound:
+            # The fire isn't in the forecast that far out, so this is only a floor.
+            if left >= 0:
+                row["order_within_minutes"] = f"at least {left}"
+        elif left is not None:
+            row["order_within_minutes" if left >= 0 else "past_latest_safe_order_by_minutes"] = abs(left)
+        if c.n:
+            lo, hi = wilson(c.k_safe, c.n)
+            row["last_car_out_before_fire"] = {
+                "simulations": c.k_safe, "of": c.n, "likely_percent": [round(lo * 100), round(hi * 100)],
+                "confidence": confidence_word(lo, hi), "at_most": c.p_safe_bound,
+            }
+        return row
 
     # helpers ----------------------------------------------------------------
 

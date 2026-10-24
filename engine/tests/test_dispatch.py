@@ -153,6 +153,7 @@ def test_engine_tokens_wait_for_their_unit_and_units_go_on_the_wire():
             assert e.fire.suppression.max() > 0  # on scene and digging in
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())

@@ -68,6 +68,7 @@ def engine():
     e = burning_engine(40)
     yield e
     e.forecaster.shutdown()
+    e.long_forecaster.shutdown()
     e.recommender.shutdown()
 
 

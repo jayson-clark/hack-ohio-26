@@ -9,21 +9,13 @@ import { formatSimMinutes } from "../shared/round";
 import { TOKEN_STYLE } from "../shared/tokens";
 import { Panel } from "./ui";
 
-export default function StationsPanel({ onFocus }: { onFocus: (x: number, y: number) => void }) {
+export default function StationsPanel({ onFocus, bare = false }: { onFocus: (x: number, y: number) => void; bare?: boolean }) {
   const { hello, units } = useEngine();
   const stations = hello?.stations ?? [];
   if (stations.length === 0) return null;
 
   const free = units.filter((u) => u.status === "available").length;
-  return (
-    <Panel
-      title="Stations"
-      right={
-        <span className="font-mono text-[11px] tabular-nums text-fg-subtle">
-          {free}/{units.length} free
-        </span>
-      }
-    >
+  const list = (
       <ul className="-mx-1.5 space-y-1">
         {stations.map((st) => {
           const own = units.filter((u) => u.station === st.name);
@@ -46,6 +38,18 @@ export default function StationsPanel({ onFocus }: { onFocus: (x: number, y: num
           );
         })}
       </ul>
+  );
+  if (bare) return list;
+  return (
+    <Panel
+      title="Stations"
+      right={
+        <span className="font-mono text-[11px] tabular-nums text-fg-subtle">
+          {free}/{units.length} free
+        </span>
+      }
+    >
+      {list}
     </Panel>
   );
 }

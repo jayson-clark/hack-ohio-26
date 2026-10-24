@@ -13,6 +13,9 @@ export type EngineMessage =
   | CommanderSpeech
   | Transcript
   | Units
+  | EvacClock
+  | Situation
+  | PlanResult
   | Calibration;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
@@ -27,13 +30,15 @@ export type EventKind =
   | "round_ended"
   | "unit_arrived"
   | "unit_blocked"
-  | "tankers_grounded";
+  | "tankers_grounded"
+  | "evacuate_now";
 export type RecAction = "place" | "move";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
 export type CommanderKind = "briefing" | "answer";
 export type UnitStatus = "available" | "en_route" | "working" | "blocked" | "grounded";
+export type EvacStatus = "watch" | "order_soon" | "order_now" | "late" | "evacuating" | "clear" | "trapped";
 export type CalibrationPhase = "none" | "pattern" | "review" | "calibrated";
 export type ClientMessage =
   | VirtualTokenAdd
@@ -50,10 +55,12 @@ export type ClientMessage =
   | SetSpeed
   | StepOnce
   | CommanderQuery
+  | OrderEvacuation
   | SetVoice
   | PttStart
   | PttStop
-  | CalibrationStep;
+  | CalibrationStep
+  | EvaluatePlan;
 export type VoiceMode = "off" | "console" | "mac";
 export type CalibrationAction = "start" | "save" | "check" | "cancel" | "clear";
 
@@ -287,6 +294,119 @@ export interface UnitInfo {
   path: number[][];
 }
 /**
+ * When each town has to be ordered out (#121): fire arrival from a long
+ * forecast against the time to empty the town through shared exits. Sent
+ * when that forecast lands, on an order, and on connect.
+ */
+export interface EvacClock {
+  type: "evac_clock";
+  tick: number;
+  forecast_tick: number | null;
+  horizon_min: number;
+  towns: TownEvac[];
+}
+export interface TownEvac {
+  town: string;
+  status: EvacStatus;
+  ordered_tick: number | null;
+  people: number;
+  vehicles: number;
+  mobilize_min: number;
+  clearance_min: number | null;
+  last_car_out_tick: number | null;
+  order_by_tick: number | null;
+  order_by_bound: boolean;
+  fire_tick: number | null;
+  reach: number;
+  n: number;
+  p_safe: number;
+  p_safe_lo: number;
+  p_safe_hi: number;
+  p_safe_bound: boolean;
+  exits: EvacExit[];
+  shares_with: string[];
+}
+export interface EvacExit {
+  safe_zone: string;
+  share: number;
+  bottleneck_vph: number;
+  drive_min: number;
+}
+/**
+ * The operator's town board: how soon the fire could reach each town.
+ * Sent after each Monte Carlo forecast (never from the emulator), on reset,
+ * and on connect.
+ */
+export interface Situation {
+  type: "situation";
+  tick: number;
+  forecast_tick: number | null;
+  towns: TownThreat[];
+}
+export interface TownThreat {
+  town: string;
+  population: number;
+  structures: number;
+  fire_inside: boolean;
+  within_30: KofN | null;
+  within_60: KofN | null;
+  median_min: number | null;
+  soonest_min: number | null;
+  route_status: RouteStatus | null;
+  exit: string | null;
+  drive_min: number | null;
+}
+/**
+ * How many of the forecast's simulations something happened in, with a
+ * 90% interval on the true chance (sampling uncertainty, #11).
+ */
+export interface KofN {
+  k: number;
+  n: number;
+  lo: number;
+  hi: number;
+}
+/**
+ * The answer to an evaluate_plan: the plan against doing nothing, on
+ * paired simulations under the same assumed wind. Broadcast; a console
+ * keeps only the id it asked for.
+ */
+export interface PlanResult {
+  type: "plan_result";
+  id: number;
+  tick: number;
+  n: number;
+  horizon_min: number;
+  wind: WindState;
+  orders: PlanOrderResult[];
+  acres_base: number;
+  acres_plan: number;
+  acres_saved: number;
+  acres_saved_lo: number;
+  acres_saved_hi: number;
+  people_base: number;
+  people_plan: number;
+  towns: PlanTown[];
+  error: string | null;
+}
+export interface PlanOrderResult {
+  token_type: TokenType;
+  x: number;
+  y: number;
+  station: string | null;
+  eta_min: number | null;
+  counted: boolean;
+}
+export interface PlanTown {
+  town: string;
+  base: KofN;
+  plan: KofN;
+  saves: number;
+  worsens: number;
+  base_median_min: number | null;
+  plan_median_min: number | null;
+}
+/**
  * Projector calibration (PLAN.md, Calibration; engine/vision/projector.py).
  * Sent on connect, on every calibration_step, while the pattern is being
  * found, and when the engine follows a moved board.
@@ -396,6 +516,14 @@ export interface CommanderQuery {
   text: string;
 }
 /**
+ * Order a town out (or take the order back).
+ */
+export interface OrderEvacuation {
+  type: "order_evacuation";
+  town: string;
+  ordered: boolean;
+}
+/**
  * How the commander speaks. Off by default; the console sends its saved choice on connect.
  */
 export interface SetVoice {
@@ -417,4 +545,21 @@ export interface PttStop {
 export interface CalibrationStep {
   type: "calibration_step";
   action: CalibrationAction;
+}
+/**
+ * Try a set of orders, and optionally a different wind, from the fire as
+ * it is now, without changing anything. Answered by a plan_result (and a
+ * PLAN_GRID frame). A newer plan replaces one still running.
+ */
+export interface EvaluatePlan {
+  type: "evaluate_plan";
+  id: number;
+  orders: PlanOrder[];
+  wind: WindState | null;
+  horizon_min: number;
+}
+export interface PlanOrder {
+  token_type: TokenType;
+  x: number;
+  y: number;
 }
