@@ -35,8 +35,11 @@ from protocol import (
     RoundPhase,
     ScenarioState,
     Score,
+    SetRunning,
+    SetSpeed,
     SetWind,
     StartRound,
+    StepOnce,
     Token,
     TokenType,
     Tokens,
@@ -146,6 +149,11 @@ class Engine:
             GameTown(t.name, t.x, t.y, t.radius, t.population, t.structures) for t in self.roads.towns
         ] if self.roads else []
         self.game = Game(self.scenario, game_towns)
+        # Pause and speed (#54). Speed is sim steps per engine tick; the
+        # fractional part carries over, so 0.5 steps every other tick.
+        self.paused = False
+        self.speed = 1.0
+        self._step_budget = 0.0
         self._sent_inactive: list[str] = []
         # The incident commander: tools over this engine, plus unprompted
         # briefings from forecast and route events (no LLM needed for those).
@@ -171,7 +179,9 @@ class Engine:
         w = self.fire.wind
         return ScenarioState(
             tick=self.tick,
-            running=not self.game.frozen,
+            running=not (self.paused or self.game.frozen),
+            paused=self.paused,
+            speed=self.speed,
             wind=WindState(speed_ms=w.speed_ms, from_deg=w.from_deg),
             burning_cells=burning,
             burned_cells=burned,
@@ -291,6 +301,7 @@ class Engine:
                 self.game.reset()
                 self.reset_map()
             case StartRound():
+                self.paused = False  # starting a round means playing it
                 self.game.start(0)  # reset_map puts the fire back at tick 0
                 self.reset_map()
                 if (ig := self.game.ignition) is not None:
@@ -299,6 +310,17 @@ class Engine:
             case EndRound():
                 self.game.stop(self.fire.tick)
                 broadcast(self.clients, self.score_msg())
+            case SetRunning():
+                self.paused = not msg.running
+                self._step_budget = 0.0
+                broadcast(self.clients, self.state_msg())
+            case SetSpeed():
+                self.speed = msg.speed
+                broadcast(self.clients, self.state_msg())
+            case StepOnce():
+                if self.paused:
+                    self.step_fire(steps=1)
+                    broadcast(self.clients, self.state_msg())
             case AcceptRecommendation():
                 self.accept_recommendation(msg.id)
             case SetWind():
@@ -376,16 +398,31 @@ class Engine:
             ])
             self.schedule_replan()
 
-    def step_fire(self) -> None:
+    def tick_fire(self) -> None:
+        """Run this engine tick's share of sim steps, per pause and speed."""
+        if self.paused:
+            return
+        self._step_budget += self.speed
+        steps = int(self._step_budget)
+        self._step_budget -= steps
+        if steps:
+            self.step_fire(steps)
+
+    def step_fire(self, steps: int = 1) -> None:
+        """Advance the fire `steps` ticks, then send one frame for all of them,
+        so a fast sim doesn't flood the UI with frames it can't show."""
         if self.game.frozen:
             return  # the round is over; the map stays as it ended
-        tokens = self.active_tokens()
-        self.fire.set_suppression(self.effects.update(tokens, self.fire.tick))
-        self.fire.step()
+        for _ in range(steps):
+            if self.game.frozen:
+                break  # the round is over; the map stays as it ended
+            tokens = self.active_tokens()
+            self.fire.set_suppression(self.effects.update(tokens, self.fire.tick))
+            self.fire.step()
+            self.check_road_cuts()
+            self.score_step(tokens)
         broadcast(self.clients, self.sim_grid_frame())
-        self.check_road_cuts()
         self.maybe_forecast()
-        self.score_step(tokens)
 
     def score_step(self, tokens: list[Token]) -> None:
         phase = self.game.phase
@@ -514,7 +551,7 @@ class Engine:
             self.tick += 1
             self.poll_vision()
             self.flush_tokens()
-            self.step_fire()
+            self.tick_fire()
             if (briefing := self.briefings.next(time.monotonic())) is not None:
                 broadcast(self.clients, briefing.model_dump_json())
             if self.tick % TICK_HZ == 0:

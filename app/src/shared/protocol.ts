@@ -20,7 +20,10 @@ export type ClientMessage =
   | SetWind
   | AcceptRecommendation
   | StartRound
-  | EndRound;
+  | EndRound
+  | SetRunning
+  | SetSpeed
+  | StepOnce;
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -39,12 +42,15 @@ export interface Hello {
   forecast_horizons_min: number[];
 }
 /**
- * Sent once a second, and immediately after ignite, reset or set_wind.
+ * Sent once a second, and immediately after ignite, reset, set_wind,
+ * set_running and set_speed.
  */
 export interface ScenarioState {
   type: "scenario_state";
   tick: number;
   running: boolean;
+  paused: boolean;
+  speed: number;
   wind: WindState;
   burning_cells: number;
   burned_cells: number;
@@ -241,4 +247,24 @@ export interface StartRound {
  */
 export interface EndRound {
   type: "end_round";
+}
+/**
+ * Pause (false) or resume (true) the fire. A paused round's clock stops too.
+ */
+export interface SetRunning {
+  type: "set_running";
+  running: boolean;
+}
+/**
+ * How many sim steps run per engine tick; fractions spread steps out.
+ */
+export interface SetSpeed {
+  type: "set_speed";
+  speed: number;
+}
+/**
+ * Advance the fire one tick while paused (ignored while running).
+ */
+export interface StepOnce {
+  type: "step_once";
 }
