@@ -16,7 +16,7 @@ import { createMover, place, removeToken, type MapSize, type PlaceType } from ".
 interface Props {
   map: MapSize;
   tokens: Token[];
-  placeType: PlaceType;
+  placeType: PlaceType | null;
   showGlyphs?: boolean;
   onSelect?: (id: string | null) => void;
   onHover?: (p: { x: number; y: number } | null) => void;
@@ -37,7 +37,7 @@ export default function MapOverlay({ map, tokens, placeType, showGlyphs = false,
   function onBackgroundDown(e: React.PointerEvent) {
     if (e.button !== 0) return;
     const { x, y } = toMap(e);
-    place(placeType, x, y, map);
+    if (placeType) place(placeType, x, y, map);
     onSelect?.(null);
   }
 

@@ -5,6 +5,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { MonitorInfo, Platform } from "./types";
 
 const PROJECTOR_LABEL = "projector";
+const CONTROL_LABEL = "control";
 
 // Monitors have no stable id in Tauri, so key them by name plus position.
 function monitorId(m: Monitor) {
@@ -59,4 +60,22 @@ export const tauriPlatform: Platform = {
   },
 
   closeProjector,
+
+  async openControl() {
+    const existing = await WebviewWindow.getByLabel(CONTROL_LABEL);
+    if (existing) {
+      await existing.setFocus();
+      return;
+    }
+    const win = new WebviewWindow(CONTROL_LABEL, {
+      url: "/?view=control",
+      title: "Firewatch Exercise Control",
+      width: 1400,
+      height: 900,
+    });
+    await new Promise<void>((resolve, reject) => {
+      win.once("tauri://created", () => resolve());
+      win.once("tauri://error", (e) => reject(new Error(String(e.payload))));
+    });
+  },
 };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getPlatform, type MonitorInfo, type Platform } from "../platform";
-import { RefreshIcon } from "./icons";
-import { Button } from "./ui";
+import { RefreshIcon } from "../console/icons";
+import { Button } from "../console/ui";
 
 export default function ProjectorControls() {
   const [platform, setPlatform] = useState<Platform | null>(null);

@@ -6,6 +6,8 @@
 // - ForecastGrid: one width*height uint8 grid per Hello.forecast_horizons_min
 //   entry, stacked in that order; P(burned by the horizon) as 0-255. The
 //   header's tick is the sim tick the forecast started from.
+// - PlanGrid: two width*height uint8 grids, P(burned by the plan's horizon)
+//   without then with the plan's orders. The header's tick is the plan id.
 // - CameraFrame: one JPEG of the webcam with the vision overlay drawn in;
 //   width/height are the JPEG's, tick counts feed frames.
 
@@ -13,6 +15,7 @@ export const BinaryType = {
   SimGrid: 1,
   ForecastGrid: 2,
   CameraFrame: 3,
+  PlanGrid: 4,
 } as const;
 
 export const HEADER_BYTES = 12;

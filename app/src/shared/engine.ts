@@ -10,15 +10,19 @@ import type {
   EngineMessage,
   Event,
   Hello,
+  PlanOrder,
+  PlanResult,
   Recommendation,
   RouteInfo,
   UnitInfo,
   ScenarioState,
   Score,
+  Situation,
   Token,
   Transcript,
   VisionStatus,
   VoiceMode,
+  WindState,
 } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
@@ -38,6 +42,14 @@ export interface ForecastGrids {
   // One width*height grid per Hello.forecast_horizons_min entry, in order:
   // P(burned by that horizon) scaled to 0-255.
   horizons: Uint8Array[];
+}
+
+/** A plan's answer (#123) and its PLAN_GRID: P(burned by the horizon) without and with the plan, 0-255. */
+export interface PlanState {
+  /** The id of the newest evaluate_plan this window sent, or 0 before any. */
+  pending: number;
+  result: PlanResult | null;
+  grids: { id: number; width: number; height: number; base: Uint8Array; plan: Uint8Array } | null;
 }
 
 export interface EngineState {
@@ -61,6 +73,10 @@ export interface EngineState {
   vision: VisionStatus | null;
   /** Latest camera_frame (a JPEG with the vision overlay), while a camera is on. */
   cameraFrame: BinaryFrame | null;
+  /** The town board (#122): how soon fire could reach each town, after each forecast. */
+  situation: Situation | null;
+  /** This window's plan what-if (#123). */
+  plan: PlanState;
   /** Round phase, resource limits and score (scoreboard: #47). */
   score: Score | null;
   /** What the commander has said (briefings and answers), oldest first. For #29. */
@@ -85,6 +101,8 @@ let state: EngineState = {
   recommendations: [],
   vision: null,
   cameraFrame: null,
+  situation: null,
+  plan: { pending: 0, result: null, grids: null },
   score: null,
   transcript: [],
   voiceMode: loadVoiceMode(),
@@ -116,6 +134,8 @@ function handleMessage(msg: EngineMessage) {
           recommendations: [],
           transcript: [],
           score: null,
+          situation: null,
+          plan: { pending: 0, result: null, grids: null },
         });
       } else {
         setState({ hello: msg });
@@ -154,6 +174,13 @@ function handleMessage(msg: EngineMessage) {
     case "score":
       setState({ score: msg });
       break;
+    case "situation":
+      setState({ situation: msg });
+      break;
+    case "plan_result":
+      // Plans are broadcast to every window; keep only the one this window asked for.
+      if (msg.id === state.plan.pending) setState({ plan: { ...state.plan, result: msg } });
+      break;
   }
 }
 
@@ -174,6 +201,21 @@ function handleBinary(buf: ArrayBuffer) {
     case BinaryType.CameraFrame:
       setState({ cameraFrame: frame });
       break;
+    case BinaryType.PlanGrid: {
+      // The header's tick is the plan id it belongs to.
+      if (frame.tick !== state.plan.pending) break;
+      const { width, height, payload } = frame;
+      const cells = width * height;
+      const grids = {
+        id: frame.tick,
+        width,
+        height,
+        base: payload.slice(0, cells),
+        plan: payload.slice(cells, 2 * cells),
+      };
+      setState({ plan: { ...state.plan, grids } });
+      break;
+    }
   }
 }
 
@@ -247,6 +289,23 @@ export function pttStop() {
 export function askCommander(text: string) {
   const q = text.trim();
   if (q) send({ type: "commander_query", text: q.slice(0, 500) });
+}
+
+// Plan ids only need to be unique per window and session; start somewhere
+// random so two consoles rarely pick the same one.
+let planSeq = Math.floor(Math.random() * 1e6);
+
+/** Run a set of orders (and an assumed wind) against doing nothing (#123). The
+ * answer lands in `plan`; an older answer still on its way is ignored. */
+export function evaluatePlan(orders: PlanOrder[], wind: WindState | null, horizonMin: number) {
+  const id = ++planSeq;
+  setState({ plan: { ...state.plan, pending: id } });
+  send({ type: "evaluate_plan", id, orders, wind, horizon_min: horizonMin });
+}
+
+/** Forget the plan's answer (the plan was cleared or dispatched). */
+export function clearPlan() {
+  setState({ plan: { pending: 0, result: null, grids: null } });
 }
 
 /** Place a recommended crew where the engine suggested it. */
