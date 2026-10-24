@@ -178,11 +178,23 @@ class TownShare(Model):
     share: float  # mean drop in the fraction of the town that burns by T+60, 0..1
 
 
+class RecAction(StrEnum):
+    PLACE = "place"  # put a new token here
+    MOVE = "move"  # every token of the type is placed: move `move_token` here instead (#77)
+
+
 class Recommendation(Model):
     id: str  # pass back in accept_recommendation
     token_type: TokenType
-    x: float  # map coords
+    action: RecAction
+    x: float  # map coords: where to place it, or where to move it to
     y: float
+    move_token: str | None  # for a move, the token to pick up
+    from_x: float | None  # for a move, where that token is now
+    from_y: float | None
+    # Accept can do it: true for placing, and for moving a virtual token. A
+    # physical token has to be moved by hand, so its card is advice only.
+    auto: bool
     benefit: float  # mean person-equivalents spared per rollout (the ranking score)
     acres_saved: float  # mean acres the placement keeps from burning by T+60
     saves: list[TownEffect]  # without it the fire reaches the town; with it, it doesn't

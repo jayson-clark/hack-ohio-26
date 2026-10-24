@@ -18,6 +18,7 @@ Effects are kept by token id, so a token that vision briefly loses and finds
 again keeps its state, while a newly placed one starts fresh.
 """
 
+import copy
 import math
 from dataclasses import dataclass
 
@@ -96,6 +97,16 @@ class TokenEffects:
             for gone in d.keys() - seen:
                 del d[gone]
         return s
+
+    def preview(self, tokens: list[Token], tick: int) -> np.ndarray:
+        """What update() would return for `tokens`, without changing any
+        crew's ramp-up or water drop's timer. Recommendations use it to ask
+        "what if this crew weren't here?"."""
+        crews, water = copy.deepcopy(self._crews), copy.deepcopy(self._water)
+        try:
+            return self.update(tokens, tick)
+        finally:
+            self._crews, self._water = crews, water
 
     def water_ready_in(self, tick: int) -> dict[str, int]:
         """Ticks until each water token can drop again (0 = ready once moved),

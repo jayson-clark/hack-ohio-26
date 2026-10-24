@@ -5,6 +5,7 @@ windows are views that can connect and disconnect at any time.
 """
 
 import asyncio
+import dataclasses
 import itertools
 import logging
 import os
@@ -22,7 +23,7 @@ from commander.briefings import BriefingQueue, ForecastWatcher, round_summary
 from commander.listen import Listener, vocabulary_prompt
 from commander.voice import MacVoice, speakable
 from commander.tools import CommanderTools
-from forecast.recommend import Rec, Recommender, TownInfo, describe
+from forecast.recommend import PlacedCrew, Rec, Recommender, TownInfo, describe
 from forecast.runner import HORIZONS_MIN, Forecast, Forecaster
 from protocol import (
     AcceptRecommendation,
@@ -68,6 +69,7 @@ from protocol import (
     WaterCooldown,
     WindState,
     client_message_adapter,
+    RecAction,
     Recommendation,
     Recommendations,
     pack_binary,
@@ -520,10 +522,31 @@ class Engine:
             return
         if self.fire.tick - self._rec_started < RECOMMEND_MIN_TICKS:
             return
+        if self.game.frozen:
+            return  # the round is over; nothing to recommend
         self._rec_started = tick = self.fire.tick
         epoch = self._fire_epoch
-        job = self._rec_job = self.recommender.submit(self.fire.snapshot(), f.probability[0], self.towns, seed=tick)
+        snapshot = self.fire.snapshot()
+        if self.crews_left() == 0:
+            # Every crew is out (#77): recommend moving one instead of adding one.
+            active = self.game.active(self.tracker.tokens)
+            crews = [
+                PlacedCrew(t.id, t.x, t.y, dataclasses.replace(
+                    snapshot, suppression=self.effects.preview([o for o in active if o.id != t.id], tick)))
+                for t in active if t.token_type == TokenType.CREW
+            ]
+            job = self.recommender.submit_moves(crews, snapshot.suppression, f.probability[0], self.towns, seed=tick)
+        else:
+            job = self.recommender.submit(snapshot, f.probability[0], self.towns, seed=tick)
+        self._rec_job = job
         job.add_done_callback(lambda j: self.recommend_done(j, epoch, tick))
+
+    def crews_left(self) -> int | None:
+        """Crews that can still be placed this round, or None outside a round (no limit)."""
+        g = self.game
+        if g.phase != RoundPhase.RUNNING or TokenType.CREW not in g.limits:
+            return None
+        return max(0, g.limits[TokenType.CREW] - g.used.get(TokenType.CREW, 0))
 
     def recommend_done(self, job: asyncio.Future[list[Rec]], epoch: int, tick: int) -> None:
         if job.cancelled() or epoch != self._fire_epoch:
@@ -532,21 +555,40 @@ class Engine:
             log.error("recommendation failed: %r", e)
             return
         acres_per_cell = self.scenario.cell_size_m**2 / SQ_M_PER_ACRE
-        self.recs = [self.rec_message(r, f"r{tick}-{i}", acres_per_cell) for i, r in enumerate(job.result())]
+        self.recs = [self.rec_message(r, f"r{tick}-{i}", acres_per_cell, self.place_near(r))
+                     for i, r in enumerate(job.result())]
         self._recs_tick = tick
         broadcast(self.clients, self.recs_msg())
 
-    @staticmethod
-    def rec_message(r: Rec, rec_id: str, acres_per_cell: float) -> Recommendation:
+    def place_near(self, r: Rec) -> str | None:
+        """Where a move's crew is now, for the card: 'near Pulga' if a named
+        place is within 50 cells (~4.7 km), else 'in the north-west'."""
+        if r.move_id is None:
+            return None
+        named = list(self.tools.places.values())
+        if named:
+            x, y, name = min(named, key=lambda p: (p[0] - r.from_x) ** 2 + (p[1] - r.from_y) ** 2)
+            if (x - r.from_x) ** 2 + (y - r.from_y) ** 2 <= 50**2:
+                return f"near {name}"
+        w, h = self.scenario.width, self.scenario.height
+        ns = "north" if r.from_y < h / 3 else "south" if r.from_y > 2 * h / 3 else ""
+        ew = "west" if r.from_x < w / 3 else "east" if r.from_x > 2 * w / 3 else ""
+        return f"in the {ns}-{ew}" if ns and ew else f"in the {ns or ew or 'middle'}"
+
+    def rec_message(self, r: Rec, rec_id: str, acres_per_cell: float, from_place: str | None = None) -> Recommendation:
         def effects(es):
             return [TownEffectInfo(town=e.town, hits=e.hits, n=e.n) for e in es]
 
+        moving = next((t for t in self.tracker.tokens if t.id == r.move_id), None) if r.move_id else None
         return Recommendation(
             id=rec_id, token_type=TokenType.CREW, x=r.x, y=r.y,
+            action=RecAction.MOVE if r.move_id else RecAction.PLACE,
+            move_token=r.move_id, from_x=r.from_x, from_y=r.from_y,
+            auto=r.move_id is None or (moving is not None and moving.source == "virtual"),
             benefit=round(r.benefit, 2), acres_saved=round(r.cells_saved * acres_per_cell, 1),
             saves=effects(r.saves), worsens=effects(r.worsens),
             protects=[TownShareInfo(town=p.town, share=p.share) for p in r.protects],
-            text=describe(r, acres_per_cell),
+            text=describe(r, acres_per_cell, from_place),
         )
 
     def ask(self, question: str) -> None:
@@ -608,9 +650,21 @@ class Engine:
 
     def accept_recommendation(self, rec_id: str) -> None:
         rec = next((r for r in self.recs if r.id == rec_id), None)
-        if rec is None:
-            return  # stale card: a newer run replaced it
-        self.virtual.handle(VirtualTokenAdd(token_type=rec.token_type, x=rec.x, y=rec.y))
+        if rec is None or not rec.auto:
+            return  # stale card, or a physical token the operator has to move by hand
+        if rec.action == RecAction.MOVE:
+            if not any(t.id == rec.move_token for t in self.tracker.tokens):
+                return  # that crew has been picked up since
+            self.virtual.handle(VirtualTokenMove(id=rec.move_token, x=rec.x, y=rec.y))
+        else:
+            if self.crews_left() == 0:
+                # A card from before the last crew went out: placing another
+                # would be over the limit and do nothing (#77). Re-recommend.
+                self._rec_started = -RECOMMEND_MIN_TICKS
+                self.recs = []
+                broadcast(self.clients, self.recs_msg())
+                return
+            self.virtual.handle(VirtualTokenAdd(token_type=rec.token_type, x=rec.x, y=rec.y))
         self.recs = [r for r in self.recs if r.id != rec_id]
         broadcast(self.clients, self.recs_msg())
 
