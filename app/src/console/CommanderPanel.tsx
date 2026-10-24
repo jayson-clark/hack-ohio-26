@@ -120,6 +120,9 @@ const EVENT_LABEL: Record<string, string> = {
   road_cut: "Road cut",
   route_changed: "Reroute",
   no_safe_route: "No safe route",
+  town_threatened: "Threatened",
+  town_safe: "All clear",
+  forecast_shift: "Forecast",
 };
 
 function Message({ m, minutesPerTick }: { m: CommanderMessage; minutesPerTick: number }) {
