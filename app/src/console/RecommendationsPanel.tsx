@@ -52,6 +52,14 @@ function Card({ rank, rec, onFocus }: { rank: number; rec: Recommendation; onFoc
         {rec.worsens.map((e) => (
           <Effect key={`w${e.town}`} effect={e} good={false} />
         ))}
+        {rec.confidence !== "high" && (
+          <span
+            title="Helps even at the low end of its range, but the range is wide: few simulations agree on how much"
+            className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300"
+          >
+            rough estimate
+          </span>
+        )}
         {rec.acres_saved > 0 && (
           <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-fg-muted">
             ~{Math.round(rec.acres_saved).toLocaleString()} ac kept
@@ -79,7 +87,7 @@ function Card({ rank, rec, onFocus }: { rank: number; rec: Recommendation; onFoc
 function Effect({ effect, good }: { effect: TownEffect; good: boolean }) {
   return (
     <span
-      title={`${good ? "Keeps fire out of" : "Pushes fire into"} ${effect.town} in ${effect.hits} of ${effect.n} simulations`}
+      title={`${good ? "Keeps fire out of" : "Pushes fire into"} ${effect.town} in ${effect.hits} of ${effect.n} simulations (likely ${Math.round(effect.lo * 100)}–${Math.round(effect.hi * 100)}%)`}
       className={`rounded px-1.5 py-0.5 font-mono text-[10px] tabular-nums ${
         good ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"
       }`}

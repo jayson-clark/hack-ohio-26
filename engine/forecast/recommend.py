@@ -25,9 +25,15 @@ import numpy as np
 from forecast.rollout import rollout_paired
 from sim.effects import CREW_RADIUS, crew_footprint
 from sim.fire import FUEL, FireSnapshot
+from uq.mc import benefit_confidence, mean_ci, overlap, wilson
 
 N_CANDIDATES = 8
 N_ROLLOUTS = 8
+# The fresh-seed check that decides what's shown. More rollouts than the
+# search pass, because the shown benefit has to clear zero at its lower bound.
+HOLDOUT_ROLLOUTS = 16
+# When the top two can't be told apart, they're re-run head to head on fresh seeds with this many.
+REFINE_ROLLOUTS = 16
 TOP = 3
 HORIZON_TICKS = 60
 FRONT_BAND = (0.2, 0.8)  # P(burn by T+30) range that counts as "the front"
@@ -53,6 +59,8 @@ class TownEffect:
     town: str
     hits: int  # rollouts where the crew changes whether fire reaches the town
     n: int
+    lo: float = 0.0  # 90% Wilson interval on hits / n
+    hi: float = 1.0
 
 
 @dataclass
@@ -67,6 +75,9 @@ class Rec:
     y: float
     benefit: float  # mean person-equivalents spared per rollout
     cells_saved: float  # mean burned cells avoided per rollout
+    benefit_lo: float = 0.0  # 90% interval on `benefit` (paired t over rollouts)
+    benefit_hi: float = 0.0
+    confidence: str = "low"  # how firmly to state it: high / moderate / low
     saves: list[TownEffect] = field(default_factory=list)  # baseline reaches the town, crew stops it
     worsens: list[TownEffect] = field(default_factory=list)  # the reverse (fire deflected onto it)
     protects: list[TownShare] = field(default_factory=list)  # towns where less burns, biggest first
@@ -142,16 +153,21 @@ def _evaluate(snapshot, spots, towns, masks, n, seed, keep: np.ndarray | None = 
     loss = frac @ pop + ACRE_WEIGHT * cells  # (V, n)
     reached = frac > 0
     recs = []
+    def effects(counts):
+        return [TownEffect(t.name, int(c), n, *wilson(int(c), n)) for t, c in zip(towns, counts) if c > 0]
+
     for v, (x, y) in enumerate(spots, start=1):
         saves = (reached[0] & ~reached[v]).sum(axis=0)
         share = (frac[0] - frac[v]).mean(axis=0)  # (T,)
         worse = (~reached[0] & reached[v]).sum(axis=0)
+        # Paired: each rollout's difference is the crew's effect on identical luck.
+        mean, lo, hi = mean_ci(loss[0] - loss[v])
         recs.append(Rec(
             x=round(x, 2), y=round(y, 2),
-            benefit=float((loss[0] - loss[v]).mean()),
+            benefit=mean, benefit_lo=lo, benefit_hi=hi, confidence=benefit_confidence(mean, lo, hi),
             cells_saved=float((cells[0] - cells[v]).mean()),
-            saves=[TownEffect(t.name, int(c), n) for t, c in zip(towns, saves) if c > 0],
-            worsens=[TownEffect(t.name, int(c), n) for t, c in zip(towns, worse) if c > 0],
+            saves=effects(saves),
+            worsens=effects(worse),
             protects=sorted(
                 (TownShare(t.name, round(float(d), 3)) for t, d in zip(towns, share) if d >= MIN_SHARE),
                 key=lambda e: e.share, reverse=True,
@@ -171,7 +187,14 @@ def recommend(
     seed: int = 0,
 ) -> list[Rec]:
     """The best `top` crew placements, best first, each re-scored on fresh
-    seeds. Placements that don't help on the re-run are dropped."""
+    seeds (#11):
+
+    - Only placements whose benefit is above zero at the *lower* end of its
+      90% interval are kept. A mean that might be luck isn't recommended.
+    - If the top two still overlap, so the data can't say which is better,
+      they're re-run head to head on more rollouts, rather than spending more
+      rollouts on every candidate.
+    """
     spots = candidates(snapshot, p30, towns, k)
     if not spots:
         return []
@@ -179,8 +202,13 @@ def recommend(
     masks = _town_masks(towns, h, w)
     first_pass = _evaluate(snapshot, spots, towns, masks, n, seed)
     best = sorted(first_pass, key=lambda r: r.benefit, reverse=True)[:top]
-    held_out = _evaluate(snapshot, [(r.x, r.y) for r in best], towns, masks, n, seed + 7919)
-    return [r for r in sorted(held_out, key=lambda r: r.benefit, reverse=True) if r.benefit > 0]
+    held_out = sorted(_evaluate(snapshot, [(r.x, r.y) for r in best], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919),
+                      key=lambda r: r.benefit, reverse=True)
+    if len(held_out) >= 2 and overlap((held_out[0].benefit_lo, held_out[0].benefit_hi),
+                                      (held_out[1].benefit_lo, held_out[1].benefit_hi)):
+        pair = _evaluate(snapshot, [(r.x, r.y) for r in held_out[:2]], towns, masks, REFINE_ROLLOUTS, seed + 15485)
+        held_out = sorted(pair + held_out[2:], key=lambda r: r.benefit, reverse=True)
+    return [r for r in held_out if r.benefit_lo > 0]
 
 
 def recommend_moves(
@@ -225,8 +253,9 @@ def recommend_moves(
         best.append((crew, r))
     out = []
     for j, (crew, r) in enumerate(best):
-        [again] = _evaluate(crew.without, [(r.x, r.y)], towns, masks, n, seed + 7919 + j, keep=current)
-        if again.benefit > 0:
+        [again] = _evaluate(crew.without, [(r.x, r.y)], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919 + j,
+                            keep=current)
+        if again.benefit_lo > 0:  # only moves that help at the low end of their interval (#11)
             again.move_id, again.from_x, again.from_y = crew.id, crew.x, crew.y
             out.append(again)
     return sorted(out, key=lambda r: r.benefit, reverse=True)

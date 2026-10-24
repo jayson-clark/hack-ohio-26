@@ -138,6 +138,9 @@ export interface Recommendation {
   from_y: number | null;
   auto: boolean;
   benefit: number;
+  benefit_lo: number;
+  benefit_hi: number;
+  confidence: string;
   acres_saved: number;
   saves: TownEffect[];
   worsens: TownEffect[];
@@ -148,6 +151,8 @@ export interface TownEffect {
   town: string;
   hits: number;
   n: number;
+  lo: number;
+  hi: number;
 }
 export interface TownShare {
   town: string;

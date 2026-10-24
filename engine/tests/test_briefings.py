@@ -40,14 +40,18 @@ def test_threat_is_announced_once_with_numbers_and_the_way_out():
 
 
 def test_hovering_near_the_line_does_not_chatter_and_safe_needs_two_calm_forecasts():
+    # Thresholds are on the 90% Wilson interval for k of 32 (#11): threatened once
+    # the low end reaches 50% (k >= 21), calm once the high end is under 50% (k <= 11).
     w = ForecastWatcher()
-    w.update(0, [row("Magalia", 20)], QUIET)  # 0.625: threatened
-    for k in (16, 15, 17, 14):  # between 0.4 and 0.6
-        assert w.update(1, [row("Magalia", k)], QUIET) == []
-    assert w.update(2, [row("Magalia", 5)], QUIET) == []  # one calm forecast isn't enough
-    [safe] = w.update(3, [row("Magalia", 4)], QUIET)
+    assert w.update(0, [row("Magalia", 20)], QUIET) == []  # 20/32 might still be luck
+    [e] = w.update(1, [row("Magalia", 22)], QUIET)
+    assert e.kind == EventKind.TOWN_THREATENED
+    for k in (16, 19, 13, 20):  # in between: no chatter
+        assert w.update(2, [row("Magalia", k)], QUIET) == []
+    assert w.update(3, [row("Magalia", 5)], QUIET) == []  # one calm forecast isn't enough
+    [safe] = w.update(4, [row("Magalia", 4)], QUIET)
     assert safe.kind == EventKind.TOWN_SAFE
-    assert w.update(4, [row("Magalia", 15)], QUIET) == []  # 0.47: not re-threatened yet
+    assert w.update(5, [row("Magalia", 18)], QUIET) == []  # not re-threatened until the low end clears 50%
 
 
 def test_fire_inside_a_town_counts_as_threatened():
