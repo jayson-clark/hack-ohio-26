@@ -58,6 +58,12 @@ HOST = os.environ.get("ENGINE_HOST", "localhost")
 PORT = int(os.environ.get("ENGINE_PORT", "8765"))
 SCENARIO = os.environ.get("SCENARIO", "paradise")
 CAMERA = os.environ.get("CAMERA", "")  # see vision/camera.py; empty = virtual table only
+# Any web page open in a browser can connect to ws://localhost, so only the
+# app's own pages may: Vite in dev (and Tauri dev, which loads it) and the
+# built Tauri app. Comma-separated, to add e.g. a LAN address.
+ENGINE_ORIGINS = os.environ.get(
+    "ENGINE_ORIGINS", "http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost"
+)
 TICK_HZ = 10
 # Don't restart the forecaster more often than this, or a map with no fire
 # (where a forecast is instant) would round-trip the worker every tick.
@@ -417,11 +423,18 @@ class Engine:
             await asyncio.sleep(max(0.0, next_tick - loop.time()))
 
 
+def allowed_origins(setting: str = ENGINE_ORIGINS) -> list[str | None]:
+    """Origins the WebSocket server accepts. None is a client that sends no
+    Origin header at all: browsers always send one, so that's a script, a
+    test or a tool on this machine, and refusing it would only get in the way."""
+    return [o.strip() for o in setting.split(",") if o.strip()] + [None]
+
+
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     engine = Engine()
     try:
-        async with serve(engine.handle_client, HOST, PORT, max_size=None):
+        async with serve(engine.handle_client, HOST, PORT, max_size=None, origins=allowed_origins()):
             log.info("listening on ws://%s:%d", HOST, PORT)
             await engine.run()
     finally:
