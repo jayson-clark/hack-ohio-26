@@ -6,12 +6,12 @@ import { send } from "../shared/engine";
 import type { Score } from "../shared/protocol";
 import { END_REASON_TEXT, formatSimMinutes, headline, pct } from "../shared/round";
 import { TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
-import { Button, Panel } from "./ui";
+import { Button, Panel } from "../console/ui";
 
 export default function RoundPanel({ score }: { score: Score | null }) {
   if (!score) return null;
   return (
-    <Panel title="Round" right={<PhaseBadge score={score} />}>
+    <Panel title="Exercise" right={<PhaseBadge score={score} />}>
       {score.phase === "sandbox" && <FreePlay score={score} />}
       {score.phase === "running" && <Running score={score} />}
       {score.phase === "ended" && <Ended score={score} />}
@@ -40,11 +40,11 @@ function FreePlay({ score }: { score: Score }) {
   return (
     <div className="space-y-2">
       <p className="text-[11px] leading-relaxed text-fg-subtle">
-        No limits or timer. A round resets the map, starts the fire and gives you{" "}
-        {formatSimMinutes(score.duration_min)} with limited crews.
+        Free play: no limits or timer. An exercise resets the map, starts the scenario's fire and runs for{" "}
+        {formatSimMinutes(score.duration_min)} with limited units.
       </p>
       <Button variant="primary" className="w-full" onClick={() => send({ type: "start_round" })}>
-        Start round
+        Start exercise
       </Button>
     </div>
   );
@@ -69,7 +69,7 @@ function Running({ score }: { score: Score }) {
       </div>
       <Resources score={score} />
       <Button className="w-full" onClick={() => send({ type: "end_round" })}>
-        End round
+        End exercise
       </Button>
     </div>
   );
@@ -79,12 +79,12 @@ function Ended({ score }: { score: Score }) {
   return (
     <div className="space-y-2">
       <p className="text-xs text-fg">
-        {score.end_reason ? END_REASON_TEXT[score.end_reason] : "Round over"}
+        {score.end_reason ? END_REASON_TEXT[score.end_reason] : "Exercise over"}
         <span className="text-fg-subtle"> after {formatSimMinutes(score.elapsed_min)}</span>
       </p>
       <div className="grid grid-cols-2 gap-2">
         <Button variant="primary" onClick={() => send({ type: "start_round" })}>
-          New round
+          New exercise
         </Button>
         <Button onClick={() => send({ type: "reset" })}>Free play</Button>
       </div>

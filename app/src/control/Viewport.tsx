@@ -12,9 +12,9 @@ import type { Layers } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
 import TableView, { type CameraCommand, type CameraPreset } from "../render/TableView";
 import CameraView, { VisionReadout } from "./CameraView";
-import { CameraIcon, CubeIcon, ProjectorIcon } from "./icons";
-import { Chip, Segmented, ToggleGroup } from "./ui";
-import { DispatchChip } from "./StationsPanel";
+import { CameraIcon, CubeIcon, ProjectorIcon } from "../console/icons";
+import { Chip, Segmented, ToggleGroup } from "../console/ui";
+import { DispatchChip } from "../console/StationsPanel";
 
 export type ViewMode = "table" | "projection" | "camera";
 

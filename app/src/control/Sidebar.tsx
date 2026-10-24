@@ -1,20 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { orderText, unitFor, UNIT_STATUS } from "../shared/dispatch";
-import { send, useEngine } from "../shared/engine";
+import { acceptRecommendation, send, useEngine } from "../shared/engine";
 import type { Score, Token, TokenType, UnitInfo, WindState } from "../shared/protocol";
 import { formatSimMinutes, limitFor } from "../shared/round";
 import { elevationAt, type Scenario } from "../shared/scenario";
 import { TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
-import { CloseIcon, PinIcon } from "./icons";
-import CommanderPanel from "./CommanderPanel";
+import { CloseIcon, PinIcon } from "../console/icons";
 import ProjectorControls from "./ProjectorControls";
-import StationsPanel from "./StationsPanel";
-import RecommendationsPanel from "./RecommendationsPanel";
-import { EventLogPanel } from "./EventLog";
 import RoundPanel from "./RoundPanel";
-import RoutesPanel from "./RoutesPanel";
-import { Kbd, Panel } from "./ui";
+import { Kbd, Panel } from "../console/ui";
 
 interface Props {
   scenario: Scenario | null;
@@ -31,20 +26,66 @@ interface Props {
 export default function Sidebar(props: Props) {
   return (
     <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto pb-3">
+      <p className="px-1 text-[11px] leading-relaxed text-fg-subtle">
+        This window plays the real world: the fire, the weather and the table, which stands in for drone footage.
+        The operator works in the console.
+      </p>
       <RoundPanel score={props.score} />
-      <DeployPanel {...props} />
       <FirePanel {...props} />
-      <CommanderPanel />
+      <AutopilotPanel />
+      <DeployPanel {...props} />
       <TokensPanel {...props} />
-      <StationsPanel onFocus={props.onFocusPlace} />
-      <RecommendationsPanel onFocus={props.onFocusPlace} />
-      <EventLogPanel />
       {props.scenario && <PlacesPanel scenario={props.scenario} onFocus={props.onFocusPlace} />}
-      <RoutesPanel onFocus={props.onFocusPlace} />
       <Panel title="Projector">
         <ProjectorControls />
       </Panel>
     </aside>
+  );
+}
+
+// Accepts the top recommendation on its own, a few seconds after each new
+// batch, so a recorded demo can play out without someone clicking every card.
+// Lives in this window (it's the exercise's stand-in operator), not the console.
+const AUTOPILOT_DELAY_MS = 2500;
+
+function AutopilotPanel() {
+  const { recommendations } = useEngine();
+  const [on, setOn] = useState(false);
+  const [accepted, setAccepted] = useState(0);
+  const done = useRef(new Set<string>());
+
+  useEffect(() => {
+    const top = recommendations.find((r) => r.auto && !done.current.has(r.id));
+    if (!on || !top) return;
+    const timer = window.setTimeout(() => {
+      done.current.add(top.id);
+      acceptRecommendation(top.id);
+      setAccepted((n) => n + 1);
+    }, AUTOPILOT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [on, recommendations]);
+
+  return (
+    <Panel
+      title="Autopilot"
+      right={
+        <button
+          aria-pressed={on}
+          onClick={() => setOn(!on)}
+          className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+            on ? "bg-ember-500 text-black" : "bg-surface-3 text-fg-muted hover:text-fg"
+          }`}
+        >
+          {on ? "On" : "Off"}
+        </button>
+      }
+    >
+      <p className="text-[11px] leading-relaxed text-fg-subtle">
+        Dispatches the top crew recommendation a few seconds after each one arrives, as if an operator accepted
+        it. For demos and recordings.
+        {accepted > 0 && <span className="text-fg-muted"> {accepted} accepted so far.</span>}
+      </p>
+    </Panel>
   );
 }
 
@@ -62,7 +103,7 @@ function TokenBadge({ type, size = 28 }: { type: TokenType; size?: number }) {
 
 function DeployPanel({ tokens, score, placeType, onPlaceType }: Props) {
   return (
-    <Panel title="Deploy">
+    <Panel title="Place on the table">
       <div className="grid grid-cols-2 gap-2">
         {TOKEN_TYPES.map((t, i) => {
           const active = placeType === t;
@@ -107,7 +148,7 @@ const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 function FirePanel({ wind, placeType, onPlaceType }: Props) {
   const igniting = placeType === "ignite";
   return (
-    <Panel title="Fire">
+    <Panel title="Fire and weather">
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => onPlaceType("ignite")}

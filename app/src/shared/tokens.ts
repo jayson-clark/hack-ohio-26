@@ -14,3 +14,12 @@ export const TOKEN_STYLE: Record<TokenType, { label: string; letter: string; col
 // marker stays readable under fire light.
 export const TOKEN_RADIUS = 6;
 export const HALO_RADIUS = 9;
+
+// What the operator console calls each order. A token is an order (#104): the
+// unit it sends, not the puck on the table.
+export const ORDER_STYLE: Record<TokenType, { label: string; verb: string }> = {
+  crew: { label: "Crew", verb: "Send a crew" },
+  firebreak: { label: "Dozer line", verb: "Cut a dozer line" },
+  water: { label: "Air drop", verb: "Order an air drop" },
+  bus: { label: "Evac bus", verb: "Send an evacuation bus" },
+};

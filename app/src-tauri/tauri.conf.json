@@ -15,8 +15,8 @@
         "label": "main",
         "title": "Firewatch Console",
         "url": "/?view=console",
-        "width": 1280,
-        "height": 800
+        "width": 1520,
+        "height": 920
       }
     ],
     "security": {
