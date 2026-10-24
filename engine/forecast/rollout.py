@@ -148,9 +148,11 @@ def _run(snapshot, n, ticks, suppression, wind, wind_rows, rng, group) -> np.nda
         result = advance(state, burn_left, snapshot.layers, wind, sup, rng, group=group, wind_rows=wind_rows)
         if result is None:
             break  # every rollout has burned out
-        ignited, y0, x0 = result
+        ignited, y0, x0, spots = result
         crop = first[:, y0 : y0 + ignited.shape[1], x0 : x0 + ignited.shape[2]]
         crop[ignited] = t
+        if spots is not None:  # embers can land anywhere on the map
+            first[spots] = np.minimum(first[spots], t)
     return first
 
 
