@@ -1,11 +1,14 @@
 /* Generated from engine/protocol.py by `make types`. Do not edit by hand. */
 
-export type EngineMessage = Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus;
+export type EngineMessage =
+  Hello | ScenarioState | Tokens | Routes | Events | Recommendations | VisionStatus | CommanderMessage;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
-export type EventKind = "road_cut" | "route_changed" | "no_safe_route";
+export type EventKind =
+  "road_cut" | "route_changed" | "no_safe_route" | "town_threatened" | "town_safe" | "forecast_shift";
 export type CameraState = "off" | "no_signal" | "ok";
+export type CommanderKind = "briefing" | "answer";
 export type ClientMessage =
   VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind | AcceptRecommendation;
 
@@ -125,6 +128,17 @@ export interface VisionStatus {
   markers_seen: number;
   corners_seen: string[];
   board_found: boolean;
+}
+/**
+ * Something the incident commander says. Short enough to speak aloud.
+ */
+export interface CommanderMessage {
+  type: "commander_message";
+  kind: CommanderKind;
+  tick: number;
+  text: string;
+  grounded: boolean;
+  event: EventKind | null;
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
