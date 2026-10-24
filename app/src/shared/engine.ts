@@ -2,7 +2,7 @@
 // connection; the engine holds all state, so windows can reload freely.
 
 import { useSyncExternalStore } from "react";
-import { parseBinaryFrame } from "./binary";
+import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
 import type { ClientMessage, EngineMessage, Hello, ScenarioState, Token } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
@@ -13,9 +13,11 @@ export interface EngineState {
   hello: Hello | null;
   scenario: ScenarioState | null;
   tokens: Token[];
+  /** Latest sim_grid frame (cell states), once the sim sends them. */
+  simGrid: BinaryFrame | null;
 }
 
-let state: EngineState = { status: "connecting", hello: null, scenario: null, tokens: [] };
+let state: EngineState = { status: "connecting", hello: null, scenario: null, tokens: [], simGrid: null };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
 let started = false;
@@ -55,8 +57,8 @@ function connect() {
     if (typeof ev.data === "string") {
       handleMessage(JSON.parse(ev.data) as EngineMessage);
     } else {
-      // No binary frames yet; sim_grid arrives in Phase 1.
-      parseBinaryFrame(ev.data as ArrayBuffer);
+      const frame = parseBinaryFrame(ev.data as ArrayBuffer);
+      if (frame.type === BinaryType.SimGrid) setState({ simGrid: frame });
     }
   };
 }
