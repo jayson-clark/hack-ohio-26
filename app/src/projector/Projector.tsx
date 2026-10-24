@@ -1,14 +1,17 @@
-// Projector view: no UI chrome, just the map filling the screen. Phase 1
-// replaces MapView here with the WebGL renderer, which also applies the
-// calibration homography.
+// Projector view: no UI chrome, just the projection filling the screen.
+// Clicks still place virtual tokens; keys 1-4 choose what a click places.
 
 import { useEffect, useState } from "react";
-import MapView from "../shared/MapView";
+import { useEngine } from "../shared/engine";
 import type { TokenType } from "../shared/protocol";
+import { useScenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
+import { DEFAULT_LAYERS } from "../render/projection";
+import ProjectionView from "../render/ProjectionView";
 
 export default function Projector() {
-  // Virtual table mode with no UI: keys 1-4 choose what a click places.
+  const { tokens, simGrid, forecast } = useEngine();
+  const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<TokenType>("crew");
 
   useEffect(() => {
@@ -26,8 +29,20 @@ export default function Projector() {
   }, []);
 
   return (
-    <div className="flex h-full cursor-crosshair items-center justify-center bg-black">
-      <MapView placeType={placeType} className="max-h-full max-w-full" />
+    <div className="h-full cursor-crosshair bg-black">
+      {scenario ? (
+        <ProjectionView
+          scenario={scenario}
+          tokens={tokens}
+          simGrid={simGrid}
+          forecast={forecast}
+          layers={DEFAULT_LAYERS}
+          placeType={placeType}
+          selectedId={null}
+        />
+      ) : (
+        error && <p className="p-6 font-mono text-sm text-red-400">{error}</p>
+      )}
     </div>
   );
 }

@@ -1,187 +1,162 @@
-import { useEffect, useState } from "react";
-import { send, useEngine } from "../shared/engine";
-import MapView, { type PlaceType } from "../shared/MapView";
-import type { WindState } from "../shared/protocol";
-import { TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
-import ProjectorControls from "./ProjectorControls";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { BinaryFrame } from "../shared/binary";
+import { useEngine } from "../shared/engine";
+import { useScenario, type Scenario } from "../shared/scenario";
+import { TOKEN_TYPES } from "../shared/tokens";
+import { removeToken, type PlaceType } from "../shared/virtualTokens";
+import { DEFAULT_LAYERS, type Layers } from "../render/projection";
+import type { CameraCommand } from "../render/TableView";
+import { FlameMark } from "./icons";
+import Sidebar from "./Sidebar";
+import Viewport, { type ViewMode } from "./Viewport";
 
 export default function Console() {
-  const { status, scenario, tokens } = useEngine();
+  const { status, scenario: state, tokens, simGrid, forecast } = useEngine();
+  const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mode, setMode] = useState<ViewMode>("table");
+  const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
+  const [camera, setCamera] = useState<CameraCommand | null>(null);
+  const seq = useRef(0);
+
+  // Drop the selection when its token goes away.
+  useEffect(() => {
+    if (selectedId && !tokens.some((t) => t.id === selectedId)) setSelectedId(null);
+  }, [tokens, selectedId]);
+
+  // Keyboard: 1-4 pick a token type, Delete removes the selection, Esc clears it.
+  const live = useRef({ tokens, selectedId });
+  live.current = { tokens, selectedId };
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      const index = Number(e.key) - 1;
+      if (index >= 0 && index < TOKEN_TYPES.length) setPlaceType(TOKEN_TYPES[index]);
+      if (e.key === "Escape") setSelectedId(null);
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const t = live.current.tokens.find((tk) => tk.id === live.current.selectedId);
+        if (t?.source === "virtual") removeToken(t.id);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-neutral-800 px-4 py-2">
-        <h1 className="text-sm font-semibold tracking-wide">FIREWATCH</h1>
-        <div className="flex items-center gap-4 text-xs text-neutral-400">
-          {scenario && (
-            <span className="tabular-nums">
-              {scenario.burning_cells} burning · {scenario.burned_cells} burned
-            </span>
-          )}
-          {scenario && <span>tick {scenario.tick}</span>}
-          <ConnectionBadge status={status} />
+      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-edge px-4">
+        <div className="flex items-center gap-2">
+          <FlameMark />
+          <span className="text-[13px] font-semibold tracking-[0.14em]">FIREWATCH</span>
         </div>
+        {scenario && <ScenarioBadge scenario={scenario} />}
+        <div className="flex-1" />
+        <FireStats scenario={scenario} simGrid={simGrid} />
+        <div className="h-5 w-px bg-edge" />
+        {state && (
+          <span className="font-mono text-[11px] tabular-nums text-fg-subtle">
+            tick <span className="text-fg-muted">{state.tick}</span>
+          </span>
+        )}
+        <ConnectionBadge status={status} />
       </header>
 
-      <main className="flex min-h-0 flex-1 gap-4 p-4">
-        <section className="flex min-w-0 flex-1 items-center justify-center">
-          <MapView
+      <div className="flex min-h-0 flex-1 gap-3 p-3">
+        <main className="min-w-0 flex-1">
+          <Viewport
+            scenario={scenario}
+            error={error}
+            mode={mode}
+            onModeChange={setMode}
+            tokens={tokens}
+            simGrid={simGrid}
+            forecast={forecast}
+            layers={layers}
+            onToggleLayer={(k) => setLayers((l) => ({ ...l, [k]: !l[k] }))}
             placeType={placeType}
-            showGrid
-            className="max-h-full max-w-full rounded border border-neutral-800"
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            camera={camera}
+            onCameraPreset={(preset) => setCamera({ seq: ++seq.current, kind: "preset", preset })}
           />
-        </section>
-
-        <aside className="flex w-64 shrink-0 flex-col gap-6 text-sm">
-          <Panel title="Place token">
-            <TokenPicker value={placeType} onChange={setPlaceType} />
-            <p className="mt-2 text-xs text-neutral-500">
-              Click the map to place. Drag to move, right-click to remove.
-            </p>
-          </Panel>
-
-          <Panel title="Fire">
-            <div className="flex gap-1">
-              <button
-                onClick={() => setPlaceType("ignite")}
-                className={`flex-1 rounded px-2 py-1 text-xs ${
-                  placeType === "ignite" ? "bg-orange-700" : "bg-neutral-900 hover:bg-neutral-800"
-                }`}
-              >
-                Ignite
-              </button>
-              <button
-                onClick={() => send({ type: "reset" })}
-                className="flex-1 rounded bg-neutral-900 px-2 py-1 text-xs hover:bg-neutral-800"
-              >
-                Reset
-              </button>
-            </div>
-            {scenario && <WindControl wind={scenario.wind} />}
-          </Panel>
-
-          <Panel title={`Tokens (${tokens.length})`}>
-            <ul className="space-y-1">
-              {tokens.map((t) => (
-                <li key={t.id} className="flex items-center gap-2 text-xs">
-                  <span className="h-2 w-2 rounded-full" style={{ background: TOKEN_STYLE[t.token_type].color }} />
-                  <span className="flex-1">{TOKEN_STYLE[t.token_type].label}</span>
-                  <span className="tabular-nums text-neutral-500">
-                    {t.x.toFixed(0)}, {t.y.toFixed(0)}
-                  </span>
-                  {t.source === "virtual" && (
-                    <button
-                      className="text-neutral-500 hover:text-neutral-200"
-                      onClick={() => send({ type: "virtual_token_remove", id: t.id })}
-                    >
-                      ×
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Panel>
-
-          <Panel title="Projector">
-            <ProjectorControls />
-          </Panel>
-        </aside>
-      </main>
+        </main>
+        <Sidebar
+          scenario={scenario}
+          wind={state?.wind ?? null}
+          tokens={tokens}
+          placeType={placeType}
+          onPlaceType={setPlaceType}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onFocusPlace={(x, y) => {
+            setMode("table");
+            setCamera({ seq: ++seq.current, kind: "focus", x, y });
+          }}
+        />
+      </div>
     </div>
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function ScenarioBadge({ scenario }: { scenario: Scenario }) {
+  const { info } = scenario;
+  const km = (cells: number) => ((cells * info.grid.cell_size_m) / 1000).toFixed(0);
   return (
-    <div>
-      <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-neutral-500">{title}</h2>
-      {children}
+    <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-1 px-2 py-1 text-[11px]">
+      <span className="font-medium capitalize text-fg">{info.name}</span>
+      <span className="text-fg-subtle">
+        {km(scenario.width)} × {km(scenario.height)} km · {scenario.width}×{scenario.height} cells
+      </span>
     </div>
   );
 }
 
-const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const SQ_M_PER_ACRE = 4046.86;
 
-// Local state while dragging, so the 1 Hz scenario_state echo doesn't fight
-// the slider; it resyncs whenever the engine reports a different wind.
-function WindControl({ wind }: { wind: WindState }) {
-  const [speed, setSpeed] = useState(wind.speed_ms);
-  const [dir, setDir] = useState(wind.from_deg);
-  useEffect(() => {
-    setSpeed(wind.speed_ms);
-    setDir(wind.from_deg);
-  }, [wind.speed_ms, wind.from_deg]);
+function FireStats({ scenario, simGrid }: { scenario: Scenario | null; simGrid: BinaryFrame | null }) {
+  const stats = useMemo(() => {
+    if (!simGrid) return null;
+    let burning = 0;
+    let burned = 0;
+    for (const c of simGrid.payload) {
+      if (c === 2) burning++;
+      else if (c === 3) burned++;
+    }
+    return { burning, burned };
+  }, [simGrid]);
 
-  function update(speed_ms: number, from_deg: number) {
-    setSpeed(speed_ms);
-    setDir(from_deg);
-    send({ type: "set_wind", speed_ms, from_deg });
+  if (!stats || !scenario) {
+    return <span className="text-[11px] text-fg-subtle">No fire data yet</span>;
   }
-
+  const acres = (cells: number) =>
+    Math.round((cells * scenario.info.grid.cell_size_m ** 2) / SQ_M_PER_ACRE).toLocaleString();
   return (
-    <div className="mt-3 space-y-2 text-xs">
-      <label className="block">
-        <span className="flex justify-between text-neutral-400">
-          <span>Wind speed</span>
-          <span className="tabular-nums">{speed.toFixed(0)} m/s</span>
-        </span>
-        <input
-          type="range"
-          min={0}
-          max={20}
-          step={1}
-          value={speed}
-          onChange={(e) => update(Number(e.target.value), dir)}
-          className="w-full"
-        />
-      </label>
-      <label className="block">
-        <span className="flex justify-between text-neutral-400">
-          <span>From</span>
-          <span className="tabular-nums">
-            {COMPASS[Math.round(dir / 45) % 8]} {dir.toFixed(0)}°
-          </span>
-        </span>
-        <input
-          type="range"
-          min={0}
-          max={355}
-          step={5}
-          value={dir}
-          onChange={(e) => update(speed, Number(e.target.value))}
-          className="w-full"
-        />
-      </label>
-    </div>
-  );
-}
-
-function TokenPicker({ value, onChange }: { value: PlaceType; onChange: (t: PlaceType) => void }) {
-  return (
-    <div className="grid grid-cols-2 gap-1">
-      {TOKEN_TYPES.map((t) => (
-        <button
-          key={t}
-          onClick={() => onChange(t)}
-          className={`flex items-center gap-2 rounded px-2 py-1 text-left text-xs ${
-            value === t ? "bg-neutral-700" : "bg-neutral-900 hover:bg-neutral-800"
-          }`}
-        >
-          <span className="h-2 w-2 rounded-full" style={{ background: TOKEN_STYLE[t].color }} />
-          {TOKEN_STYLE[t].label}
-        </button>
-      ))}
+    <div className="flex items-center gap-4 text-[11px]">
+      <span className="flex items-center gap-1.5">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-ember-500" />
+        <span className="text-fg-subtle">Burning</span>
+        <span className="font-mono tabular-nums text-ember-300">{acres(stats.burning)} ac</span>
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="text-fg-subtle">Burned</span>
+        <span className="font-mono tabular-nums text-fg">{acres(stats.burned)} ac</span>
+      </span>
     </div>
   );
 }
 
 function ConnectionBadge({ status }: { status: string }) {
-  const color = status === "open" ? "bg-green-500" : status === "connecting" ? "bg-yellow-500" : "bg-red-500";
+  const open = status === "open";
+  const color = open ? "bg-emerald-400" : status === "connecting" ? "bg-amber-400" : "bg-red-500";
   return (
-    <span className="flex items-center gap-1.5">
-      <span className={`h-2 w-2 rounded-full ${color}`} />
-      engine {status === "open" ? "connected" : status}
+    <span
+      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${
+        open ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300" : "border-edge bg-surface-1 text-fg-muted"
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${color} ${open ? "" : "animate-pulse"}`} />
+      {open ? "Engine connected" : status === "connecting" ? "Connecting…" : "Engine offline"}
     </span>
   );
 }
