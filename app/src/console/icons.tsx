@@ -54,6 +54,25 @@ export const CloseIcon = () => (
   </Icon>
 );
 
+export const PlayIcon = () => (
+  <Icon size={13}>
+    <path d="M4.75 2.75v10.5L13 8z" fill="currentColor" />
+  </Icon>
+);
+
+export const PauseIcon = () => (
+  <Icon size={13}>
+    <path d="M5 3v10M11 3v10" strokeWidth={2.25} />
+  </Icon>
+);
+
+export const StepIcon = () => (
+  <Icon size={13}>
+    <path d="M3.75 3.25v9.5L10.5 8z" fill="currentColor" />
+    <path d="M12.75 3.25v9.5" strokeWidth={1.75} />
+  </Icon>
+);
+
 export const RefreshIcon = () => (
   <Icon size={13}>
     <path d="M13.25 8a5.25 5.25 0 1 1-1.54-3.71M13.25 2.5v2.75H10.5" />
