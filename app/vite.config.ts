@@ -19,6 +19,8 @@ export default defineConfig(() => ({
     port: 1420,
     strictPort: true,
     host: host || false,
+    // Scenario terrain is loaded from the repo's assets/ folder (see shared/scenario.ts).
+    fs: { allow: [".."] },
     hmr: host
       ? {
           protocol: "ws",

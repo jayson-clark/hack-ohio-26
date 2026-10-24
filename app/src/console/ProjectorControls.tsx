@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { getPlatform, type MonitorInfo, type Platform } from "../platform";
+import { RefreshIcon } from "./icons";
+import { Button } from "./ui";
 
 export default function ProjectorControls() {
   const [platform, setPlatform] = useState<Platform | null>(null);
@@ -37,11 +39,11 @@ export default function ProjectorControls() {
   return (
     <div className="space-y-2 text-xs">
       {platform.kind === "tauri" && (
-        <div className="flex gap-1">
+        <div className="flex gap-1.5">
           <select
             value={monitorId}
             onChange={(e) => setMonitorId(e.target.value)}
-            className="min-w-0 flex-1 rounded bg-neutral-900 px-2 py-1"
+            className="h-8 min-w-0 flex-1 rounded-lg border border-edge bg-surface-2 px-2 text-xs text-fg outline-none focus:border-edge-strong"
           >
             {monitors.map((m) => (
               <option key={m.id} value={m.id}>
@@ -49,27 +51,23 @@ export default function ProjectorControls() {
               </option>
             ))}
           </select>
-          <button className="rounded bg-neutral-900 px-2 hover:bg-neutral-800" onClick={() => run(() => refresh(platform))}>
-            ↻
-          </button>
+          <Button variant="secondary" title="Refresh monitors" onClick={() => run(() => refresh(platform))}>
+            <RefreshIcon />
+          </Button>
         </div>
       )}
-      <div className="flex gap-1">
-        <button
-          className="flex-1 rounded bg-neutral-700 px-2 py-1 hover:bg-neutral-600"
-          onClick={() => run(() => platform.openProjector(monitorId))}
-        >
+      <div className="flex gap-1.5">
+        <Button variant="primary" className="flex-1" onClick={() => run(() => platform.openProjector(monitorId))}>
           Open projector
-        </button>
-        <button
-          className="rounded bg-neutral-900 px-2 py-1 hover:bg-neutral-800"
-          onClick={() => run(() => platform.closeProjector())}
-        >
+        </Button>
+        <Button variant="secondary" onClick={() => run(() => platform.closeProjector())}>
           Close
-        </button>
+        </Button>
       </div>
       {platform.kind === "browser" && (
-        <p className="text-neutral-500">Browser mode: drag the popup to the projector and press F.</p>
+        <p className="text-[11px] leading-relaxed text-fg-subtle">
+          Browser mode: drag the popup to the projector screen and press F for fullscreen.
+        </p>
       )}
       {error && <p className="text-red-400">{error}</p>}
     </div>
