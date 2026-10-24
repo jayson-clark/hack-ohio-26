@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react";
 import { send } from "../shared/engine";
-import type { Token, TokenType, WindState } from "../shared/protocol";
+import type { Score, Token, TokenType, WindState } from "../shared/protocol";
+import { formatSimMinutes, limitFor } from "../shared/round";
 import { elevationAt, type Scenario } from "../shared/scenario";
 import { TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { CloseIcon, PinIcon } from "./icons";
 import CommanderPanel from "./CommanderPanel";
 import ProjectorControls from "./ProjectorControls";
+import RoundPanel from "./RoundPanel";
 import { Kbd, Panel } from "./ui";
 
 interface Props {
   scenario: Scenario | null;
   wind: WindState | null;
+  score: Score | null;
   tokens: Token[];
   placeType: PlaceType;
   onPlaceType: (t: PlaceType) => void;
@@ -23,6 +26,7 @@ interface Props {
 export default function Sidebar(props: Props) {
   return (
     <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto pb-3">
+      <RoundPanel score={props.score} />
       <DeployPanel {...props} />
       <FirePanel {...props} />
       <CommanderPanel />
@@ -47,13 +51,15 @@ function TokenBadge({ type, size = 28 }: { type: TokenType; size?: number }) {
   );
 }
 
-function DeployPanel({ tokens, placeType, onPlaceType }: Props) {
+function DeployPanel({ tokens, score, placeType, onPlaceType }: Props) {
   return (
     <Panel title="Deploy">
       <div className="grid grid-cols-2 gap-2">
         {TOKEN_TYPES.map((t, i) => {
           const active = placeType === t;
           const count = tokens.filter((tk) => tk.token_type === t).length;
+          const limit = limitFor(score, t);
+          const full = limit !== null && count >= limit;
           return (
             <button
               key={t}
@@ -68,7 +74,13 @@ function DeployPanel({ tokens, placeType, onPlaceType }: Props) {
               </div>
               <div>
                 <div className="text-xs font-medium text-fg">{TOKEN_STYLE[t].label}</div>
-                <div className="text-[11px] text-fg-subtle">{count === 0 ? "None placed" : `${count} on table`}</div>
+                <div className={`text-[11px] ${limit !== null && count > limit ? "text-red-400" : "text-fg-subtle"}`}>
+                  {limit !== null
+                    ? `${count} of ${limit}${full ? (count > limit ? " · over limit" : " · all out") : ""}`
+                    : count === 0
+                      ? "None placed"
+                      : `${count} on table`}
+                </div>
               </div>
             </button>
           );
@@ -165,7 +177,10 @@ function WindControl({ wind }: { wind: WindState }) {
   );
 }
 
-function TokensPanel({ scenario, tokens, selectedId, onSelect }: Props) {
+function TokensPanel({ scenario, score, tokens, selectedId, onSelect }: Props) {
+  // Over a round's limit these do nothing; water drops show their cooldown.
+  const inactive = new Set(score?.inactive_tokens ?? []);
+  const cooldown = new Map((score?.water_cooldowns ?? []).map((c) => [c.id, c.ready_in_min]));
   return (
     <Panel
       title="On the table"
@@ -193,6 +208,10 @@ function TokensPanel({ scenario, tokens, selectedId, onSelect }: Props) {
                     <div className="font-mono text-[10px] tabular-nums text-fg-subtle">
                       {t.x.toFixed(0)}, {t.y.toFixed(0)}
                       {scenario && ` · ${Math.round(elevationAt(scenario, t.x, t.y))} m`}
+                      {inactive.has(t.id) && <span className="text-red-400"> · over limit, no effect</span>}
+                      {!inactive.has(t.id) && (cooldown.get(t.id) ?? 0) > 0 && (
+                        <span className="text-sky-300"> · refills in {formatSimMinutes(cooldown.get(t.id)!)}</span>
+                      )}
                     </div>
                   </div>
                   <span
