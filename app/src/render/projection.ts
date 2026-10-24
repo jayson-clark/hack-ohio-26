@@ -60,6 +60,7 @@ export interface Projection {
   setForecast(forecast: ForecastGrids | null): void;
   setRoutes(routes: RouteInfo[]): void;
   setRecommendations(recs: Recommendation[]): void;
+  setThreatened(towns: string[]): void;
   update(timeSec: number): void;
   dispose(): void;
 }
@@ -87,6 +88,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
   const routesCanvas = createRoutesCanvas(s);
   let lastRoutes: RouteInfo[] = [];
   let lastRecs: Recommendation[] = [];
+  let lastThreatened: string[] = [];
   const routesTex = new THREE.CanvasTexture(routesCanvas);
   routesTex.flipY = false;
   routesTex.generateMipmaps = true;
@@ -189,13 +191,19 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     // Routes and recommendation markers share one canvas, so each redraws both.
     setRoutes(routes) {
       lastRoutes = routes;
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
       routesTex.needsUpdate = true;
     },
 
     setRecommendations(recs) {
       lastRecs = recs;
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      routesTex.needsUpdate = true;
+    },
+
+    setThreatened(towns) {
+      lastThreatened = towns;
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
       routesTex.needsUpdate = true;
     },
 

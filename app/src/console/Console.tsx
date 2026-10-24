@@ -6,6 +6,7 @@ import { TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import type { CameraCommand } from "../render/TableView";
+import { EventAlerts } from "./EventLog";
 import { FlameMark } from "./icons";
 import Sidebar from "./Sidebar";
 import Viewport, { type ViewMode } from "./Viewport";
@@ -63,7 +64,7 @@ export default function Console() {
       </header>
 
       <div className="flex min-h-0 flex-1 gap-3 p-3">
-        <main className="min-w-0 flex-1">
+        <main className="relative min-w-0 flex-1">
           <Viewport
             scenario={scenario}
             error={error}
@@ -83,6 +84,7 @@ export default function Console() {
             camera={camera}
             onCameraPreset={(preset) => setCamera({ seq: ++seq.current, kind: "preset", preset })}
           />
+          <EventAlerts />
         </main>
         <Sidebar
           scenario={scenario}

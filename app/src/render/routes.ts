@@ -24,7 +24,13 @@ export function createRoutesCanvas(s: Scenario): HTMLCanvasElement {
   return canvas;
 }
 
-export function drawRoutes(canvas: HTMLCanvasElement, s: Scenario, routes: RouteInfo[], recs: Recommendation[] = []) {
+export function drawRoutes(
+  canvas: HTMLCanvasElement,
+  s: Scenario,
+  routes: RouteInfo[],
+  recs: Recommendation[] = [],
+  threatened: string[] = [],
+) {
   const ctx = canvas.getContext("2d")!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -89,6 +95,21 @@ export function drawRoutes(canvas: HTMLCanvasElement, s: Scenario, routes: Route
     ctx.strokeText(r.safe_zone, tx, ty);
     ctx.fillStyle = "rgba(220, 255, 230, 1)";
     ctx.fillText(r.safe_zone, tx, ty);
+  }
+
+  // A town the fire is about to reach (#46) gets a wide orange ring, so it
+  // stands out on the table; one with no way out also gets the red ring below.
+  for (const name of threatened) {
+    const place = s.info.places.find((p) => p.name === name);
+    if (!place) continue;
+    ctx.beginPath();
+    ctx.arc(place.map[0], place.map[1], 6.5, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(8, 10, 14, 0.8)";
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    ctx.strokeStyle = "#fb923c";
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
   }
 
   // A town with no way out gets a red ring.
