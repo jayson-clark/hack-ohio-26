@@ -8,9 +8,10 @@ install:
 	cd engine && uv sync
 	cd app && pnpm install
 
-# Python engine (WebSocket server on ws://localhost:8765)
+# Python engine (WebSocket server on ws://localhost:8765). ENGINE_EXTRAS in .env
+# picks optional extras, e.g. "ml voice" for the fire emulator and push-to-talk.
 engine:
-	cd engine && uv run server.py
+	cd engine && uv run $(addprefix --extra ,$(ENGINE_EXTRAS)) server.py
 
 # UI in a plain browser: open http://localhost:1420/?view=console and ?view=projector
 web:

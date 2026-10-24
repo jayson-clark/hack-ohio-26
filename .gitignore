@@ -7,3 +7,6 @@ __pycache__/
 engine/camera-*.jpg
 # agent board database
 .agent-board/
+
+# Fire emulator training data (regenerate with python -m emulator.data)
+engine/emulator/data/
