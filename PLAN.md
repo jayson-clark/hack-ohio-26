@@ -101,7 +101,7 @@ Define the schemas once as Pydantic models in `engine/protocol.py`, then generat
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
 
-Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `vision_status` (camera state, fps, corner markers seen, board locked), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
+Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `set_running`, `set_speed`, `step_once` (pause, speed and single steps; `scenario_state` carries `paused` and `speed`), `vision_status` (camera state, fps, corner markers seen, board locked), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
 
 **Wind convention** everywhere (protocol, sim, commander tools): `speed_ms` in m/s and `from_deg` meteorological, the direction the wind blows *from*, degrees clockwise from north (map up, −y). 270 is a west wind that pushes fire east.
 
