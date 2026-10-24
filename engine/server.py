@@ -194,6 +194,10 @@ class Engine:
         self.roads = load_network(s.dir, s.width, s.height)
         # Plan once here (no fire yet, so plain shortest paths). This also
         # builds the graph's lazy caches before any worker thread touches it.
+        # Held routes refer to the previous graph's nodes and edges, so drop them
+        # before choosing: a town with the same name on both maps would
+        # otherwise keep the old map's route.
+        self.route_tracker.reset()
         self.routes: list[Route] = []
         if self.roads is not None:
             self.routes, _ = self.route_tracker.choose(plan_routes(self.roads, None), {}, 0)
@@ -448,8 +452,7 @@ class Engine:
         self._closed[:] = False
         self._bus_signature = ()
         self.tracker.update(TokenSource.VIRTUAL, [])
-        # Held routes refer to the old road graph's node and edge indices.
-        self.route_tracker.reset()
+        # load() already reset the route tracker (held routes belong to the old graph).
         self._routes_tick = 0
         self.tools.on_scenario()
         self._sent_inactive = []

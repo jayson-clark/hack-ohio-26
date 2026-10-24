@@ -123,3 +123,30 @@ def test_failed_load_falls_back_to_the_previous_scenario(monkeypatch):
             engine.recommender.shutdown()
 
     asyncio.run(run())
+
+
+def test_switch_keeps_only_the_new_maps_routes():
+    """Routes held from the old map never survive a switch, even for a town
+    with the same name, and the new map's first routes stay held (as at
+    startup) so the first replan there still gets hysteresis."""
+    import dataclasses
+
+    async def run():
+        engine = Engine()
+        try:
+            engine.switch_scenario("valley")
+            fresh = {r.key: r.edges for r in engine.routes}
+            engine.switch_scenario("paradise")
+            # A same-named town on the old map, holding a route on the old graph.
+            old = engine.routes[0]
+            engine.route_tracker.shown["Millbrook"] = dataclasses.replace(old, town="Millbrook", eta_min=0.1, cost=0.1)
+            engine.switch_scenario("valley")
+            assert {r.key: r.edges for r in engine.routes} == fresh
+            n = len(engine.roads.edges)
+            held = engine.route_tracker.held()
+            assert set(held) == set(fresh) and all(e < n for _, edges in held.values() for e in edges)
+        finally:
+            engine.forecaster.shutdown()
+            engine.recommender.shutdown()
+
+    asyncio.run(run())
