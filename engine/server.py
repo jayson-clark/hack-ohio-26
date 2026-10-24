@@ -7,6 +7,7 @@ windows are views that can connect and disconnect at any time.
 import asyncio
 import logging
 import os
+from collections import deque
 
 from pydantic import ValidationError
 from websockets.asyncio.server import ServerConnection, broadcast, serve
@@ -102,6 +103,8 @@ class Engine:
         # road the fire reaches between forecasts closes immediately.
         self._closed = np.zeros(len(self.roads.edges) if self.roads else 0, bool)
         self._bus_signature: tuple = ()
+        # The last few events, for the commander's tools and briefings.
+        self.recent_events: deque[Event] = deque(maxlen=20)
         # Crew recommendations, from their own worker after a forecast lands.
         self.recommender = Recommender()
         self.towns = [TownInfo(t.name, t.x, t.y, t.radius, t.population) for t in self.roads.towns] if self.roads else []
@@ -193,6 +196,7 @@ class Engine:
                 self.latest_forecast = None
                 self.route_tracker.reset()
                 self._closed[:] = False
+                self.recent_events.clear()
                 self.recs = []
                 self._rec_started = -RECOMMEND_MIN_TICKS
                 broadcast(self.clients, self.recs_msg())
@@ -224,6 +228,7 @@ class Engine:
 
     def broadcast_events(self, events: list[Event]) -> None:
         if events:
+            self.recent_events.extend(events)
             broadcast(self.clients, Events(events=events).model_dump_json())
 
     def check_road_cuts(self) -> None:
@@ -362,6 +367,7 @@ class Engine:
         self.broadcast_events(events)
 
     async def run(self) -> None:
+        self.recommender.warm()
         period = 1 / TICK_HZ
         loop = asyncio.get_running_loop()
         next_tick = loop.time()
