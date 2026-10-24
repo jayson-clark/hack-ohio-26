@@ -581,7 +581,7 @@ class Engine:
             self.poll_vision()
             self.flush_tokens()
             self.tick_fire()
-            if (briefing := self.briefings.next(time.monotonic())) is not None:
+            if (briefing := self.briefings.next(time.monotonic(), self.fire.tick, self.paused)) is not None:
                 broadcast(self.clients, briefing.model_dump_json())
             if self.tick % TICK_HZ == 0:
                 broadcast(self.clients, self.state_msg())
