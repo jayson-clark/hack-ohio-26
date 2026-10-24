@@ -9,6 +9,13 @@ cd engine && uv run python -m eval.run --schedules shift --episodes 8 --out repo
 ```
 Options: `--ticks` (sim minutes per episode, default 240), `--every` (minutes between forecasts), `--rollouts`, `--rec-every`, `--scenario`.
 
+Against the real 2018 Camp Fire (NIST observations plus NIFC and FEDS perimeters, in `assets/scenarios/paradise/real/`):
+```sh
+cd engine && uv run python -m eval.campfire             # one replay with the current constants, ~3 s
+cd engine && uv run python -m eval.campfire --search    # grid over C2, spotting and the replay wind, ~4 min on 11 cores
+```
+Regenerate the real data with `engine/.venv/bin/python -I tools/campfire_to_assets.py` (the raw downloads live in `tools/.cache/campfire/`; the URLs are in the script's docstring).
+
 Early attack (does dropping crews on a new ignition still contain it?):
 ```sh
 cd engine && uv run python -m eval.early_attack            # ~10 s; no crews / instant / dispatched, at 3, 8, 13 m/s
