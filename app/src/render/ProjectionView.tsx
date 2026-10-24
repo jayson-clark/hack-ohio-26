@@ -7,8 +7,10 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
-import type { Token, TokenType } from "../shared/protocol";
+import type { ForecastGrids } from "../shared/engine";
+import type { Token } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
+import type { PlaceType } from "../shared/virtualTokens";
 import MapOverlay from "./MapOverlay";
 import { createProjection, type Layers, type Projection } from "./projection";
 import { useProjectionSync } from "./useProjection";
@@ -18,8 +20,9 @@ export interface ViewProps {
   scenario: Scenario;
   tokens: Token[];
   simGrid: BinaryFrame | null;
+  forecast: ForecastGrids | null;
   layers: Layers;
-  placeType: TokenType;
+  placeType: PlaceType;
   selectedId: string | null;
   onSelect?: (id: string | null) => void;
   onHover?: (p: { x: number; y: number } | null) => void;

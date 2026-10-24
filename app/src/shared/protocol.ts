@@ -3,7 +3,7 @@
 export type EngineMessage = Hello | ScenarioState | Tokens;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
-export type ClientMessage = VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove;
+export type ClientMessage = VirtualTokenAdd | VirtualTokenMove | VirtualTokenRemove | Ignite | Reset | SetWind;
 
 /**
  * Not sent on the wire. Exists so the TS generator sees both unions.
@@ -15,12 +15,26 @@ export interface Protocol {
 export interface Hello {
   type: "hello";
   protocol_version: number;
-  map_size: number;
+  scenario: string;
+  map_width: number;
+  map_height: number;
+  sim_minutes_per_tick: number;
+  forecast_horizons_min: number[];
 }
+/**
+ * Sent once a second, and immediately after ignite, reset or set_wind.
+ */
 export interface ScenarioState {
   type: "scenario_state";
   tick: number;
   running: boolean;
+  wind: WindState;
+  burning_cells: number;
+  burned_cells: number;
+}
+export interface WindState {
+  speed_ms: number;
+  from_deg: number;
 }
 export interface Tokens {
   type: "tokens";
@@ -51,4 +65,20 @@ export interface VirtualTokenMove {
 export interface VirtualTokenRemove {
   type: "virtual_token_remove";
   id: string;
+}
+export interface Ignite {
+  type: "ignite";
+  x: number;
+  y: number;
+}
+/**
+ * Put the fire out and unburn the map. Tokens stay where they are.
+ */
+export interface Reset {
+  type: "reset";
+}
+export interface SetWind {
+  type: "set_wind";
+  speed_ms: number;
+  from_deg: number;
 }

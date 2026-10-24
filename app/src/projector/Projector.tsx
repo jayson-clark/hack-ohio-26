@@ -10,7 +10,7 @@ import { DEFAULT_LAYERS } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
 
 export default function Projector() {
-  const { tokens, simGrid } = useEngine();
+  const { tokens, simGrid, forecast } = useEngine();
   const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<TokenType>("crew");
 
@@ -35,6 +35,7 @@ export default function Projector() {
           scenario={scenario}
           tokens={tokens}
           simGrid={simGrid}
+          forecast={forecast}
           layers={DEFAULT_LAYERS}
           placeType={placeType}
           selectedId={null}
