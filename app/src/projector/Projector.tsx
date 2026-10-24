@@ -10,11 +10,13 @@ import type { PlaceType } from "../shared/virtualTokens";
 import { DEFAULT_LAYERS } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
 import { RoundSummaryProjected } from "../console/RoundSummary";
+import AttractMode, { useAttract } from "./AttractMode";
 
 export default function Projector() {
   const { tokens, simGrid, forecast, routes, score } = useEngine();
   const { scenario, error } = useScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
+  const attract = useAttract();
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -49,6 +51,7 @@ export default function Projector() {
       ) : (
         error && <p className="p-6 font-mono text-sm text-red-400">{error}</p>
       )}
+      {scenario && attract && <AttractMode scenario={scenario} />}
       <RoundSummaryProjected score={score} />
     </div>
   );
