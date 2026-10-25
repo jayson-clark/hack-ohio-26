@@ -12,7 +12,7 @@ import { useEngine } from "../../shared/engine";
 import { droneFeedLive, useFeedUrl } from "../../shared/feed";
 import { compass, describeLocation } from "../../shared/places";
 import type { ForecastEnvelope, TokenType } from "../../shared/protocol";
-import type { Scenario } from "../../shared/scenario";
+import { printWindow, type Scenario } from "../../shared/scenario";
 import { useTheme } from "../../shared/theme";
 import { ORDER_STYLE } from "../../shared/tokens";
 import { addToken } from "../../shared/virtualTokens";
@@ -84,8 +84,10 @@ export default function IncidentMap(props: Props) {
   const [basemap, setBasemap] = useState<Basemap>("drone");
   const feedLive = droneFeedLive(vision);
   // vision_status comes once a second and frames ten times, so also check each
-  // frame has the map's shape before stretching it over the grid.
-  const ortho = feedLive && cameraFrame && Math.abs(cameraFrame.width / cameraFrame.height - scenario.width / scenario.height) < 0.02;
+  // frame has the print window's shape (what the camera sees, #197) before
+  // laying it over the map.
+  const win = printWindow(scenario);
+  const ortho = feedLive && cameraFrame && Math.abs(cameraFrame.width / cameraFrame.height - win.w / win.h) < 0.02;
   const feedUrl = useFeedUrl(ortho ? cameraFrame : null);
   const drone = basemap === "drone" && feedLive && !!feedUrl;
   const theme = useTheme();

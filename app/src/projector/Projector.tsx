@@ -66,6 +66,7 @@ export default function Projector() {
           mapToProj={calibration?.map_to_proj}
           lens={calibration?.projector}
           testPattern={calibration?.phase === "review"}
+          printOnly
         />
       ) : (
         error && <p className="p-6 font-mono text-sm text-red-400">{error}</p>

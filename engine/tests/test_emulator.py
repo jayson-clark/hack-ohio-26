@@ -70,7 +70,7 @@ def test_engine_previews_until_monte_carlo_catches_up():
         e = Engine()
         try:
             e.emulator = _StubEmulator()
-            e.fire.ignite(217.3, 54.5)
+            e.fire.ignite(409.3, 118.5)
             e._ignitions += 1
             e.tick = PREVIEW_MIN_TICKS
             e.maybe_preview()

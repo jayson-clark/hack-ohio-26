@@ -3,9 +3,69 @@
   "source": "OpenStreetMap contributors (ODbL), via the Overpass API; air bases typed in (approximate)",
   "stations": [
     {
+      "name": "Butte County Fire Station 26 Honey Run",
+      "x": 167.39,
+      "y": 214.53,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
       "name": "Butte County Fire Station 38",
-      "x": 153.83,
-      "y": 97.05,
+      "x": 345.83,
+      "y": 161.05,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "CAL FIRE Stirling City Station 13",
+      "x": 326.13,
+      "y": 6.26,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Chico Fire Station Number 2",
+      "x": 34.89,
+      "y": 198.45,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Durham Station 45",
+      "x": 78.17,
+      "y": 315.78,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Fire station 13626310741",
+      "x": 38.04,
+      "y": 164.17,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Harts Mill Station 62",
+      "x": 415.29,
+      "y": 317.77,
       "kind": "ground",
       "units": {
         "crew": 1,
@@ -14,8 +74,28 @@
     },
     {
       "name": "Jarbo Gap Station 36",
-      "x": 163.65,
-      "y": 138.57,
+      "x": 355.65,
+      "y": 202.57,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Kelly Ridge Station 64",
+      "x": 364.27,
+      "y": 469.91,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Oroville Station 63",
+      "x": 288.9,
+      "y": 457.19,
       "kind": "ground",
       "units": {
         "crew": 1,
@@ -24,8 +104,8 @@
     },
     {
       "name": "Paradise Fire Department #82",
-      "x": 74.22,
-      "y": 127.09,
+      "x": 266.22,
+      "y": 191.09,
       "kind": "ground",
       "units": {
         "crew": 1,
@@ -34,8 +114,8 @@
     },
     {
       "name": "Paradise Fire Station #81",
-      "x": 46.31,
-      "y": 121.14,
+      "x": 238.31,
+      "y": 185.14,
       "kind": "ground",
       "units": {
         "crew": 1,
@@ -44,8 +124,38 @@
     },
     {
       "name": "Paradise Station 35",
-      "x": 77.54,
-      "y": 83.43,
+      "x": 269.54,
+      "y": 147.43,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "South Chico Station 44",
+      "x": 63.5,
+      "y": 228.73,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Station Five",
+      "x": 73.35,
+      "y": 175.64,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Stirling City Fire Station 12",
+      "x": 326.36,
+      "y": 3.24,
       "kind": "ground",
       "units": {
         "crew": 1,
@@ -54,8 +164,8 @@
     },
     {
       "name": "Upper Ridge Station 33",
-      "x": 75.92,
-      "y": 43.22,
+      "x": 267.92,
+      "y": 107.22,
       "kind": "ground",
       "units": {
         "crew": 1,
@@ -64,8 +174,8 @@
     },
     {
       "name": "Chico Air Attack Base",
-      "x": -166.8,
-      "y": 71.8,
+      "x": 25.2,
+      "y": 135.8,
       "kind": "air",
       "units": {
         "water": 2

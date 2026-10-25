@@ -32,6 +32,15 @@ python3 -m http.server 8000   # from the repo root
 open "http://localhost:8000/tools/terrain_viewer/?scenario=paradise"
 ```
 
+## Sim map past the print
+
+`sim.margin_km: {north, east, south, west}` makes the sim map reach past the printed terrain, so fire, roads and towns carry on beyond the board's edge. `region` and `model` still describe only the print, so adding margins doesn't change the STLs. `terrain.json` then has:
+- `grid`, `bounds`, `elevation_m`: the whole sim map.
+- `print`: `offset_cells` [x0, y0], `width`, `height`, `bounds`. The print is this window of the grid (`Scenario.print_window` in the engine, `printWindow()` in the app).
+- `model.elevation_m`: the print's lowest and highest points, for mm heights.
+
+Marker `center_map` and `places` are in sim map coords. After changing margins, rerun `osm_to_fuel.py`, `osm_to_layers.py` (also with `--stations-only`) and the scenario's `real/` tool, and shift any hard-coded map coords by the new offset.
+
 ## Gotchas
 
 - North-south extent isn't a setting. It follows `width_km × height_mm / width_mm`, so the print can't be stretched.

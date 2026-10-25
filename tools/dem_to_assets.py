@@ -23,9 +23,18 @@ sim and the print can't drift apart. Never edit the outputs by hand.
 Elevation comes from AWS Terrain Tiles (Terrarium PNGs, no API key; USGS 3DEP
 in the US). Tiles are cached in tools/.cache/.
 
+The sim map can reach past the print (sim.margin_km): fire, roads and towns
+carry on beyond the printed terrain, so the fire doesn't stop dead at the
+board's edge. `region` and `model` describe only the print, so the print stays
+the same when the margins change; the print is a window in the sim grid at
+terrain.json's `print.offset_cells`. Inside it the sim heightmap is cut from
+the print's own height field, outside it from the same DEM processed the same
+way.
+
 Frames:
-  board mm  x east, y north, z up; origin at the board's south-west bottom corner.
-  map grid  col = x_mm / width_mm * W, row = (height_mm - y_mm) / height_mm * H.
+  board mm  x east, y north, z up; origin at the print's south-west bottom corner.
+  map grid  col = ox + x_mm / width_mm * w, row = oy + (height_mm - y_mm) / height_mm * h,
+            where (ox, oy) is print.offset_cells and w x h the print's size in cells.
             Row 0 is north. Cell (r, c) spans [c, c+1) x [r, r+1).
 """
 
@@ -97,7 +106,10 @@ DEFAULTS = {
         "arm_width_mm": 8.0,
     },
     "sim": {
-        "grid_width": 256,  # grid height follows the model aspect
+        "grid_width": 256,  # cells across the print, which sets the cell size; its height follows the model aspect
+        # How far the sim map reaches past the print on each side, rounded to
+        # whole cells. Zero: the sim map is the print.
+        "margin_km": {"north": 0, "east": 0, "south": 0, "west": 0},
     },
     "places": [],  # [{name, lat, lon}], reported in map coords and drawn on the preview
 }
@@ -197,13 +209,26 @@ def latlon_to_mm(lat, lon, cfg, m_per_mm):
 # ---------------------------------------------------------------- height field
 
 
-def build_height_field(cfg):
+def build_height_field(cfg, window=None):
+    """The print's height field, or with `window` (x0, y0, x1, y1 in board mm)
+    the DEM over that rectangle at the same spacing and smoothing, elevation
+    only."""
     m = cfg["model"]
     W, H = m["width_mm"], m["height_mm"]
     m_per_mm = cfg["region"]["width_km"] * 1000 / W
     nx = round(W / m["resolution_mm"]) + 1
     ny = round(H / m["resolution_mm"]) + 1
     res = W / (nx - 1)
+    if window is not None:
+        x0, y0, x1, y1 = window
+        nx, ny = round((x1 - x0) / res) + 1, round((y1 - y0) / res) + 1
+        xs, ys = np.meshgrid(np.linspace(x0, x1, nx), np.linspace(y1, y0, ny))
+        lat, lon = mm_to_latlon(xs, ys, cfg, m_per_mm)
+        print(f"Sampling the sim margins over {lat.min():.4f}..{lat.max():.4f} N, {lon.min():.4f}..{lon.max():.4f} E")
+        elev = sample_dem(lat, lon, cfg["region"]["zoom"])
+        if m["smooth_mm"] > 0:
+            elev = ndimage.gaussian_filter(elev, m["smooth_mm"] / ((x1 - x0) / (nx - 1)), mode="nearest")
+        return {"elev": elev, "res": (x1 - x0) / (nx - 1), "origin_mm": (x0, y1)}
     xs, ys = np.meshgrid(np.linspace(0, W, nx), np.linspace(H, 0, ny))  # row 0 = north
 
     lat, lon = mm_to_latlon(xs, ys, cfg, m_per_mm)
@@ -222,7 +247,7 @@ def build_height_field(cfg):
     return {
         "elev": elev, "z_mm": z_mm, "xs": xs, "ys": ys, "res": res,
         "m_per_mm": m_per_mm, "exaggeration": exaggeration, "z_per_m": z_per_m,
-        "elev_min": lo, "elev_max": hi,
+        "elev_min": lo, "elev_max": hi, "origin_mm": (0.0, H),
     }  # fmt: skip
 
 
@@ -451,6 +476,16 @@ def write_stl(path, solid):
     return len(tri)
 
 
+def tile_layout(cfg):
+    """The print tiles, row 0 = north, matching the map grid."""
+    m, t = cfg["model"], cfg["tiles"]
+    tw, th = m["width_mm"] / t["cols"], m["height_mm"] / t["rows"]
+    return [
+        {"file": f"tile_r{i}_c{j}.stl", "row": i, "col": j, "origin_mm": [j * tw, m["height_mm"] - (i + 1) * th], "size_mm": [tw, th]}
+        for i in range(t["rows"]) for j in range(t["cols"])
+    ]  # fmt: skip
+
+
 def build_tiles(cfg, hf, out_dir, write_board):
     m, t = cfg["model"], cfg["tiles"]
     print("Building mesh")
@@ -470,16 +505,12 @@ def build_tiles(cfg, hf, out_dir, write_board):
     bx, by = t["bed_mm"]
     if not ((tw <= bx and th <= by) or (tw <= by and th <= bx)):
         print(f"  WARNING: {tw:.0f}x{th:.0f} mm tiles may not fit a {t['bed_mm']} mm bed")
-    tiles = []
-    for i in range(t["rows"]):  # row 0 = north, matching the map grid
-        for j in range(t["cols"]):
-            x0, y0 = j * tw, m["height_mm"] - (i + 1) * th
-            box = mf.Manifold.cube([tw, th, tall]).translate([x0, y0, -1])
-            tile = (board ^ box).translate([-x0, -y0, 0])
-            name = f"tile_r{i}_c{j}.stl"
-            n = write_stl(out_dir / name, tile)
-            tiles.append({"file": name, "row": i, "col": j, "origin_mm": [x0, y0], "size_mm": [tw, th]})
-            print(f"  {name}: {n:,} triangles")
+    tiles = tile_layout(cfg)
+    for tile in tiles:
+        x0, y0 = tile["origin_mm"]
+        box = mf.Manifold.cube([tw, th, tall]).translate([x0, y0, -1])
+        n = write_stl(out_dir / tile["file"], (board ^ box).translate([-x0, -y0, 0]))
+        print(f"  {tile['file']}: {n:,} triangles")
     if cfg["markers"]["enabled"]:
         holder = build_holder(cfg)
         write_stl(out_dir / "marker_holder.stl", holder)
@@ -498,23 +529,56 @@ def build_tiles(cfg, hf, out_dir, write_board):
 # ---------------------------------------------------------------- sim + preview
 
 
-def sim_heightmap(cfg, hf):
-    """Elevation in metres on the sim grid, sampled at cell centres."""
+def print_cells(cfg):
+    """The print's size in sim cells (w, h), and the cell size in mm."""
     m = cfg["model"]
-    W = cfg["sim"]["grid_width"]
-    H = round(W * m["height_mm"] / m["width_mm"])
-    cell_mm = m["width_mm"] / W
+    w = cfg["sim"]["grid_width"]
+    return w, round(w * m["height_mm"] / m["width_mm"]), m["width_mm"] / w
+
+
+def margin_cells(cfg, m_per_mm):
+    """sim.margin_km in whole cells: {north, east, south, west}."""
+    _, _, cell_mm = print_cells(cfg)
+    km = cfg["sim"]["margin_km"]
+    return {side: round(km.get(side, 0) * 1000 / (cell_mm * m_per_mm)) for side in ("north", "east", "south", "west")}
+
+
+def sample_grid(hf, shape, cell_mm, origin_mm):
+    """Elevation at the centres of a `shape` grid of cells whose north-west
+    corner sits at `origin_mm` (board mm)."""
     smooth = ndimage.gaussian_filter(hf["elev"], 0.5 * cell_mm / hf["res"], mode="nearest")
-    rows = (np.arange(H) + 0.5) * cell_mm / hf["res"]
-    cols = (np.arange(W) + 0.5) * cell_mm / hf["res"]
+    hx, hy = hf["origin_mm"]  # the height field's north-west corner
+    rows = (hy - origin_mm[1] + (np.arange(shape[0]) + 0.5) * cell_mm) / hf["res"]
+    cols = (origin_mm[0] - hx + (np.arange(shape[1]) + 0.5) * cell_mm) / hf["res"]
     rr, cc = np.meshgrid(rows, cols, indexing="ij")
-    return ndimage.map_coordinates(smooth, [rr, cc], order=1, mode="nearest").astype(np.float32), cell_mm
+    return ndimage.map_coordinates(smooth, [rr, cc], order=1, mode="nearest").astype(np.float32)
 
 
-def to_map(x_mm, y_mm, cfg, shape):
+def sim_heightmap(cfg, hf):
+    """Elevation in metres on the sim grid, sampled at cell centres: the print
+    window from the print's height field, the margins from the DEM around it.
+    Returns the heightmap, the cell size in mm, the print's offset in cells
+    (ox, oy), and the margins' height field (None without margins)."""
     m = cfg["model"]
-    H, W = shape
-    return [x_mm / m["width_mm"] * W, (m["height_mm"] - y_mm) / m["height_mm"] * H]
+    w, h, cell_mm = print_cells(cfg)
+    inner = sample_grid(hf, (h, w), cell_mm, (0.0, m["height_mm"]))
+    mc = margin_cells(cfg, hf["m_per_mm"])
+    if not any(mc.values()):
+        return inner, cell_mm, (0, 0), None
+    W, H = w + mc["west"] + mc["east"], h + mc["north"] + mc["south"]
+    x0, y1 = -mc["west"] * cell_mm, m["height_mm"] + mc["north"] * cell_mm
+    window = (x0, y1 - H * cell_mm, x0 + W * cell_mm, y1)
+    outer = build_height_field(cfg, window)
+    heightmap = sample_grid(outer, (H, W), cell_mm, (x0, y1))
+    ox, oy = mc["west"], mc["north"]
+    heightmap[oy:oy + h, ox:ox + w] = inner
+    return heightmap, cell_mm, (ox, oy), outer
+
+
+def to_map(x_mm, y_mm, cfg, offset):
+    m = cfg["model"]
+    w, h, _ = print_cells(cfg)
+    return [offset[0] + x_mm / m["width_mm"] * w, offset[1] + (m["height_mm"] - y_mm) / m["height_mm"] * h]
 
 
 def hillshade(elev, cell_m, azimuth=315, altitude=45):
@@ -525,12 +589,16 @@ def hillshade(elev, cell_m, azimuth=315, altitude=45):
     return np.clip(np.sin(alt) * np.cos(slope) + np.cos(alt) * np.sin(slope) * np.cos(az - aspect), 0, 1)
 
 
-def write_preview(path, cfg, hf, tiles, places, px_per_mm=2):
+def write_preview(path, cfg, hf, tiles, places, outer=None, px_per_mm=2):
+    """Hillshade with tile seams and places; with sim margins (`outer`), the
+    whole sim map with the print's outline on it."""
     m = cfg["model"]
-    step = max(1, round(1 / (px_per_mm * hf["res"])))
-    elev = hf["elev"][::step, ::step]
-    shade = hillshade(elev, hf["res"] * step * hf["m_per_mm"] / hf["exaggeration"])
-    t = (elev - hf["elev_min"]) / max(hf["elev_max"] - hf["elev_min"], 1e-6)
+    src = outer if outer is not None else hf
+    step = max(1, round(1 / (px_per_mm * src["res"])))
+    elev = src["elev"][::step, ::step]
+    shade = hillshade(elev, src["res"] * step * hf["m_per_mm"] / hf["exaggeration"])
+    lo, hi = float(src["elev"].min()), float(src["elev"].max())
+    t = (elev - lo) / max(hi - lo, 1e-6)
     stops = np.array([[0.36, 0.55, 0.36], [0.78, 0.74, 0.50], [0.62, 0.45, 0.32], [0.95, 0.95, 0.95]])
     pos = np.linspace(0, 1, len(stops))
     tint = np.stack([np.interp(t, pos, stops[:, k]) for k in range(3)], axis=-1)
@@ -538,10 +606,14 @@ def write_preview(path, cfg, hf, tiles, places, px_per_mm=2):
 
     img = Image.fromarray(rgb)
     draw = ImageDraw.Draw(img)
-    sx, sy = img.width / m["width_mm"], img.height / m["height_mm"]
+    hx, hy = src["origin_mm"]  # north-west corner, board mm
+    s = 1 / (src["res"] * step)
 
     def px(x, y):
-        return x * sx, (m["height_mm"] - y) * sy
+        return (x - hx) * s, (hy - y) * s
+
+    if outer is not None:
+        draw.rectangle([px(0, m["height_mm"]), px(m["width_mm"], 0)], outline=(255, 255, 255), width=3)
 
     for tile in tiles:
         x0, y0 = tile["origin_mm"]
@@ -578,17 +650,18 @@ def main():
         f"horizontal 1 mm = {hf['m_per_mm']:.1f} m, vertical exaggeration {hf['exaggeration']:.2f}x"
     )
 
-    heightmap, cell_mm = sim_heightmap(cfg, hf)
+    heightmap, cell_mm, offset, outer = sim_heightmap(cfg, hf)
     np.save(scenario_dir / "heightmap.npy", heightmap)
+    pw, ph, _ = print_cells(cfg)
+    if outer is not None:
+        print(f"Sim map {heightmap.shape[1]}x{heightmap.shape[0]} cells, the print at {offset} ({pw}x{ph})")
 
-    tiles = []
-    if not args.no_stl:
-        tiles = build_tiles(cfg, hf, stl_dir, args.board)
+    tiles = tile_layout(cfg) if args.no_stl else build_tiles(cfg, hf, stl_dir, args.board)
 
     places = []
     for p in cfg["places"]:
         x, y = latlon_to_mm(p["lat"], p["lon"], cfg, hf["m_per_mm"])
-        places.append({**p, "mm": [round(x, 2), round(y, 2)], "map": [round(v, 2) for v in to_map(x, y, cfg, heightmap.shape)]})
+        places.append({**p, "mm": [round(x, 2), round(y, 2)], "map": [round(v, 2) for v in to_map(x, y, cfg, offset)]})
 
     markers = {}
     if cfg["markers"]["enabled"]:
@@ -607,28 +680,45 @@ def main():
             markers["corners"].append({
                 "corner": name,
                 "center_mm": [round(cx, 3), round(cy, 3)],
-                "center_map": [round(v, 3) for v in to_map(cx, cy, cfg, heightmap.shape)],
+                "center_map": [round(v, 3) for v in to_map(cx, cy, cfg, offset)],
                 "holder_rotation_deg": rot,
                 "holder_origin_mm": list(corner),
             })  # fmt: skip
 
-    sw_ne = [mm_to_latlon(x, y, cfg, hf["m_per_mm"]) for x, y in [(0, 0), (m["width_mm"], m["height_mm"])]]
+    def corners_latlon(x0, y0, x1, y1):
+        (s, w), (n, e) = (mm_to_latlon(x, y, cfg, hf["m_per_mm"]) for x, y in [(x0, y0), (x1, y1)])
+        return {"south": s, "west": w, "north": n, "east": e}
+
+    ox, oy = offset
+    H, W = heightmap.shape
+    top = m["height_mm"] + oy * cell_mm
+    sim_bounds = corners_latlon(-ox * cell_mm, top - H * cell_mm, (W - ox) * cell_mm, top)
+    elev_all = outer["elev"] if outer is not None else hf["elev"]
     meta = {
         "name": cfg["name"],
         "generated_by": "tools/dem_to_assets.py",
         "source": "AWS Terrain Tiles (Terrarium), USGS 3DEP in the US",
-        "bounds": {"south": sw_ne[0][0], "west": sw_ne[0][1], "north": sw_ne[1][0], "east": sw_ne[1][1]},
-        "grid": {"width": heightmap.shape[1], "height": heightmap.shape[0], "cell_size_m": cell_mm * hf["m_per_mm"], "cell_size_mm": cell_mm},
+        # The sim map. With sim margins it reaches past the print (`print`).
+        "bounds": sim_bounds,
+        "grid": {"width": W, "height": H, "cell_size_m": cell_mm * hf["m_per_mm"], "cell_size_mm": cell_mm},
         "heightmap": {"file": "heightmap.npy", "dtype": "float32", "units": "m above sea level", "row0": "north"},
-        "elevation_m": {"min": hf["elev_min"], "max": hf["elev_max"]},
+        "elevation_m": {"min": float(elev_all.min()), "max": float(elev_all.max())},
+        # The printed terrain: a window of the sim grid.
+        "print": {
+            "offset_cells": [ox, oy], "width": pw, "height": ph,
+            "bounds": corners_latlon(0, 0, m["width_mm"], m["height_mm"]),
+        },  # fmt: skip
         "model": {
             "width_mm": m["width_mm"], "height_mm": m["height_mm"], "base_mm": m["base_mm"],
             "relief_mm": (hf["elev_max"] - hf["elev_min"]) * hf["z_per_m"],
             "m_per_mm": hf["m_per_mm"], "vertical_exaggeration": hf["exaggeration"],
+            # The print's lowest and highest points: base_mm and base_mm + relief_mm.
+            "elevation_m": {"min": hf["elev_min"], "max": hf["elev_max"]},
         },  # fmt: skip
         "frames": {
-            "board_mm": "x east, y north, origin at the south-west corner",
-            "map": "col = x_mm / width_mm * grid.width, row = (height_mm - y_mm) / height_mm * grid.height",
+            "board_mm": "x east, y north, origin at the print's south-west corner",
+            "map": "col = print.offset_cells[0] + x_mm / width_mm * print.width, "
+                   "row = print.offset_cells[1] + (height_mm - y_mm) / height_mm * print.height",
         },
         "markers": markers,
         "tiles": tiles,
@@ -636,10 +726,10 @@ def main():
         "config": cfg,
     }
     (scenario_dir / "terrain.json").write_text(json.dumps(meta, indent=2) + "\n")
-    write_preview(scenario_dir / "preview.png", cfg, hf, tiles, places)
+    write_preview(scenario_dir / "preview.png", cfg, hf, tiles, places, outer)
 
     print(f"Wrote {scenario_dir.relative_to(REPO)}/{{heightmap.npy, terrain.json, preview.png}}")
-    if tiles:
+    if not args.no_stl:
         print(f"Wrote {len(tiles)} tiles to {stl_dir.relative_to(REPO)}/")
 
 

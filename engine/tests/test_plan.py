@@ -13,7 +13,7 @@ from server import Engine
 from sim.effects import SuppressionSchedule, crew_layer
 from sim.fire import Wind
 
-IGNITION = (217.3, 54.5)  # the Camp Fire origin
+IGNITION = (409.3, 118.5)  # the Camp Fire origin
 
 
 def burning_engine(ticks: int = 30) -> Engine:

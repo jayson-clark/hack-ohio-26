@@ -79,7 +79,7 @@ def test_engine_scores_envelopes_and_sends_them():
     async def go():
         e = Engine()
         try:
-            e.fire.ignite(217.3, 54.5)
+            e.fire.ignite(409.3, 118.5)  # the Camp Fire origin near Pulga, in the extended map (#197)
             for _ in range(5):
                 e.step_fire()
             done = asyncio.get_running_loop().create_future()
@@ -154,7 +154,7 @@ def test_town_board_carries_calibrated_eta_once_a_long_forecast_lands():
     async def go():
         e = Engine()
         try:
-            e.fire.ignite(217.3, 54.5)
+            e.fire.ignite(409.3, 118.5)  # the Camp Fire origin near Pulga, in the extended map (#197)
             for _ in range(10):
                 e.step_fire()
             assert all(t.eta_lo_min is None for t in e.tools.town_threats())

@@ -29,7 +29,8 @@ class BoardHomography:
         corners = {c["corner"]: c["center_map"] for c in scenario.terrain["markers"]["corners"]}
         self._ids = list(CORNER_IDS.values())
         self._map_pts = np.array([corners[name] for name in CORNER_IDS], np.float32)
-        self.width, self.height = scenario.width, scenario.height
+        # The board the camera sees: the printed terrain, a window of the map.
+        self.x0, self.y0, self.width, self.height = scenario.print_window
         self.cam_to_map: np.ndarray | None = None  # 3x3 float64
         self.camera: Viewpoint | None = None  # placed with cam_to_map
         self.surface = Surface(scenario)
@@ -69,11 +70,11 @@ class BoardHomography:
         return onto_surface(self.camera, plane, self.surface, lift_mm)[0].astype(np.float32)
 
     def map_outline_in_camera(self) -> np.ndarray | None:
-        """The map grid's border in image pixels, for the debug overlay."""
+        """The printed terrain's border in image pixels, for the debug overlay."""
         if self.cam_to_map is None:
             return None
-        w, h = self.width, self.height
-        rect = np.array([[0, 0], [w, 0], [w, h], [0, h]], np.float32).reshape(-1, 1, 2)
+        x0, y0, x1, y1 = self.x0, self.y0, self.x0 + self.width, self.y0 + self.height
+        rect = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], np.float32).reshape(-1, 1, 2)
         return cv2.perspectiveTransform(rect, np.linalg.inv(self.cam_to_map)).reshape(-1, 2)
 
     def orthophoto_remap(self, out_size: tuple[int, int]) -> np.ndarray | None:
@@ -92,4 +93,4 @@ class BoardHomography:
         them."""
         pts = np.asarray(pts, np.float64).reshape(-1, 2)
         out_w, out_h = out_size
-        return (pts * [out_w / self.width, out_h / self.height]).astype(np.float32)
+        return ((pts - [self.x0, self.y0]) * [out_w / self.width, out_h / self.height]).astype(np.float32)

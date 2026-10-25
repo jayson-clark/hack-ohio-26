@@ -12,6 +12,8 @@ export interface TerrainInfo {
   bounds: { south: number; west: number; north: number; east: number };
   grid: { width: number; height: number; cell_size_m: number; cell_size_mm: number };
   elevation_m: { min: number; max: number };
+  /** The printed terrain, a window of the map grid (absent: the print is the whole map). */
+  print?: { offset_cells: [number, number]; width: number; height: number };
   model: {
     width_mm: number;
     height_mm: number;
@@ -19,6 +21,8 @@ export interface TerrainInfo {
     relief_mm: number;
     m_per_mm: number;
     vertical_exaggeration: number;
+    /** The print's lowest and highest points (absent: elevation_m). */
+    elevation_m?: { min: number; max: number };
   };
   markers: {
     marker_size_mm: number;
@@ -140,8 +144,15 @@ export function elevationAt(s: Scenario, x: number, y: number): number {
 
 /** Height of the printed surface above the table, in mm (matches dem_to_assets.py). */
 export function modelZ(s: Scenario, elevation: number): number {
-  const { model, elevation_m } = s.info;
-  return model.base_mm + ((elevation - elevation_m.min) * model.vertical_exaggeration) / model.m_per_mm;
+  const { model } = s.info;
+  const floor = (model.elevation_m ?? s.info.elevation_m).min;
+  return model.base_mm + ((elevation - floor) * model.vertical_exaggeration) / model.m_per_mm;
+}
+
+/** The printed terrain in map cells. The sim map can reach past it. */
+export function printWindow(s: Scenario): { x0: number; y0: number; w: number; h: number } {
+  const p = s.info.print;
+  return p ? { x0: p.offset_cells[0], y0: p.offset_cells[1], w: p.width, h: p.height } : { x0: 0, y0: 0, w: s.width, h: s.height };
 }
 
 /** Approximate lat/lon (linear over the small region). */

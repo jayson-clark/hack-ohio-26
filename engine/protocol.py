@@ -393,9 +393,11 @@ class VisionStatus(Model):
     # A camera->map homography has been solved (all four corners seen at
     # once). It is kept while corners are covered, so tokens still track.
     board_found: bool
-    # The camera_frame feed is the top-down orthophoto: the board rectified to
-    # fill the frame, so pixel (u, v) of a w x h JPEG is map cell
-    # (u * width / w, v * height / h). False: the raw frame with the overlay.
+    # The camera_frame feed is the top-down orthophoto: the printed board
+    # rectified to fill the frame. The print is a window of the sim map
+    # (terrain.json `print`, #197), so pixel (u, v) of a w x h JPEG is map cell
+    # (x0 + u * pw / w, y0 + v * ph / h) for the print's offset (x0, y0) and
+    # size pw x ph. False: the raw frame with the overlay.
     feed_rectified: bool = False
 
 

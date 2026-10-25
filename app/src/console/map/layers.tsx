@@ -7,7 +7,7 @@ import type { BinaryFrame } from "../../shared/binary";
 import { Cell, type ForecastGrids } from "../../shared/engine";
 import type { Recommendation, RouteInfo, StationInfo, Token, TokenType, UnitInfo } from "../../shared/protocol";
 import { aboutMinutes } from "../../shared/places";
-import type { Scenario } from "../../shared/scenario";
+import { printWindow, type Scenario } from "../../shared/scenario";
 import { Icon } from "../icons";
 import { ORDER_COLOR, ORDER_ICON, type TownView } from "../model";
 import { TONE } from "../ui";
@@ -428,10 +428,12 @@ export function PlanLayer({
   );
 }
 
-/** The drone's live top-down photo, stretched over the whole map grid: the
+/** The drone's live top-down photo, over the window of the map the camera
+ * sees: the printed terrain, which is only part of the sim map (#197). The
  * console's basemap when the camera's orthophoto is on (#203). */
 export function DroneLayer({ scenario, url }: { scenario: Scenario; url: string }) {
-  return <image href={url} x={0} y={0} width={scenario.width} height={scenario.height} preserveAspectRatio="none" />;
+  const win = printWindow(scenario);
+  return <image href={url} x={win.x0} y={win.y0} width={win.w} height={win.h} preserveAspectRatio="none" />;
 }
 
 // Forecast colors, matching the console map's legend: nearer horizon orange
@@ -444,6 +446,11 @@ const FAR = [250, 205, 110];
 export function ForecastLayer({ scenario, forecast, simGrid }: { scenario: Scenario; forecast: ForecastGrids | null; simGrid: BinaryFrame | null }) {
   const [href, setHref] = useState<string | null>(null);
   const { width: W, height: H } = scenario;
+  // Rebuilt when a forecast lands, not on every sim frame: the extended maps
+  // are 245k cells, too many to repaint ten times a second. What's burning is
+  // read from the latest frame at that moment.
+  const grid = useRef(simGrid);
+  grid.current = simGrid;
 
   useEffect(() => {
     if (!forecast || forecast.width !== W || forecast.height !== H || forecast.horizons.length === 0) return setHref(null);
@@ -454,7 +461,8 @@ export function ForecastLayer({ scenario, forecast, simGrid }: { scenario: Scena
     const img = ctx.createImageData(W, H);
     const near = forecast.horizons[0];
     const far = forecast.horizons[1] ?? near;
-    const cells = simGrid && simGrid.width === W && simGrid.height === H ? simGrid.payload : null;
+    const g0 = grid.current;
+    const cells = g0 && g0.width === W && g0.height === H ? g0.payload : null;
     for (let i = 0; i < W * H; i++) {
       if (cells && (cells[i] === Cell.Burning || cells[i] === Cell.Burned)) continue;
       const pn = near[i] / 255;
@@ -465,7 +473,7 @@ export function ForecastLayer({ scenario, forecast, simGrid }: { scenario: Scena
     }
     ctx.putImageData(img, 0, 0);
     setHref(c.toDataURL());
-  }, [forecast, simGrid, W, H]);
+  }, [forecast, W, H]);
 
   return href ? <image href={href} x={0} y={0} width={W} height={H} preserveAspectRatio="none" style={{ imageRendering: "auto" }} /> : null;
 }
