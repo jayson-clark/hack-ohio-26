@@ -1,0 +1,255 @@
+{
+  "name": "marshall",
+  "generated_by": "tools/dem_to_assets.py",
+  "source": "AWS Terrain Tiles (Terrarium), USGS 3DEP in the US",
+  "bounds": {
+    "south": 39.896295875448594,
+    "west": -105.28559167697773,
+    "north": 40.01770412455141,
+    "east": -105.07440832302228
+  },
+  "grid": {
+    "width": 192,
+    "height": 144,
+    "cell_size_m": 93.75,
+    "cell_size_mm": 1.7197916666666666
+  },
+  "heightmap": {
+    "file": "heightmap.npy",
+    "dtype": "float32",
+    "units": "m above sea level",
+    "row0": "north"
+  },
+  "elevation_m": {
+    "min": 1569.0564819282406,
+    "max": 2325.3580191650494
+  },
+  "model": {
+    "width_mm": 330.2,
+    "height_mm": 247.65,
+    "base_mm": 6,
+    "relief_mm": 35.0,
+    "m_per_mm": 54.51241671714113,
+    "vertical_exaggeration": 2.522716788426331
+  },
+  "frames": {
+    "board_mm": "x east, y north, origin at the south-west corner",
+    "map": "col = x_mm / width_mm * grid.width, row = (height_mm - y_mm) / height_mm * grid.height"
+  },
+  "markers": {
+    "holder_file": "marker_holder.stl",
+    "marker_size_mm": 30.0,
+    "printed": true,
+    "marker_top_z_mm": 6.0,
+    "pin_length_mm": 14.0,
+    "note": "Centres are outside the terrain, so map coords fall outside the grid.",
+    "corners": [
+      {
+        "corner": "NW",
+        "center_mm": [
+          -18.4,
+          266.05
+        ],
+        "center_map": [
+          -10.699,
+          -10.699
+        ],
+        "holder_rotation_deg": 270,
+        "holder_origin_mm": [
+          0,
+          247.65
+        ]
+      },
+      {
+        "corner": "NE",
+        "center_mm": [
+          348.6,
+          266.05
+        ],
+        "center_map": [
+          202.699,
+          -10.699
+        ],
+        "holder_rotation_deg": 180,
+        "holder_origin_mm": [
+          330.2,
+          247.65
+        ]
+      },
+      {
+        "corner": "SE",
+        "center_mm": [
+          348.6,
+          -18.4
+        ],
+        "center_map": [
+          202.699,
+          154.699
+        ],
+        "holder_rotation_deg": 90,
+        "holder_origin_mm": [
+          330.2,
+          0
+        ]
+      },
+      {
+        "corner": "SW",
+        "center_mm": [
+          -18.4,
+          -18.4
+        ],
+        "center_map": [
+          -10.699,
+          154.699
+        ],
+        "holder_rotation_deg": 0,
+        "holder_origin_mm": [
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "tiles": [],
+  "places": [
+    {
+      "name": "Superior",
+      "lat": 39.9528,
+      "lon": -105.1686,
+      "mm": [
+        182.92,
+        115.26
+      ],
+      "map": [
+        106.36,
+        76.98
+      ]
+    },
+    {
+      "name": "Louisville",
+      "lat": 39.9778,
+      "lon": -105.1319,
+      "mm": [
+        240.31,
+        166.25
+      ],
+      "map": [
+        139.73,
+        47.33
+      ]
+    },
+    {
+      "name": "Broomfield",
+      "lat": 39.9205,
+      "lon": -105.0867,
+      "mm": [
+        310.98,
+        49.37
+      ],
+      "map": [
+        180.82,
+        115.29
+      ]
+    },
+    {
+      "name": "Eldorado Springs",
+      "lat": 39.9322,
+      "lon": -105.2775,
+      "mm": [
+        12.65,
+        73.24
+      ],
+      "map": [
+        7.36,
+        101.41
+      ]
+    },
+    {
+      "name": "Marshall",
+      "lat": 39.9539,
+      "lon": -105.2297,
+      "mm": [
+        87.39,
+        117.5
+      ],
+      "map": [
+        50.81,
+        75.68
+      ]
+    }
+  ],
+  "config": {
+    "name": "marshall",
+    "region": {
+      "center": [
+        39.957,
+        -105.18
+      ],
+      "width_km": 18,
+      "zoom": 13
+    },
+    "model": {
+      "width_mm": 330.2,
+      "height_mm": 247.65,
+      "base_mm": 6,
+      "max_relief_mm": 35,
+      "vertical_exaggeration": null,
+      "resolution_mm": 0.5,
+      "smooth_mm": 0.75
+    },
+    "tiles": {
+      "cols": 2,
+      "rows": 2,
+      "bed_mm": [
+        256,
+        256
+      ],
+      "pins": {
+        "per_edge": 2,
+        "hole_diameter_mm": 2.0,
+        "depth_mm": 6.0
+      }
+    },
+    "markers": {
+      "enabled": true,
+      "size_mm": 30.0,
+      "printed": true,
+      "inlay_mm": 0.6,
+      "clearance_mm": 0.4,
+      "depth_mm": 1.0,
+      "rim_mm": 3.0,
+      "arm_length_mm": 30.0,
+      "arm_width_mm": 8.0
+    },
+    "sim": {
+      "grid_width": 192
+    },
+    "places": [
+      {
+        "name": "Superior",
+        "lat": 39.9528,
+        "lon": -105.1686
+      },
+      {
+        "name": "Louisville",
+        "lat": 39.9778,
+        "lon": -105.1319
+      },
+      {
+        "name": "Broomfield",
+        "lat": 39.9205,
+        "lon": -105.0867
+      },
+      {
+        "name": "Eldorado Springs",
+        "lat": 39.9322,
+        "lon": -105.2775
+      },
+      {
+        "name": "Marshall",
+        "lat": 39.9539,
+        "lon": -105.2297
+      }
+    ]
+  }
+}

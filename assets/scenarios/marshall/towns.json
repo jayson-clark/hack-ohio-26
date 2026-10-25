@@ -1,0 +1,64 @@
+{
+  "generated_by": "tools/osm_to_layers.py",
+  "note": "Populations and structure counts are approximate 2018 figures, for scoring only.",
+  "towns": [
+    {
+      "name": "Louisville",
+      "x": 134.18,
+      "y": 54.21,
+      "radius": 25.6,
+      "population": 21200,
+      "structures": 9300
+    },
+    {
+      "name": "Superior",
+      "x": 114.18,
+      "y": 82.67,
+      "radius": 19.2,
+      "population": 13100,
+      "structures": 5000
+    },
+    {
+      "name": "Marshall",
+      "x": 50.81,
+      "y": 75.68,
+      "radius": 6.4,
+      "population": 300,
+      "structures": 120
+    },
+    {
+      "name": "Eldorado Springs",
+      "x": 7.36,
+      "y": 101.41,
+      "radius": 5.3,
+      "population": 600,
+      "structures": 250
+    }
+  ],
+  "safe_zones": [
+    {
+      "name": "Denver (US 36)",
+      "x": 188.394,
+      "y": 143.515,
+      "road": "US 36"
+    },
+    {
+      "name": "Lafayette (South Boulder Rd)",
+      "x": 191.765,
+      "y": 36.693,
+      "road": "East South Boulder Road"
+    },
+    {
+      "name": "Lafayette (CO 42)",
+      "x": 140.443,
+      "y": 3.572,
+      "road": "CO 42"
+    },
+    {
+      "name": "Boulder (US 36)",
+      "x": 24.657,
+      "y": 0.098,
+      "road": "US 36"
+    }
+  ]
+}

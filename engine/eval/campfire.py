@@ -33,14 +33,17 @@ import sim.fire as fire
 from scenario import load_scenario
 from sim.fire import FireSim, Wind
 
-REAL = Path(__file__).resolve().parents[2] / "assets" / "scenarios" / "paradise" / "real"
+ASSETS = Path(__file__).resolve().parents[2] / "assets" / "scenarios"
 TOLERANCE_MIN = 30
 HORIZON_CAP_MIN = 720  # a never-reached observation is late by this minus its time
 
 
-def load_truth(hours: float):
-    obs = json.loads((REAL / "campfire_observations.json").read_text())["observations"]
-    p = np.load(REAL / "campfire_perimeters.npz")
+def load_truth(hours: float, scenario: str = "paradise", fire_name: str = "campfire"):
+    """A real fire's observations and perimeters, from
+    assets/scenarios/<scenario>/real/<fire_name>_{observations.json,perimeters.npz}."""
+    real = ASSETS / scenario / "real"
+    obs = json.loads((real / f"{fire_name}_observations.json").read_text())["observations"]
+    p = np.load(real / f"{fire_name}_perimeters.npz")
     first: dict[tuple[int, int], float] = {}
     for o in obs:
         if o["t_min"] > hours * 60 or o["residual"]:

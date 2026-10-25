@@ -255,6 +255,8 @@ The top recommendation's realized benefit fell from 985 to 708 (steady wind). It
 
 The known gap: the replay burns about 1.5–1.7x the real area, because flanks spread too wide. A higher `C2` (0.3–0.4) fits the perimeters better (IoU 0.67/0.79, area 1.27x/1.12x). But it also starves backing and flank spread at every wind: at 3–8 m/s fires came out under half the size, and instant attack contained them again. One extreme-wind event isn't enough evidence for that, so `C2` stays at 0.22 until a second fire (Marshall, #107) agrees.
 
+**Marshall Fire** (`cd engine && uv run python -m eval.marshall`, #107): a second real fire, grass into suburb under a steady 15–20 m/s westerly, scored against the NASA FEDS perimeter at 2.5 h and the WFIGS final perimeter. It has no timed per-house observations. It agrees with the Camp Fire: every top result of the search has `C2` 0.4, which matches the 2.5 h area (0.9–1.0x, IoU ~0.39), where 0.22 burns 4–5x too much. At every setting, though, the sim keeps running east through Louisville to the map edge where the real fire stopped, so the final perimeter is a fuel and structure question (suburbs burn like grass here), not a wind one. The open question is how to narrow strong-wind fires without starving moderate ones, for example a floor on backing and flank spread.
+
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
 - **Vectorized:** 8 shifted-array operations per tick (one per neighbor direction), restricted to the bounding box of the burning cells. A step on Paradise takes well under 1 ms.
@@ -322,7 +324,7 @@ The LLM gets **tools**, not a raw state dump, so its answers come from real simu
 
 ### Game layer
 
-- **Scenarios:** a fictional training valley, and Paradise, CA (Camp Fire).
+- **Scenarios:** two real fires: Paradise, CA (2018 Camp Fire) and Marshall, CO (2021 Marshall Fire, Superior and Louisville).
 - **Limited resources:** for example 3 crews, 2 water drops (with cooldown), and 1 firebreak, which forces tradeoffs.
 - **Scoring:** people evacuated, structures saved, acres burned.
 - **Scenario timer** and an end-of-round summary.
