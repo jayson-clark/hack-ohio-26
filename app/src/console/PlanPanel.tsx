@@ -329,7 +329,7 @@ function Slider(props: { label: string; value: string; min: number; max: number;
         <span className="text-ink-2">{props.label}</span>
         <span className="font-medium text-ink tnum">{props.value}</span>
       </span>
-      <input type="range" min={props.min} max={props.max} step={props.step} value={props.v} onChange={(e) => props.onChange(Number(e.target.value))} className="w-full accent-[#1f4fd6]" />
+      <input type="range" min={props.min} max={props.max} step={props.step} value={props.v} onChange={(e) => props.onChange(Number(e.target.value))} className="w-full accent-accent" />
     </label>
   );
 }

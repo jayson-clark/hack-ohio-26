@@ -14,6 +14,7 @@ import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import type { CameraCommand } from "../render/TableView";
 import { EventAlerts } from "../console/EventLog";
 import { FlameMark } from "../console/icons";
+import ThemeToggle from "../console/ThemeToggle";
 import { ConnectionBadge } from "../console/ui";
 import { RoundSummaryCard } from "./RoundSummary";
 import Sidebar from "./Sidebar";
@@ -76,6 +77,7 @@ export default function Control() {
             tick <span className="text-fg-muted">{state.tick}</span>
           </span>
         )}
+        <ThemeToggle />
         <ConnectionBadge status={status} />
       </header>
 

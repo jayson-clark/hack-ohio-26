@@ -31,6 +31,7 @@ import Resources from "./Resources";
 import ReviewPanel from "./ReviewPanel";
 import Situation from "./Situation";
 import SoundToggle from "./SoundToggle";
+import ThemeToggle from "./ThemeToggle";
 import Towns from "./Towns";
 import { Button, ConnectionBadge, Section } from "./ui";
 
@@ -196,6 +197,7 @@ export default function Console() {
           Exercise control
         </Button>
         <SoundToggle />
+        <ThemeToggle />
         <div className="h-6 w-px bg-line" />
         <ConnectionBadge status={status} />
       </header>
