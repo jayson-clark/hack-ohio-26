@@ -35,6 +35,15 @@ export default function CommanderDock() {
   useEffect(() => {
     if (open) setSeen(transcript.length);
   }, [open, transcript.length]);
+  // A new round clears the transcript; questions from the last one go with it.
+  const prevLength = useRef(transcript.length);
+  useEffect(() => {
+    if (transcript.length < prevLength.current) {
+      setAsked([]);
+      setSeen(0);
+    }
+    prevLength.current = transcript.length;
+  }, [transcript.length]);
   useEffect(() => {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { orderText, unitFor, UNIT_STATUS } from "../shared/dispatch";
-import { acceptRecommendation, send, useEngine } from "../shared/engine";
+import { send, useEngine } from "../shared/engine";
 import type { Score, Token, TokenType, UnitInfo, WindState } from "../shared/protocol";
 import { formatSimMinutes, limitFor } from "../shared/round";
 import { elevationAt, type Scenario } from "../shared/scenario";
@@ -33,7 +33,6 @@ export default function Sidebar(props: Props) {
       </p>
       <RoundPanel score={props.score} />
       <FirePanel {...props} />
-      <AutopilotPanel />
       <DeployPanel {...props} />
       <TokensPanel {...props} />
       {props.scenario && <PlacesPanel scenario={props.scenario} onFocus={props.onFocusPlace} />}
@@ -44,52 +43,6 @@ export default function Sidebar(props: Props) {
         </div>
       </Panel>
     </aside>
-  );
-}
-
-// Accepts the top recommendation on its own, a few seconds after each new
-// batch, so a recorded demo can play out without someone clicking every card.
-// Lives in this window (it's the exercise's stand-in operator), not the console.
-const AUTOPILOT_DELAY_MS = 2500;
-
-function AutopilotPanel() {
-  const { recommendations } = useEngine();
-  const [on, setOn] = useState(false);
-  const [accepted, setAccepted] = useState(0);
-  const done = useRef(new Set<string>());
-
-  useEffect(() => {
-    const top = recommendations.find((r) => r.auto && !done.current.has(r.id));
-    if (!on || !top) return;
-    const timer = window.setTimeout(() => {
-      done.current.add(top.id);
-      acceptRecommendation(top.id);
-      setAccepted((n) => n + 1);
-    }, AUTOPILOT_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [on, recommendations]);
-
-  return (
-    <Panel
-      title="Autopilot"
-      right={
-        <button
-          aria-pressed={on}
-          onClick={() => setOn(!on)}
-          className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
-            on ? "bg-accent text-white" : "bg-surface-3 text-fg-muted hover:text-fg"
-          }`}
-        >
-          {on ? "On" : "Off"}
-        </button>
-      }
-    >
-      <p className="text-[11px] leading-relaxed text-fg-subtle">
-        Dispatches the top crew recommendation a few seconds after each one arrives, as if an operator accepted
-        it. For demos and recordings.
-        {accepted > 0 && <span className="text-fg-muted"> {accepted} accepted so far.</span>}
-      </p>
-    </Panel>
   );
 }
 
