@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 21
+PROTOCOL_VERSION = 22
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -316,6 +316,23 @@ class Units(Model):
     units: list[UnitInfo]
 
 
+class ForecastEnvelope(Model):
+    """The calibrated burn envelope (#12): per forecast horizon, the
+    probability cutoff and margin that the online conformal update has
+    settled on, so that at most `target_miss` of newly burning ground falls
+    outside it in the long run. The UI draws {P >= threshold} grown by
+    margin_cells. Also the running miss rates, to show the promise is kept."""
+
+    type: Literal["forecast_envelope"] = "forecast_envelope"
+    horizons_min: list[float]  # same order as the forecast grids
+    threshold: list[float]
+    margin_cells: list[int]
+    target_miss: float  # e.g. 0.1
+    miss_recent: list[float | None]  # mean miss over the last ~20 scored forecasts
+    miss_overall: list[float | None]  # since the scenario loaded
+    scored: list[int]
+
+
 class Recommendations(Model):
     """Best first. Sent every few seconds while a fire burns, and empty on reset."""
 
@@ -533,7 +550,7 @@ class PlanResult(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          Transcript, Units, EvacClock, Situation, PlanResult, Calibration],
+          Transcript, Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope],
     Field(discriminator="type"),
 ]
 

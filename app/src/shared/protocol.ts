@@ -15,7 +15,8 @@ export type EngineMessage =
   | EvacClock
   | Situation
   | PlanResult
-  | Calibration;
+  | Calibration
+  | ForecastEnvelope;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -411,6 +412,23 @@ export interface Calibration {
   frames_needed: number;
   error_px: number | null;
   message: string | null;
+}
+/**
+ * The calibrated burn envelope (#12): per forecast horizon, the
+ * probability cutoff and margin that the online conformal update has
+ * settled on, so that at most `target_miss` of newly burning ground falls
+ * outside it in the long run. The UI draws {P >= threshold} grown by
+ * margin_cells. Also the running miss rates, to show the promise is kept.
+ */
+export interface ForecastEnvelope {
+  type: "forecast_envelope";
+  horizons_min: number[];
+  threshold: number[];
+  margin_cells: number[];
+  target_miss: number;
+  miss_recent: (number | null)[];
+  miss_overall: (number | null)[];
+  scored: number[];
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";

@@ -38,6 +38,7 @@ import numpy as np
 
 from forecast.recommend import ACRE_WEIGHT, REC_HORIZON_TICKS, TownInfo, _town_masks, candidates, recommend
 from forecast.runner import horizon_ticks, run_forecast
+from uq.conformal import EnvelopeLedger
 from routing.evac import BUS_SPEED_KMH, plan_routes, replan_routes
 from routing.roads import load_network
 from routing.tracker import RouteTracker
@@ -54,6 +55,8 @@ LEAD_BUCKETS = ((0, 15), (15, 30), (30, 60))  # sim minutes until the cell burne
 # decisions actually get tested).
 IGNITIONS = [(217.3, 54.5), (175.0, 70.0), (120.0, 40.0), (75.0, 85.0)]
 ALPHA = 0.1
+WARM_THETA = (0.2, 0.2)  # the online envelope's starting threshold per horizon (#12)
+ENVELOPE_LR = 0.1  # its step size; --envelope-lr overrides
 
 
 # --- Wind schedules ------------------------------------------------------------
@@ -142,6 +145,9 @@ class Recs:
 @dataclass
 class Results:
     cal: dict = field(default_factory=lambda: {h: Calibration() for h in HORIZONS})
+    # The online conformal envelope (#12), learning across this schedule's episodes.
+    ledger: EnvelopeLedger | None = None
+    envelope_misses: dict = field(default_factory=lambda: {h: [] for h in HORIZONS})
     arrival: Arrival = field(default_factory=Arrival)
     routing: Routing = field(default_factory=Routing)
     recs: Recs = field(default_factory=Recs)
@@ -198,6 +204,9 @@ def run_episode(scenario, net, towns, sched: str, seed: int, ticks: int, every: 
             snap = sim.snapshot()
             f = run_forecast(snap, n=n, seed=seed * 1000 + tick)
             pending.append((tick, f, sim.state == FUEL))  # fuel that hasn't caught yet
+            if res.ledger is None:
+                res.ledger = EnvelopeLedger(tuple(horizon_ticks(h) for h in HORIZONS), WARM_THETA, n, lr=ENVELOPE_LR)
+            res.ledger.issue(tick, f.probability, sim.state >= BURNING, sim.state == FUEL)
             if net is not None:
                 best, rescored = replan_routes(net, f.first_burn, tracker.held())
                 shown, _ = tracker.choose(best, rescored, tick)
@@ -231,6 +240,9 @@ def run_episode(scenario, net, towns, sched: str, seed: int, ticks: int, every: 
             caught = (sim.state >= BURNING) & np.isinf(live_first)
             live_first[caught] = tick + 1
 
+        if res.ledger is not None:
+            for hi, miss in res.ledger.mature(sim.tick, sim.state >= BURNING):
+                res.envelope_misses[HORIZONS[hi]].append(miss)
         # Forecasts whose horizons have now passed.
         for issue, f, unburned in list(pending):
             for h in HORIZONS:
@@ -244,6 +256,8 @@ def run_episode(scenario, net, towns, sched: str, seed: int, ticks: int, every: 
                 pending.remove((issue, f, unburned))
 
     # Routes: was any road on the path burning by the time the bus got there?
+    if res.ledger is not None:
+        res.ledger.clear_pending()  # the next episode is a new fire
     for issue, route, naive in routes_pending:
         if _route_done_by(route, issue) > sim.tick:
             continue  # the bus wouldn't have finished before the episode ended
@@ -321,6 +335,24 @@ def _score_arrivals(f, live_first, unburned, issue, acc: Arrival) -> None:
 
 # --- Report -----------------------------------------------------------------------------
 
+def _envelope_summary(r: Results, h: int) -> dict:
+    """How the online conformal envelope did (#12): its average miss over all
+    scored forecasts and over the second half (after it has adapted), and where
+    its threshold ended up."""
+    m = r.envelope_misses[h]
+    if not m or r.ledger is None:
+        return {}
+    env = r.ledger.envs[HORIZONS.index(h)]
+    half = m[len(m) // 2:]
+    return {
+        "envelope_miss": round(float(np.mean(m)), 3),
+        "envelope_miss_2nd_half": round(float(np.mean(half)), 3),
+        "envelope_scored": len(m),
+        "envelope_threshold": round(env.threshold, 3),
+        "envelope_margin_cells": env.margin,
+    }
+
+
 def summarize(results: dict[str, Results]) -> dict:
     out = {}
     for sched, r in results.items():
@@ -339,6 +371,7 @@ def summarize(results: dict[str, Results]) -> dict:
                 "fnr_at_0.1": round(float(fnr[np.argmin(abs(LAMBDAS - 0.1))]), 3),
                 "fnr_at_0.5": round(float(fnr[np.argmin(abs(LAMBDAS - 0.5))]), 3),
                 "lambda_for_fnr_10pct": float(ok.max()) if len(ok) else None,
+                **_envelope_summary(r, h),
             }
         a = r.arrival
         arrival = {
@@ -437,7 +470,11 @@ def main() -> None:
     p.add_argument("--scenario", default="paradise")
     p.add_argument("--out", help="write the markdown report here")
     p.add_argument("--json", help="write the summary as JSON here")
+    p.add_argument("--envelope-lr", type=float, help="step size of the online conformal envelope (#12)")
     args = p.parse_args()
+    if args.envelope_lr is not None:
+        global ENVELOPE_LR
+        ENVELOPE_LR = args.envelope_lr
 
     scenario = load_scenario(args.scenario)
     net = load_network(scenario.dir, scenario.width, scenario.height)

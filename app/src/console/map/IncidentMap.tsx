@@ -67,7 +67,7 @@ interface Props {
 
 export default function IncidentMap(props: Props) {
   const { scenario, mode, towns, layers, tool, selection } = props;
-  const { simGrid, forecast, routes, units, tokens, recommendations, hello, plan, scenario: live, score } = useEngine();
+  const { simGrid, forecast, envelope, routes, units, tokens, recommendations, hello, plan, scenario: live, score } = useEngine();
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [layersOpen, setLayersOpen] = useState(false);
   const theme = useTheme();
@@ -92,6 +92,7 @@ export default function IncidentMap(props: Props) {
         scenario={scenario}
         simGrid={simGrid}
         forecast={forecast}
+        envelope={envelope}
         style={{ terrain: layers.terrain, contours: layers.contours, forecast: showForecast, dark: theme === "dark" }}
         onClick={click}
         onHover={setHover}
