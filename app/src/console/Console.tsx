@@ -20,7 +20,6 @@ import { useEngineScenario } from "../shared/scenario";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import CommanderPanel from "./CommanderPanel";
 import Decisions from "./Decisions";
-import EvacuationPanel from "./EvacuationPanel";
 import { EventLogPanel } from "./EventLog";
 import { FlameMark } from "./icons";
 import IncidentMap, { type ConsoleMode, type Focus } from "./IncidentMap";
@@ -119,7 +118,6 @@ export default function Console() {
           <TownBoard scenario={scenario} onFocus={focusOn} />
         </Panel>
       )}
-      {mode === "monitor" && <EvacuationPanel onFocus={focusOn} />}
       <Panel title="Units and orders">
         <Resources scenario={scenario} onFocus={focusOn} />
       </Panel>

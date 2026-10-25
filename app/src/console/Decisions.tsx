@@ -1,18 +1,19 @@
 // The decision queue (#122): what the operator should act on now, most urgent
 // first. It's built from what the engine already works out (the town board,
 // crew recommendations, units that can't get through), so every number on a
-// card comes from the simulation. When the evacuation order clock (#121)
-// lands, its "order by" times slot into the evacuation cards.
+// card comes from the simulation. Evacuation cards follow the evacuation order
+// clock (#121): when each town has to be ordered out to empty in time.
 
 import type { ReactNode } from "react";
 import { UNIT_STATUS, orderText } from "../shared/dispatch";
-import { acceptRecommendation, useEngine } from "../shared/engine";
+import { acceptRecommendation, orderEvacuation, useEngine } from "../shared/engine";
 import type { Recommendation, Token, TownThreat } from "../shared/protocol";
 import { aboutMinutes, describeLocation } from "../shared/places";
 import type { Scenario } from "../shared/scenario";
 import { ORDER_STYLE, TOKEN_STYLE } from "../shared/tokens";
 import { addToken } from "../shared/virtualTokens";
 import { REC_COLOR } from "../render/routes";
+import { evacHeadline, evacNeed, evacSafe, orderByLeft } from "./evac";
 import { Button } from "./ui";
 
 type Level = "now" | "soon" | "consider" | "info";
@@ -41,43 +42,114 @@ interface Props {
   onTryInPlan: (rec: Recommendation) => void;
 }
 
-// A town is worth an evacuation card when at least this share of the
-// simulations reach it within the hour.
+// Before the order clock's long forecast lands, a town is worth an evacuation
+// card when at least this share of the simulations reach it within the hour.
 const EVAC_SHARE = 0.25;
 
 export default function Decisions({ scenario, onFocus, onTryInPlan }: Props) {
-  const { situation, recommendations, tokens, units, simGrid } = useEngine();
+  const { situation, evacClock, hello, recommendations, tokens, units, simGrid } = useEngine();
   const burning = !!simGrid && simGrid.payload.includes(2);
-  const towns = new Map(scenario.towns.map((t) => [t.name, t]));
   const decisions: Decision[] = [];
 
-  for (const t of situation?.towns ?? []) {
-    const town = towns.get(t.town);
-    if (!town) continue;
-    const share = t.within_60 ? t.within_60.k / Math.max(1, t.within_60.n) : 0;
-    if (!t.fire_inside && share < EVAC_SHARE) continue;
+  const threats = new Map((situation?.towns ?? []).map((t) => [t.town, t]));
+  const clocks = new Map((evacClock?.towns ?? []).map((t) => [t.town, t]));
+  const now = simGrid?.tick ?? evacClock?.tick ?? 0;
+  const mpt = hello?.sim_minutes_per_tick ?? 1;
+
+  for (const town of scenario.towns) {
+    const t = threats.get(town.name);
+    const c = clocks.get(town.name);
     const show = (
       <Button variant="ghost" className="h-7" onClick={() => onFocus(town.x, town.y)}>
         Show
       </Button>
     );
-    if (t.route_status === "cut") {
+    const busOnScene = tokens.some(
+      (k) => k.token_type === "bus" && Math.hypot(k.x - town.x, k.y - town.y) <= town.radius,
+    );
+    // A bus carries people out alongside the order's cars.
+    const bus = busOnScene ? (
+      <span className="flex h-7 items-center justify-center rounded-lg bg-emerald-500/10 px-3 text-[11px] text-emerald-300">
+        Bus on scene
+      </span>
+    ) : (
+      <Button className="h-7" title="Send an evacuation bus" onClick={() => addToken("bus", town.x, town.y, scenario)}>
+        Send bus
+      </Button>
+    );
+
+    if (t?.route_status === "cut" || c?.status === "trapped") {
+      if (c?.status === "clear") continue;
+      const people = c?.people ?? t?.population ?? 0;
       decisions.push({
-        key: `cut-${t.town}`,
+        key: `cut-${town.name}`,
         level: "now",
-        minutes: t.soonest_min ?? 0,
-        title: `No safe way out of ${t.town}`,
+        minutes: t?.soonest_min ?? 0,
+        title: `No safe way out of ${town.name}`,
         body: (
           <>
-            Every route out is cut or will burn before traffic gets through. {t.population.toLocaleString()} residents.
-            Shelter in place, or send a crew to hold a road open. <Arrival t={t} />
+            Every route out is cut or will burn before traffic gets through. {people.toLocaleString()} residents.
+            Shelter in place, or send a crew to hold a road open. {t && <Arrival t={t} />}
           </>
         ),
         actions: show,
       });
       continue;
     }
-    const bus = tokens.find((k) => k.token_type === "bus" && Math.hypot(k.x - town.x, k.y - town.y) <= town.radius);
+
+    // The order clock decides once its long forecast is in; until then, fall
+    // back to the hour-ahead forecast so a fast fire still gets a card.
+    if (c && (c.order_by_tick !== null || c.status === "evacuating")) {
+      const ordered = c.ordered_tick !== null;
+      const level: Level | null =
+        c.status === "late" || c.status === "order_now"
+          ? "now"
+          : c.status === "order_soon"
+            ? "soon"
+            : c.status === "evacuating"
+              ? "info"
+              : null;
+      if (level === null) continue;
+      const need = ordered ? null : evacNeed(c); // an evacuating town's headline already says it
+      const safe = evacSafe(c);
+      decisions.push({
+        key: `evac-${town.name}`,
+        level,
+        minutes: ordered
+          ? ((c.last_car_out_tick ?? now) - now) * mpt
+          : (orderByLeft(c, now, mpt) ?? 0),
+        title: ordered ? `${town.name} is evacuating` : `Order ${town.name} to evacuate`,
+        body: (
+          <>
+            <span className="text-fg">{evacHeadline(c, now, mpt)}</span> {need}{" "}
+            {c.shares_with.length > 0 && (
+              <span className="text-amber-300">Shares exit roads with {c.shares_with.join(", ")}. </span>
+            )}
+            {safe}
+          </>
+        ),
+        actions: (
+          <>
+            {ordered ? (
+              <Button className="h-7 flex-1" onClick={() => orderEvacuation(town.name, false)}>
+                Cancel order
+              </Button>
+            ) : (
+              <Button variant="primary" className="h-7 flex-1" onClick={() => orderEvacuation(town.name, true)}>
+                Order evacuation
+              </Button>
+            )}
+            {bus}
+            {show}
+          </>
+        ),
+      });
+      continue;
+    }
+
+    if (!t) continue;
+    const share = t.within_60 ? t.within_60.k / Math.max(1, t.within_60.n) : 0;
+    if (!t.fire_inside && share < EVAC_SHARE) continue;
     decisions.push({
       key: `evac-${t.town}`,
       level: t.fire_inside || (t.soonest_min ?? Infinity) <= 30 ? "now" : "soon",
@@ -97,15 +169,10 @@ export default function Decisions({ scenario, onFocus, onTryInPlan }: Props) {
       ),
       actions: (
         <>
-          {bus ? (
-            <span className="flex h-7 flex-1 items-center justify-center rounded-lg bg-emerald-500/10 text-[11px] text-emerald-300">
-              Bus on scene
-            </span>
-          ) : (
-            <Button variant="primary" className="h-7 flex-1" onClick={() => addToken("bus", town.x, town.y, scenario)}>
-              Send evac bus
-            </Button>
-          )}
+          <Button variant="primary" className="h-7 flex-1" onClick={() => orderEvacuation(town.name, true)}>
+            Order evacuation
+          </Button>
+          {bus}
           {show}
         </>
       ),
@@ -167,7 +234,7 @@ export default function Decisions({ scenario, onFocus, onTryInPlan }: Props) {
         {burning
           ? situation?.forecast_tick == null
             ? "Running the first forecast…"
-            : "Nothing needs a decision right now. No town is likely to see fire within the hour."
+            : "Nothing needs a decision right now. No evacuation order is due, and no town is likely to see fire within the hour."
           : "No active fire."}
       </p>
     );

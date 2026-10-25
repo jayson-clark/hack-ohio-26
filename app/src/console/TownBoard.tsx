@@ -1,7 +1,7 @@
 // Every town at a glance (#122): how soon fire could get there, how likely it
-// is within the hour, and whether its way out is open. Sorted so the towns in
-// the most danger are on top. Numbers come from the engine's situation
-// message, one Monte Carlo forecast at a time.
+// is within the hour, when its evacuation order is due (#121), and whether its
+// way out is open. Sorted so the towns in the most danger are on top. Numbers
+// come from the engine's situation and evac_clock messages.
 
 import { useEffect, useRef, useState } from "react";
 import { useEngine } from "../shared/engine";
@@ -9,6 +9,7 @@ import type { TownThreat } from "../shared/protocol";
 import { aboutMinutes } from "../shared/places";
 import type { Scenario } from "../shared/scenario";
 import { ROUTE_COLORS } from "../render/routes";
+import { EVAC_COLOR, evacHeadline, evacShort } from "./evac";
 
 const ROUTE_TEXT = { clear: "Clear", risky: "At risk", cut: "Cut off" } as const;
 const HIGHLIGHT_MS = 8000;
@@ -19,10 +20,13 @@ function urgency(t: TownThreat): number {
 }
 
 export default function TownBoard({ scenario, onFocus }: { scenario: Scenario; onFocus: (x: number, y: number) => void }) {
-  const { situation } = useEngine();
+  const { situation, evacClock, simGrid, hello } = useEngine();
   const towns = [...(situation?.towns ?? [])].sort((a, b) => urgency(a) - urgency(b));
   const rerouted = useRerouted(situation?.towns);
   const where = new Map(scenario.towns.map((t) => [t.name, t]));
+  const clocks = new Map((evacClock?.towns ?? []).map((c) => [c.town, c]));
+  const now = simGrid?.tick ?? evacClock?.tick ?? 0;
+  const mpt = hello?.sim_minutes_per_tick ?? 1;
   if (towns.length === 0) return <p className="py-2 text-[11px] text-fg-subtle">This scenario has no towns.</p>;
 
   return (
@@ -40,6 +44,8 @@ export default function TownBoard({ scenario, onFocus }: { scenario: Scenario; o
       <tbody>
         {towns.map((t) => {
           const at = where.get(t.town);
+          const c = clocks.get(t.town);
+          const evac = c && evacShort(c, now, mpt);
           return (
             <tr
               key={t.town}
@@ -49,6 +55,11 @@ export default function TownBoard({ scenario, onFocus }: { scenario: Scenario; o
               <td className="py-1.5 pr-1">
                 <div className="truncate text-fg">{t.town}</div>
                 <div className="font-mono text-[10px] tabular-nums text-fg-subtle">{t.population.toLocaleString()} ppl</div>
+                {c && evac && (
+                  <div className="truncate text-[10px]" style={{ color: EVAC_COLOR[c.status] }} title={evacHeadline(c, now, mpt)}>
+                    {evac}
+                  </div>
+                )}
               </td>
               <td className="py-1.5 pr-1 font-mono tabular-nums">
                 <FireIn t={t} />
