@@ -10,6 +10,7 @@ import { send, useEngine } from "../shared/engine";
 import { SCENARIOS, useEngineScenario, type Scenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
 import { removeToken, type PlaceType } from "../shared/virtualTokens";
+import { isTauri } from "../platform";
 import { DEFAULT_LAYERS, type Layers } from "../render/projection";
 import type { CameraCommand } from "../render/TableView";
 import { EventAlerts } from "../console/EventLog";
@@ -61,14 +62,17 @@ export default function Control() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge px-4">
-        <div className="flex items-center gap-2">
+      <header
+        data-tauri-drag-region
+        className={`flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge pr-4 ${isTauri ? "pl-[88px]" : "pl-4"}`}
+      >
+        <div data-tauri-drag-region className="flex items-center gap-2">
           <FlameMark size={24} />
           <span className="text-[15px] font-semibold tracking-tight text-ink">Fireline</span>
           <span className="rounded-full bg-accent-soft px-2 text-[11px] font-medium leading-5 text-accent">Exercise control</span>
         </div>
         {scenario && <ScenarioPicker scenario={scenario} />}
-        <div className="flex-1" />
+        <div data-tauri-drag-region className="h-full flex-1" />
         <SimControls state={state} />
         <FireStats scenario={scenario} simGrid={simGrid} />
         <div className="h-5 w-px bg-edge" />
