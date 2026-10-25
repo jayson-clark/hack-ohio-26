@@ -26,7 +26,8 @@ from commander.listen import speakable
 from commander.tools import CommanderTools
 from forecast.plan import PLAN_ROLLOUTS, PlanOutcome, evaluate_plan
 from forecast.recommend import PlacedCrew, Rec, Recommender, TownInfo, describe
-from forecast.runner import EVAC_HORIZON_MIN, HORIZONS_MIN, Forecast, Forecaster, LongForecast, LongForecaster
+from forecast.runner import (EVAC_HORIZON_MIN, HORIZONS_MIN, N_ROLLOUTS, Forecast, Forecaster, LongForecast,
+                             LongForecaster, horizon_ticks)
 from protocol import (
     AcceptRecommendation,
     CalibrationStep,
@@ -39,6 +40,7 @@ from protocol import (
     EvacStatus,
     EvaluatePlan,
     Event,
+    ForecastEnvelope,
     EventKind,
     Events,
     Hello,
@@ -95,7 +97,8 @@ from routing.tracker import RouteTracker
 from routing.roads import load_network
 from scenario import ASSETS, load_scenario
 from sim.effects import CREW_RADIUS, SuppressionSchedule, TokenEffects
-from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
+from sim.fire import BURNING, FUEL, SIM_MINUTES_PER_TICK, FireSim, Wind
+from uq.conformal import EnvelopeLedger
 from uq.mc import wilson
 from sim.dispatch import Dispatcher
 from sim.game import Game, GameTown
@@ -119,6 +122,10 @@ TICK_HZ = 10
 # Don't restart the forecaster more often than this, or a map with no fire
 # (where a forecast is instant) would round-trip the worker every tick.
 FORECAST_MIN_TICKS = 3
+# Starting cutoffs for the calibrated burn envelope at T+30 and T+60 (#12):
+# about where the online update settled in eval.run (steady 0.27/0.32, wind
+# shift 0.17/0.06, gusty 0.06 plus a margin).
+ENVELOPE_WARM = (0.2, 0.15)
 PREVIEW_MIN_TICKS = 5  # engine ticks (0.5 s) between emulator previews (#113)
 
 
@@ -227,6 +234,10 @@ class Engine:
         self.scenario = load_scenario(name)
         s = self.scenario
         self.virtual = VirtualTable(self.tracker, s.width, s.height)
+        # The calibrated burn envelope learns per scenario (#12): a new map is a
+        # new distribution, so it starts again from the warm start.
+        self.envelope = EnvelopeLedger(tuple(horizon_ticks(m) for m in HORIZONS_MIN), ENVELOPE_WARM, N_ROLLOUTS)
+        self._envelope_dirty = False
         # The camera's homography is per scenario; stop the old capture thread
         # rather than leaving it running beside the new one.
         if self.camera is not None:
@@ -358,6 +369,18 @@ class Engine:
     def routes_msg(self) -> str:
         return routes_message(self.routes, self._routes_tick).model_dump_json()
 
+    def envelope_msg(self) -> str:
+        envs = self.envelope.envs
+        return ForecastEnvelope(
+            horizons_min=list(HORIZONS_MIN),
+            threshold=[round(e.threshold, 3) for e in envs],
+            margin_cells=[e.margin for e in envs],
+            target_miss=envs[0].alpha,
+            miss_recent=[None if e.miss_recent is None else round(e.miss_recent, 3) for e in envs],
+            miss_overall=[None if e.miss_overall is None else round(e.miss_overall, 3) for e in envs],
+            scored=[e.scored for e in envs],
+        ).model_dump_json()
+
     def recs_msg(self) -> str:
         return Recommendations(tick=self._recs_tick, recommendations=self.recs).model_dump_json()
 
@@ -429,6 +452,7 @@ class Engine:
                 await ws.send(self.routes_msg())
                 await ws.send(self.clock_msg())
             await ws.send(self.recs_msg())
+            await ws.send(self.envelope_msg())
             await ws.send(self.units_msg())
             await ws.send(self.situation_msg())
             if self.recent_events:
@@ -579,6 +603,7 @@ class Engine:
     def reset_map(self) -> None:
         """Put the fire out, drop everything derived from it, and tell the UI."""
         self.fire.reset()
+        self.envelope.clear_pending()  # in-flight envelopes were about the old fire; keep what was learned
         self.effects.reset()
         self._fire_epoch += 1
         self._forecast_started = -FORECAST_MIN_TICKS
@@ -683,9 +708,14 @@ class Engine:
             self._acting = self.dispatcher.update(tokens, self.fire.tick, self.fire.wind.speed_ms, closed)
             self.fire.set_suppression(self.effects.update(self._acting, self.fire.tick))
             self.fire.step()
+            if self.envelope.mature(self.fire.tick, self.fire.state >= BURNING):
+                self._envelope_dirty = True
             self.check_road_cuts()
             self.score_step(tokens)
         broadcast(self.clients, self.sim_grid_frame())
+        if self._envelope_dirty:
+            self._envelope_dirty = False
+            broadcast(self.clients, self.envelope_msg())
         self.flush_dispatch()
         self.maybe_forecast()
         self.maybe_long_forecast()
@@ -724,6 +754,10 @@ class Engine:
         if epoch != self._fire_epoch:
             return
         self.latest_forecast = job.result()
+        # Remember this forecast's envelopes, to score them when their horizons pass (#12).
+        f = self.latest_forecast
+        self.envelope.issue(f.tick, f.probability, self.fire.state >= BURNING, self.fire.state == FUEL)
+        broadcast(self.clients, self.envelope_msg())
         if self._preview is not None and self._preview[0] <= self.latest_forecast.tick:
             self._preview = None  # Monte Carlo has caught up
         broadcast(self.clients, self.forecast_frame())

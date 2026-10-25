@@ -7,6 +7,7 @@ import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type 
 import * as THREE from "three";
 import type { BinaryFrame } from "../../shared/binary";
 import type { ForecastGrids } from "../../shared/engine";
+import type { ForecastEnvelope } from "../../shared/protocol";
 import type { Scenario } from "../../shared/scenario";
 import { createCartoMap, type CartoMap, type CartoStyle } from "../../render/carto";
 import { mountViewport } from "../../render/viewport";
@@ -28,6 +29,8 @@ interface Props {
   scenario: Scenario;
   simGrid: BinaryFrame | null;
   forecast: ForecastGrids | null;
+  /** The calibrated envelope's cutoffs (#12); null draws the plain 50% edges. */
+  envelope?: ForecastEnvelope | null;
   style: CartoStyle;
   /** A click (not a drag) on the map itself, in map cells. */
   onClick?: (x: number, y: number) => void;
@@ -41,7 +44,7 @@ const DRAG_PX = 4;
 const MAX_ZOOM = 14; // times the fitted scale
 
 export default function MapView(props: Props) {
-  const { scenario, simGrid, forecast, style } = props;
+  const { scenario, simGrid, forecast, envelope = null, style } = props;
   const host = useRef<HTMLDivElement>(null);
   const svg = useRef<SVGSVGElement>(null);
   const carto = useRef<CartoMap | null>(null);
@@ -151,7 +154,7 @@ export default function MapView(props: Props) {
   }, [scenario]);
 
   useEffect(() => carto.current?.setFire(simGrid), [simGrid, scenario]);
-  useEffect(() => carto.current?.setForecast(forecast), [forecast, scenario]);
+  useEffect(() => carto.current?.setForecast(forecast, envelope), [forecast, envelope, scenario]);
   useEffect(() => carto.current?.setStyle(style), [style.terrain, style.contours, style.forecast, style.dark, scenario]);
 
   // Wheel and trackpad: zoom about the cursor (pinch arrives as ctrl+wheel).

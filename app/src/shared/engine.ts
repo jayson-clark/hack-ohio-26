@@ -10,6 +10,7 @@ import type {
   CommanderMessage,
   EngineMessage,
   EvacClock,
+  ForecastEnvelope,
   Event,
   Hello,
   PlanOrder,
@@ -66,6 +67,8 @@ export interface EngineState {
   routes: RouteInfo[];
   /** When each town has to be ordered out (#121), most urgent first. */
   evacClock: EvacClock | null;
+  /** The calibrated burn envelope's cutoffs and running miss rates (#12). */
+  envelope: ForecastEnvelope | null;
   /** Fire units (#104): where each is, and its route and ETA while en route. */
   units: UnitInfo[];
   /** Recent events, oldest first. Cleared on reconnect. */
@@ -100,6 +103,7 @@ let state: EngineState = {
   forecast: null,
   routes: [],
   evacClock: null,
+  envelope: null,
   units: [],
   events: [],
   recommendations: [],
@@ -134,6 +138,7 @@ function handleMessage(msg: EngineMessage) {
           forecast: null,
           routes: [],
           evacClock: null,
+          envelope: null,
           units: [],
           events: [],
           recommendations: [],
@@ -160,6 +165,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "evac_clock":
       setState({ evacClock: msg });
+      break;
+    case "forecast_envelope":
+      setState({ envelope: msg });
       break;
     case "recommendations":
       setState({ recommendations: msg.recommendations });
