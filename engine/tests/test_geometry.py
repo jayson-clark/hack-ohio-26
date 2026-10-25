@@ -4,7 +4,7 @@ import pytest
 
 from scenario import load_scenario
 from vision.calibration import BoardHomography
-from vision.geometry import CAMERA_FOCAL, Surface, Viewpoint, onto_surface, projector_from_env, to_plane
+from vision.geometry import CAMERA_FOCAL, Surface, Viewpoint, onto_surface, orthophoto_remap, projector_from_env, to_plane
 from vision.markers import CORNER_IDS, Detection
 from vision.projector import (
     PATTERN_SIZE,
@@ -225,3 +225,101 @@ def test_find_dots_finds_each_dot_centre():
     got = find_dots(seen, want + np.array([9.0, -7.0]))
     assert not np.isnan(got).any()
     assert np.abs(got - want).max() < 0.5
+
+
+def test_orthophoto_without_a_pose_is_the_flat_homography(scenario, surface):
+    # No camera pose: the remap is just map cells -> camera px through the
+    # plane homography, with no terrain correction.
+    cam = Camera(scenario.terrain["grid"]["cell_size_mm"])
+    board = BoardHomography(scenario)
+    board.update(corner_detections(scenario, cam), FRAME)
+    out_size = (320, 240)
+    flat = orthophoto_remap(board.cam_to_map, None, surface, out_size)
+    assert flat.shape == (240, 320, 2)
+
+    # Each output pixel's cell centre, pushed through the inverse homography,
+    # is exactly what the table stored.
+    sx, sy = board.width / out_size[0], board.height / out_size[1]
+    xs = (np.arange(out_size[0]) + 0.5) * sx
+    ys = (np.arange(out_size[1]) + 0.5) * sy
+    gx, gy = np.meshgrid(xs, ys)
+    ground = np.column_stack([gx.ravel(), gy.ravel()]).astype(np.float32)
+    want = cv2.perspectiveTransform(ground.reshape(-1, 1, 2), np.linalg.inv(board.cam_to_map)).reshape(-1, 2)
+    assert np.abs(flat.reshape(-1, 2) - want).max() < 1e-2
+
+
+def test_orthophoto_corrects_terrain_lean(scenario, surface):
+    # With the camera pose, the ortho pixel over a ground point samples the
+    # camera exactly where that surface point was seen (cam.px at its height),
+    # so hills stop leaning outward.
+    cam = Camera(scenario.terrain["grid"]["cell_size_mm"])
+    board = BoardHomography(scenario)
+    assert board.update(corner_detections(scenario, cam), FRAME)
+    assert board.camera is not None
+    out_size = (512, 384)
+    table = board.orthophoto_remap(out_size)
+    assert table is not None and table.shape == (384, 512, 2)
+
+    rng = np.random.default_rng(7)
+    cells = rng.uniform([12, 12], [244, 180], (60, 2))
+    px = board.map_to_ortho(cells, out_size)
+    sampled = table[px[:, 1].astype(int), px[:, 0].astype(int)]
+    # Sample the output-pixel cell centres, not the jittered input, so compare
+    # the truth at those same centres.
+    centres = px / [out_size[0] / board.width, out_size[1] / board.height]
+    want = cam.px(centres, surface.at(centres))
+    assert np.abs(sampled - want).max() < 1.5  # camera px
+
+    # And it genuinely differs from the uncorrected (flat) remap where there's
+    # relief: the whole point of the correction.
+    flat = orthophoto_remap(board.cam_to_map, None, surface, out_size)
+    flat_sampled = flat[px[:, 1].astype(int), px[:, 0].astype(int)]
+    relief = surface.at(centres) > surface.floor + 20
+    assert np.linalg.norm(sampled - flat_sampled, axis=1)[relief].max() > 3  # px, the lean taken out
+
+
+def test_orthophoto_rectifies_a_synthetic_frame(scenario, surface):
+    # Paint dots at known map cells into a fake camera image (through the real
+    # camera projection, lifted onto the terrain), rectify, and check each dot
+    # lands at its map-cell pixel in the top-down view.
+    cam = Camera(scenario.terrain["grid"]["cell_size_mm"])
+    board = BoardHomography(scenario)
+    board.update(corner_detections(scenario, cam), FRAME)
+    frame = np.zeros((FRAME[1], FRAME[0], 3), np.uint8)
+    marks = np.array([[60, 50], [200, 50], [200, 150], [60, 150], [128, 96]], float)
+    seen = cam.px(marks, surface.at(marks))
+    for p in seen:
+        cv2.circle(frame, (round(p[0]), round(p[1])), 8, (255, 255, 255), -1)
+
+    out_size = (512, 384)
+    table = board.orthophoto_remap(out_size)
+    ortho = cv2.remap(frame, table[..., 0], table[..., 1], cv2.INTER_LINEAR)
+    want = board.map_to_ortho(marks, out_size)
+    for p in want:
+        patch = ortho[max(0, int(p[1]) - 10):int(p[1]) + 10, max(0, int(p[0]) - 10):int(p[0]) + 10]
+        assert patch.max() > 200  # the dot rectified to its map cell
+        ys, xs = np.where(patch[..., 0] > 128)
+        cx = xs.mean() + max(0, int(p[0]) - 10)
+        cy = ys.mean() + max(0, int(p[1]) - 10)
+        assert abs(cx - p[0]) < 4 and abs(cy - p[1]) < 4  # px, centred on the cell
+
+
+def test_steady_ortho_holds_through_jitter_but_follows_a_bump(scenario):
+    from vision.camera import ORTHO_DEADBAND_PX, SteadyOrtho
+
+    cam = Camera(scenario.terrain["grid"]["cell_size_mm"])
+    board = BoardHomography(scenario)
+    steady = SteadyOrtho(480)
+    dets = corner_detections(scenario, cam)
+    rng = np.random.default_rng(5)
+    for _ in range(20):  # corner detections wobbling by a fraction of a pixel
+        wobble = [Detection(d.id, d.corners + rng.normal(0, 0.3, d.corners.shape).astype(np.float32)) for d in dets]
+        board.update(wobble, FRAME)
+        first = steady.update(board) if steady.table is None else first
+        assert steady.update(board) is first
+    assert steady.rebuilds == 1
+
+    # The camera bumped: every corner moves well past the deadband.
+    shift = np.float32([4 * ORTHO_DEADBAND_PX, 0])
+    board.update([Detection(d.id, d.corners + shift) for d in dets], FRAME)
+    assert steady.update(board) is not first and steady.rebuilds == 2

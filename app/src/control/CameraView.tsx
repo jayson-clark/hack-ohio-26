@@ -1,5 +1,8 @@
-// The webcam as the engine sees it: camera_frame JPEGs with the vision
-// overlay (markers, map outline, placed tokens) already drawn in by the engine.
+// The webcam as the engine sees it. Once the board is locked, the engine sends
+// a top-down orthophoto: the frame rectified and cropped to the map grid, with
+// terrain lean corrected, so it reads like overhead footage and lines up with
+// the console map. Before the lock it's the raw frame with the vision overlay
+// (markers, map outline, placed tokens) drawn in.
 
 import { useEffect, useState } from "react";
 import type { BinaryFrame } from "../shared/binary";

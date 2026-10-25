@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 from scenario import Scenario
-from vision.geometry import Surface, Viewpoint, camera_viewpoint, onto_surface
+from vision.geometry import Surface, Viewpoint, camera_viewpoint, onto_surface, orthophoto_remap
 from vision.markers import CORNER_IDS, Detection
 
 log = logging.getLogger("vision")
@@ -75,3 +75,21 @@ class BoardHomography:
         w, h = self.width, self.height
         rect = np.array([[0, 0], [w, 0], [w, h], [0, h]], np.float32).reshape(-1, 1, 2)
         return cv2.perspectiveTransform(rect, np.linalg.inv(self.cam_to_map)).reshape(-1, 2)
+
+    def orthophoto_remap(self, out_size: tuple[int, int]) -> np.ndarray | None:
+        """A cv2.remap table (h, w, 2) that rectifies the camera frame to a
+        top-down view of the whole board at `out_size` (width, height) px, or
+        None if there's no board lock yet. Uses the camera pose when it has one,
+        so hills don't lean outward."""
+        if self.cam_to_map is None:
+            return None
+        return orthophoto_remap(self.cam_to_map, self.camera, self.surface, out_size)
+
+    def map_to_ortho(self, pts: np.ndarray, out_size: tuple[int, int]) -> np.ndarray:
+        """(n, 2) map coords -> (n, 2) pixels in an orthophoto of `out_size`
+        (width, height). The straight scale from cells to output pixels, so
+        tokens and places drawn here land where the rectified terrain shows
+        them."""
+        pts = np.asarray(pts, np.float64).reshape(-1, 2)
+        out_w, out_h = out_size
+        return (pts * [out_w / self.width, out_h / self.height]).astype(np.float32)
