@@ -1,6 +1,6 @@
 # Demo video takes
 
-The console footage for the demo video, as scripts. Each `takes/*.take` file is one segment: it sets up the engine, preps the console off camera, records its scenes with Recordly (which drives the real mouse and keyboard), then adds zooms and exports. Edit a line, re-run that take, and commit the change. The shot list and voiceover are in [`SCRIPT.md`](SCRIPT.md); these files are only the screen recordings.
+The console footage for the demo video, as scripts. The video itself (lines, timing, shots) is `SCRIPT.md`; `make prompter` plays it as a karaoke prompter for the voiceover. Each `takes/*.take` file is one segment: it sets up the engine, preps the console off camera, records its scenes with Recordly (which drives the real mouse and keyboard), then adds zooms and exports. Edit a line, re-run that take, and commit the change. The shot list and voiceover are in [`SCRIPT.md`](SCRIPT.md); these files are only the screen recordings.
 
 ```sh
 make engine && make web            # in two terminals; Recordly open, agent control on

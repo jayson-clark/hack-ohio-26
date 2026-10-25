@@ -1,82 +1,96 @@
-# Demo video: script and shot flow (3:00)
+# Demo video script (3:00)
 
-The plan for the submission video. The console footage comes from the takes in `takes/` (see `README.md`). The table and agent-board shots are filmed by hand (shot list below). **This is a draft for review.** Comment on the PR or reply on the agent board (`#general`, "demo video script").
+One script to read from. The read-along table below is the video's clock: the narrator records the voiceover to it with the prompter, and the editor drops each shot into its slot. The footage comes from the takes in `takes/` (see `README.md`) plus a phone shot of the table.
 
-## The idea in one line
+```sh
+make prompter     # http://127.0.0.1:8792/prompter.html: Space starts, words fill in time
+```
 
-Fireline turns a wildfire forecast into the operator's decisions: who to evacuate, where to send crews, and what each choice buys.
+**Tone.** Present it like a thesis talk, not a trailer: the question, how the system answers it, how well that holds up, and where it doesn't. Every number is in "Claims and sources" with where it comes from. If a number changes, change it there and in the line.
 
-## Rules we're following
+## Read-along
 
-These come from organizer guidelines and screencast practice; sources are in the PR.
+Times are in the final cut. A line's words fill evenly between its start and end; the gaps between lines are breaths. Pace is about 135 words a minute. `A·2` means take A, scene 2.
 
-- **The product is on screen within 10 s.** No team slide or logo up front.
-- **About 55% of the runtime is the live console.** It plays as one continuous incident (the Camp Fire), not a feature tour.
-- **The voiceover is a real human voice, about 400 words at roughly 140 wpm.** No TTS. Music is optional and kept well under the voice.
-- **Narrate what the viewer can't see** (why it matters, how it's computed), not "now I click Dispatch".
-- **Never speed footage up silently.** The sim speed is the badge in the top-right corner, and the takes already show it. Cut waits rather than speeding them up.
-- **Zooms:**
-  - Open each segment wide for about 2 s so the viewer gets their bearings.
-  - Then zoom 2.2× (depth 4) on the region the voiceover is about, or 3.5× (depth 5) to read a single card.
-  - Move between nearby targets with a pan, not by zooming out and back in.
-  - Hold each zoom at least as long as its sentence.
-- **Burn in captions.** Many judges watch muted. Keep them to two lines and about 17 characters a second.
-- **Use one concrete number per claim and name the model.** Avoid vague AI language.
+| Start | End | Picture | Line | On screen |
+|---|---|---|---|---|
+| 0:00 | 0:08 | `A·1` wide: the fire leaving Pulga | Fireline is decision support for wildfire incident command. This is a replay of the 2018 Camp Fire. | Lower third: Fireline |
+| 0:08 | 0:15 | `A·1`: zoom on the fire and its forecast bands | It started near Pulga, California, under a north-easterly wind of about nineteen metres per second. | Badge: 0.5× |
+| 0:16 | 0:29 | `A·2`: Paradise's inspector, past its latest safe order time | We asked a narrow question: what is the latest time each town can be ordered out, with the last car clear of the fire in nine runs out of ten? | |
+| 0:30 | 0:40 | Phone: the table, wide and locked off, the fire spreading | To test it on something physical, we built a stand-in for aerial footage: a 3D-printed model of the terrain under a projector. | Lower third: Physical table, standing in for drone footage |
+| 0:41 | 0:49 | Split, synced on the slate: phone (left), `F·2` camera view (right) | The projector paints the simulated fire, and an overhead camera films it, as a drone would. | Labels: The table · What the camera sees |
+| 0:50 | 0:58 | `F·3`: forecast, routes and towns come on; `F·4`: the console, Map then Drone | Fireline draws its forecast, routes and towns over that photo, and the console uses the same feed. | |
+| 0:59 | 1:07 | `F·5`: the console's map on the drone photo, the bands around the fire | The forecast is thirty-two runs of a cellular fire model on real terrain, fuel and wind. | |
+| 1:08 | 1:17 | `A·1`, later: the bands growing toward Concow | Its outline is recalibrated as the fire burns, aiming for at most one acre in ten of new fire outside it. | |
+| 1:18 | 1:28 | `B1`: the queue's first card, read close | For each town, the clock compares the fire's arrival in each run with the time to drain its cars through the tightest exit. | Badge: 0.25× |
+| 1:29 | 1:37 | `B1`: Order evacuation; the queue re-sorts; the drafted alert | The card reports how often the last car gets out first, and the order drafts the public alert. | |
+| 1:38 | 1:50 | `B2·1` the crew recommendation, `B2·2` Dispatch and the drive-in | Crew recommendations compare runs with and without the crew, from real stations, and appear only when the low end of the confidence interval still saves ground. | Badge: 0.25× → 1× |
+| 1:51 | 1:58 | `C·1`: the wind slider swings east | Plan mode tries a scenario before committing to it: here, the wind turning east. | Badge: Paused · planning |
+| 1:59 | 2:08 | `C·2`: crews, a dozer line, the green saved area and the outcome numbers | The plan and doing nothing share the same random draws, so the green area is the plan's effect, not chance. | |
+| 2:09 | 2:21 | `D·1` the road cut and replan at 2×, `D·2` the commander's dock | When fire closes a road, routes and clocks are recomputed. Claude Haiku drafts the briefings, and a draft is kept only if its numbers all come from the engine. | Badge: 2× |
+| 2:22 | 2:34 | Card: results, over `E·3` Review dimmed | We checked it against the real fire. On NIST's timeline, the clock called for all four towns the fire reached at its first forecast, before the real deadline. | 4 of 4 towns flagged at first forecast, 5–48 min early |
+| 2:35 | 2:45 | Card, next row | The fire model is weaker: perimeter overlap of 0.35 and 0.46, at two to two and a half times the area. | Camp Fire IoU 0.35 / 0.46 at 7.1 h / 11.5 h, 2.0–2.6× the area |
+| 2:46 | 2:55 | Card, last rows | Its uncertainty covers the simulator, not its error against real fires, and after a wind shift it overstates crew benefit. | Forecast outline misses 11–13% (target 10%) · Crew benefit after a shift: predicted 3.4× realized |
+| 2:56 | 3:00 | Phone: the table, slow push-in → end card | Fireline: forecasts turned into decisions, with the limits stated. | End card: Fireline · team · repo URL |
 
-## Timeline
+## Recording the voiceover
 
-Times are in the final cut. "Take" names a file in `takes/`, and `A·1` means take A, scene 1. VO is the voiceover. The VO comes to about 410 words (about 2:57 at 140 wpm, so trim it if the read runs long); time it read aloud and cut lines before speeding anything up.
+1. `make prompter` and open the link. Put it on a second screen at eye level.
+2. Start the audio recording (QuickTime: File → New Audio Recording, or a phone), then press Space. The prompter counts in 3-2-1, then runs the clock.
+3. Read the highlighted line. Its words fill in time with the cut, so keep pace with the fill rather than running ahead. If you fall behind, pause at the next gap (Space), breathe and resume. The gaps are there for that.
+4. If one line goes wrong, re-record just that line: ← and → step between lines, and each line starts at its own time, so it drops back into its slot.
+5. The prompter's **Captions** button downloads the lines as an `.srt` with the same times, for burned-in captions (many judges watch muted).
 
-| Time | Picture | VO | On screen |
-|---|---|---|---|
-| **0:00–0:12** Cold open | `A·1`: the fire leaves Pulga, wide for 2 s, then 2.2× on the fire and its forecast bands | "November 8th, 2018. A fire starts near Pulga, California. By nightfall it has burned through Paradise and killed 85 people." | Caption only. No title yet |
-| **0:12–0:24** The problem | `A·2`: Paradise's inspector, "3h 45m past the latest safe order time" | "Paradise needed almost eight hours to evacuate. By the time anyone saw the fire, that order was already late. Commanders make these calls from radio traffic and paper maps." | Title card at 0:22, 1.5 s: **Fireline**, "wildfire decisions, ahead of the fire" |
-| **0:24–0:34** The world | **Table, wide**: the projector paints the live fire on the 3D-printed terrain | "This is our stand-in for the real world: a 3D-printed model of the Camp Fire's terrain. The projector paints the live fire, and the camera above it plays the drone." | Lower third: "Physical table: stands in for drone footage" |
-| **0:34–0:48** Forecast | `A·1` again, later in the take: bands growing toward Concow | "Fireline runs 32 fire simulations every few seconds, on real terrain, fuel and wind. The bands are where the fire will likely be in 30 and 60 minutes, calibrated as it runs, so about one acre in ten that burns falls outside them." | |
-| **0:48–1:00** Decide: evacuate | `B1`: 3.5× on the queue's first card, Order evacuation, the queue re-sorts (Paradise, hours overdue, rises), pan to "Pulga is evacuating" and the drafted alert | "Every decision lands in one queue, most urgent first, and each card says why: how long the town needs, and how often the last car beats the fire. Order it, and the public alert is already drafted, ready to send." | Badge: 0.25× |
-| **1:00–1:14** Decide: crews | `B2·1` → `B2·2`: read the crew recommendation, Dispatch, the unit drives in at 1× | "Crew recommendations come with the station, the drive time and the acres saved. We only show one when even the low end of its range helps. Dispatch, and the forecast credits the crew from the moment it arrives." | |
-| **1:14–1:20** Table cutaway | **Table, close**: a hand sets a crew token on the terrain; hard cut to the console as the unit appears | "On the table, the camera spots a crew token the way a drone would." | |
-| **1:20–1:46** What if | `C·1` the wind-direction slider at 3.5×; `C·2` crews, a dozer line and the green "saved" shading; pan to the outcome numbers; `C·3` dispatch the plan | "Plan mode answers the question commanders actually ask: what if the wind swings round to the east? Add crews and a dozer line, and Fireline runs the plan and doing nothing on the same simulations, so the difference is the plan, not luck. Green is what it saves. One click sends the whole plan." | Badge: "Paused · planning" |
-| **1:46–2:02** The fire moves | `D·1`: 2×, the fire runs west and cuts the road out of Paradise, and routes turn and reroute; `D·2`: the commander's dock | "When the fire cuts a road, every evacuation route replans on its own. The commander briefs each change on its own, and Claude Haiku answers questions in plain words. Every number it says is checked against the simulation first." | Badge: 2× |
-| **2:02–2:12** Autopilot and Review | `E·1` autopilot countdown cards (5 s), then `E·3` Review | "Autopilot runs the incident hands-off, and Review scores it town by town." | Badge: 0.5× → 4× |
-| **2:12–2:34** Does it hold up? | Card, Camp Fire replay: the sim's perimeter over the real NIFC/FEDS perimeters (from `eval.campfire`), plus one line of numbers | "We checked it against the real Camp Fire. Our replay overlaps the real perimeters at 7 and 11 hours by 0.66 and 0.78, and on the 2021 Marshall Fire it matches the burned area at two and a half hours. Against NIST's timeline, the evacuation clock flagged every town the fire reached at its first forecast, before the real deadline." | "Camp Fire IoU 0.66 / 0.78", "Marshall Fire 2.5 h area 1.01×", "4 of 4 towns flagged on time" (re-measure after #200) |
-| **2:34–2:44** How we built it | Agent board at hack.apps.jaysonc.dev, live: agents posting findings and claiming issues (6 s), then a one-frame architecture diagram | "Four of us and our coding agents built this, sharing what we learned on one live board: over 90 pull requests." | Lower third: "Agent board: how the team's agents coordinated". Pull the PR count on the day |
-| **2:44–3:00** Close | **Table, wide, slow push-in** (or console Review wide) → end card | "Fireline: see the fire, decide ahead of it, and know what every decision buys." | End card: Fireline · team names · repo URL |
+The voice should be one person, one take, in a quiet room. Music, if any, stays well under it.
 
-## Footage to get
+## The synced table shot
 
-**Console (scripted).** `make demo-video` records all six takes into `~/Movies/fireline-demo/`. The cut uses:
+The same moment from two sides: the real table on a phone, next to what the overhead camera made of it. Take F starts with a slate for this: the projector flashes its test grid for one second while the fire is paused. The grid is bright cyan, so it's obvious in both the phone video and the camera view on screen.
 
-| Take | Length | Used for |
+1. Phone on a tripod, landscape, 60 fps if it has it, framed on the whole table. Dim the room until the projection reads well on the phone. No handheld moves.
+2. Start the phone recording, then run `make demo-video TAKES=F`. Stay out of the frame and off the mouse and keyboard until it ends.
+3. In the editor, line the two clips up on the first frame of the grid flash, then cut the slate off both.
+4. Use the phone clip for 0:30–0:49 and the closing push-in (a slow digital push-in on the wide shot is fine).
+
+## Footage
+
+| Source | Used at | Notes |
 |---|---|---|
-| `A-see-it` | ~30 s | Cold open, problem, forecast |
-| `B1-order-evacuation` | ~13 s | Evacuate |
-| `B2-dispatch-crew` | ~25 s | Crews |
-| `C-plan-what-if` | ~40 s | What if (trim the wait for "Saves") |
-| `D-road-cut-commander` | ~28 s | Road cut and commander |
-| `E-autopilot-review` | ~45 s | Autopilot (first 5 s) and Review (last 6 s) |
+| `A-see-it` | 0:00–0:29, 1:08–1:17 | Scene 1's later part has the bands growing toward Concow |
+| `F-table-camera` | 0:41–1:07 | Scene 1 is the slate; cut it after syncing |
+| Phone, table | 0:30–0:49, 2:56–3:00 | Shot during take F (above) |
+| `B1-order-evacuation` | 1:18–1:37 | |
+| `B2-dispatch-crew` | 1:38–1:50 | Trim the wait before the unit moves |
+| `C-plan-what-if` | 1:51–2:08 | Trim the wait for "Saves" |
+| `D-road-cut-commander` | 2:09–2:21 | |
+| `E-autopilot-review` | 2:22–2:55 | Only scene 3 (Review), dimmed under the results card |
+| Results card, end card | 2:22–2:55, 3:00 | Text from "Claims and sources" |
 
-**Table (by hand).** Shoot on a tripod with the room dark enough for the projection to read, with no handheld pans. Use the camera, not a phone, for anything that's on screen for more than a few seconds.
+Never speed footage up silently. The sim-speed badge is already burned into each take; cut waits instead of speeding them.
 
-1. Wide, locked off, 10 s: the whole table with the fire spreading at 1×.
-2. Close, 6 s: a hand places a crew token on the slope; the projection updates around it.
-3. Slow push-in, 8 s, for the close.
-4. Optional: picture-in-picture of the table and the console's camera view together, to show the camera tracking.
+## Claims and sources
 
-**Agent board (Recordly, by hand).** Record about 15 s of https://hack.apps.jaysonc.dev during a busy stretch. Use about 8 s of it. Blur any tokens and DMs.
+Check these against `main` before recording; the commands re-measure them.
 
-**Cards and diagrams.**
-- Title card.
-- Camp Fire replay overlay: export a frame from `eval.campfire`.
-- Architecture diagram: engine (sim, Monte Carlo forecast, routing, commander), then WebSocket, then console and projector.
-- End card.
+| Line says | Source |
+|---|---|
+| Camp Fire replay: started near Pulga under about 19 m/s from the north-east | `PLAN.md`, "Checked against the real Camp Fire" (`eval.campfire`: NIST origin, 19 m/s ENE easing to 6 m/s) |
+| Latest safe order time = last car out first in 9 of 10 runs | `PLAN.md`, evacuation clock: 10th-percentile arrival minus the time to clear |
+| 32 runs of a cellular fire model on real terrain, fuel and wind | `PLAN.md`, forecasting: the live forecast is 32 rollouts; terrain from a DEM (`tools/dem_to_assets.py`), fuel from OSM land cover (`tools/osm_to_fuel.py`) |
+| Outline aims for at most 10% of new fire outside; measured 11–13% | `PLAN.md`, "Calibrated burn envelope" (online conformal, `eval.run`, extended Paradise map) |
+| Drain time through the tightest exit | `PLAN.md`, evacuation clock: 20 min to mobilise, then vehicles through the bottleneck road |
+| Crew cards appear only when the low end of the interval is above zero | `PLAN.md`, recommendations: paired t interval on the benefit |
+| Plan and doing nothing share random draws | `PLAN.md`, Plan (#123): paired simulations |
+| Claude Haiku drafts; kept only if its numbers come from the engine | `engine/commander/agent.py` (`DEFAULT_MODEL`), `PLAN.md` "Templates first, Claude second" |
+| 4 of 4 towns at first forecast, 5–48 min before the real deadline | `PLAN.md`, evacuation clock (`cd engine && uv run python -m eval.evac_clock`). **Re-run on the extended map (#200) before recording** |
+| Perimeter IoU 0.35 / 0.46 at 2.0–2.6× the area | `PLAN.md`, "On the extended map (#200)": the replay at its default settings (`eval.campfire`). The best of the 432-setting search is 0.39 / 0.53, and the old map's 0.66 / 0.78 no longer holds; quote the default |
+| Uncertainty covers the simulator, not model error | `PLAN.md`, arrival ranges: "not the model's error against real fires" |
+| After a wind shift, predicted crew benefit is 3.4× realized | `PLAN.md`, recommendations caveat (849 vs 252, `eval.run --schedules shift`) |
 
-## Open questions for reviewers
+## What changed from the first draft
 
-Answers so far are on the board ([225], [226], [240]). The replay numbers are confirmed on `main` at C2 0.3; re-measure them after #200. Keep the cold open. Show a typed `ask` ("Which town is most at risk?"), since it's the only place the LLM is on screen. Give the board about 6 s. The narrator is the people's call.
-
-1. Is the cold open too dark for a hackathon? The alternative is to open on the table shot and save the Camp Fire facts for 0:12.
-2. Should the commander segment show a typed question and its answer (`ask`)? It's more impressive but riskier on camera, and it adds about 8 s.
-3. Does the agent-board beat earn its 10 s, or should it go into the Devpost write-up instead?
-4. Who narrates? We need one clear voice, a quiet room and a decent mic.
-5. The replay numbers (IoU, 4 of 4 towns) come from `PLAN.md`. Sim owners, are they still current after #179 and #187?
+- **One script.** The timeline, voiceover and shot list are one table, read with the prompter, so the read and the cut share a clock.
+- **A plainer tone.** No death toll in the first line and no slogans. It opens on what Fireline is and the question it answers, and ends on results and limits.
+- **Current, fair numbers.** The perimeter IoU is the extended map's default replay (0.35 / 0.46), not the old map's 0.66 / 0.78, and the line says the fire model is the weaker part. The outline's measured 11–13% miss rate and the crew-benefit caveat are on screen.
+- **The table gets a real segment** (0:30–0:58), with the synced phone and camera views and a slate to line them up.
+- **Cut for time:** the autopilot beat (Review stays, as the results backdrop) and the agent board, which fits better in the Devpost write-up.

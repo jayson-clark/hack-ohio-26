@@ -2,7 +2,7 @@
 -include .env
 export
 
-.PHONY: install engine web app dev types test board board-web board-dev board-vite demo-video clean distclean
+.PHONY: install engine web app dev types test board board-web board-dev board-vite demo-video prompter clean distclean
 
 install:
 	cd engine && uv sync
@@ -57,6 +57,11 @@ board-vite:
 # `make web` and Recordly running. TAKES="B2 C" records only those.
 demo-video:
 	cd engine && uv run python ../tools/demo_video/run.py $(TAKES)
+
+# The demo script's karaoke prompter (tools/demo_video/SCRIPT.md), for recording the voiceover.
+prompter:
+	@echo "Prompter: http://127.0.0.1:8792/prompter.html"
+	cd tools/demo_video && python3 -m http.server 8792 --bind 127.0.0.1
 
 # Remove build output and caches. Keeps .env, the agent board's data, generated
 # STL tiles and the elevation tile cache (slow to rebuild). Installed
