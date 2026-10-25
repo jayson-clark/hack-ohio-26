@@ -1,0 +1,3 @@
+# Built by `make board-web`; committed so the board server needs no Node.
+tools/agent_board/web/dist/** linguist-generated=true -diff
+tools/agent_board/web/pnpm-lock.yaml linguist-generated=true
