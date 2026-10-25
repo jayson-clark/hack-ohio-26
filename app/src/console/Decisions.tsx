@@ -25,6 +25,8 @@ interface Item {
   detail: ReactNode;
   select: Selection;
   actions: ReactNode;
+  /** A heads-up shown in the queue but not counted as a decision. */
+  status?: boolean;
 }
 
 // Before the order clock's long forecast lands, a town gets an evacuation card
@@ -105,6 +107,7 @@ export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
         tone: "info",
         icon: "users",
         rank: 5,
+        status: true,
         title: `${t.name} is evacuating`,
         detail: `${e.people.toLocaleString()} still in town${out !== null ? `, last car out in ${aboutMinutes(Math.max(0, out))}` : ""}.`,
         select: sel,

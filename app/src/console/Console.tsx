@@ -86,7 +86,9 @@ export default function Console() {
   }
   // An ended exercise takes no orders, so nothing is waiting on a decision (#128).
   const over = score?.phase === "ended";
-  const pending = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan }).length;
+  // Heads-ups such as a town already evacuating show in the queue but aren't
+  // decisions, so they don't count toward the badge.
+  const pending = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan }).filter((i) => !i.status).length;
   const decisions = over ? 0 : pending;
 
   // Keys: 1-4 pick an order tool, Esc goes back to selecting (then closes the
