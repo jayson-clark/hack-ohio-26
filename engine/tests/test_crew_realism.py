@@ -123,3 +123,21 @@ def test_moved_crew_does_not_act_before_it_gets_there(router):
     acting = d.update([tok("c", TokenType.CREW, 36, 10)], 200, 5.0, None)
     assert d.units[0].status == "en_route"
     assert [t.id for t in acting] == []
+
+
+def test_a_relieved_crew_is_back_at_full_strength_on_a_fresh_shift():
+    """TimedLayer.relief_at (#178): the tired crew fades until relief arrives,
+    then the fresh one holds the same ground at full strength for a shift."""
+    from dataclasses import replace
+
+    from sim.effects import CREW_MAX, FADE_TICKS, FATIGUE_FLOOR, SHIFT_TICKS, crew_layer
+
+    tired = crew_layer(64, 64, 32, 32, ramped=1.0)
+    tired.fade_at = 10  # starts to tire 10 ticks from now
+    relieved = replace(tired, relief_at=40)
+    assert tired.level(5) == relieved.level(5) == pytest.approx(CREW_MAX)
+    assert tired.level(39) == relieved.level(39) < CREW_MAX  # still the tired crew until relief arrives
+    assert relieved.level(40) == pytest.approx(CREW_MAX)
+    assert relieved.level(40 + SHIFT_TICKS) == pytest.approx(CREW_MAX)  # a whole fresh shift
+    assert relieved.level(40 + SHIFT_TICKS + FADE_TICKS) == pytest.approx(CREW_MAX * FATIGUE_FLOOR)
+    assert tired.level(10 + FADE_TICKS) == pytest.approx(CREW_MAX * FATIGUE_FLOOR)

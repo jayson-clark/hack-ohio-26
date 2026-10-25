@@ -19,7 +19,7 @@ import asyncio
 import math
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -102,6 +102,8 @@ class Rec:
     move_id: str | None = None
     from_x: float | None = None
     from_y: float | None = None
+    # Set for "relieve this crew" (#178): a fresh crew takes over this order.
+    relieve_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,20 @@ class PlacedCrew:
     without: FireSnapshot  # same fire, suppression (and its schedule) without this crew
     keep: TimedLayer | np.ndarray  # this crew staying where it is
     eta: np.ndarray | None = None  # minutes for this crew to reach each cell from where it is (#104)
+
+
+@dataclass(frozen=True)
+class TiredCrew:
+    """A working crew that tires inside the look-ahead (#178), and how soon
+    the fastest free crew could take over from it."""
+
+    id: str
+    x: float
+    y: float
+    without: FireSnapshot  # same fire, suppression (and its schedule) without this crew
+    keep: TimedLayer  # this crew carrying on, tiring (its fade_at is in the look-ahead)
+    relief_at: int  # ticks until a fresh crew could take over
+    relief_eta_min: float  # the same, in minutes, for the card
 
 
 def candidates(snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], k: int = N_CANDIDATES,
@@ -212,6 +228,13 @@ def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[in
     first = rollout_paired(snapshot, n, horizon, variants, seed=seed)
     if keep is not None:
         first = first[1:]  # index 0 is now "crew where it is"
+    return _score(first, spots, towns, masks, n)
+
+
+def _score(first: np.ndarray, spots, towns, masks, n) -> list[Rec]:
+    """Recs from paired first-burn ticks (V, n, H, W): index 0 is the
+    comparison baseline, index v the variant for spots[v - 1]."""
+    h, w = first.shape[2:]
     burned = np.isfinite(first).reshape(len(spots) + 1, n, h * w).astype(np.float32)
     area = masks.reshape(len(towns), -1).sum(axis=1)
     frac = burned @ masks.reshape(len(towns), -1).T / np.maximum(area, 1.0)  # (V, n, T)
@@ -248,6 +271,33 @@ def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[in
             ),
         ))
     return recs
+
+
+def recommend_reliefs(tired: list[TiredCrew], towns: list[TownInfo], *, n: int = HOLDOUT_ROLLOUTS,
+                      seed: int = 0, horizon: int = REC_HORIZON_TICKS) -> list[Rec]:
+    """"Relieve this crew" (#178), for each working crew that tires inside
+    the look-ahead. One paired batch per crew: the fire without it, with it
+    carrying on (tiring from its fade_at), and with a fresh crew taking over
+    at relief_at on the same ground and line. A relief's benefit is "carries
+    on" minus "relieved", on identical luck. There's one candidate per crew,
+    so no selection to correct for: each runs once on HOLDOUT_ROLLOUTS, and
+    only reliefs that help at the low end of their interval are kept (#11),
+    like any other card."""
+    if not tired or not towns:
+        return []
+    out = []
+    for i, c in enumerate(tired):
+        h, w = c.without.state.shape
+        fresh = replace(c.keep, relief_at=c.relief_at)
+        first = rollout_paired(c.without, n, horizon, [c.keep, fresh], seed=seed + 104729 * (i + 1))[1:]
+        [r] = _score(first, [(c.x, c.y)], towns, _town_masks(towns, h, w), n)
+        if r.benefit_lo <= 0:
+            continue
+        r.relieve_id, r.eta_min = c.id, round(c.relief_eta_min, 1)
+        # Send relief early enough to arrive before the crew starts to tire.
+        r.act_by_min = round(max(c.keep.fade_at, 0) * SIM_MINUTES_PER_TICK - c.relief_eta_min, 1)
+        out.append(r)
+    return out
 
 
 def _arrival(eta: np.ndarray | None, x: float, y: float) -> tuple[int, float | None]:
@@ -404,7 +454,10 @@ def describe(rec: Rec, acres_per_cell: float, from_place: str | None = None, sta
     `from_place` names where the crew is now ("near Pulga"). With dispatch
     (#104), `station` and the rec's ETA say who'd go and how long it takes."""
     acres = rec.cells_saved * acres_per_cell
-    if rec.move_id is not None:
+    if rec.relieve_id is not None:
+        who = (f"Relieving this crew with a fresh one from {station}, about {round(rec.eta_min)} minutes out,"
+               if station and rec.eta_min is not None else "Relieving this crew before it tires")
+    elif rec.move_id is not None:
         who = f"Moving the crew {from_place or 'you placed'} here"
     elif station and rec.eta_min is not None:
         who = f"A crew from {station}, about {round(rec.eta_min)} minutes out,"
@@ -438,12 +491,13 @@ class Recommender:
         self._pool = ProcessPoolExecutor(max_workers=1, mp_context=ctx)
 
     def submit(self, snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], seed: int,
-               eta: np.ndarray | None = None, ahead: np.ndarray | None = None) -> asyncio.Future[list[Rec]]:
-        return self.run(_recommend_job, snapshot, p30, towns, seed, eta, ahead)
+               eta: np.ndarray | None = None, ahead: np.ndarray | None = None,
+               tired: list[TiredCrew] | None = None) -> asyncio.Future[list[Rec]]:
+        return self.run(_recommend_job, snapshot, p30, towns, seed, eta, ahead, tired)
 
-    def submit_moves(self, crews: list[PlacedCrew], p30: np.ndarray,
-                     towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
-        return self.run(_moves_job, crews, p30, towns, seed)
+    def submit_moves(self, crews: list[PlacedCrew], p30: np.ndarray, towns: list[TownInfo], seed: int,
+                     tired: list[TiredCrew] | None = None) -> asyncio.Future[list[Rec]]:
+        return self.run(_moves_job, crews, p30, towns, seed, tired)
 
     def run(self, fn, *args) -> asyncio.Future:
         """Any other picklable analysis job (the commander's what-ifs), on
@@ -479,9 +533,15 @@ def _emulator():
     return _EMULATOR[0]
 
 
-def _recommend_job(snapshot, p30, towns, seed, eta=None, ahead=None):
-    return recommend(snapshot, p30, towns, seed=seed, eta=eta, screened=True, ahead=ahead)
+def _with_reliefs(recs: list[Rec], tired, towns, seed) -> list[Rec]:
+    """Placement or move cards plus relief cards (#178), best first."""
+    return sorted(recs + recommend_reliefs(tired or [], towns, seed=seed), key=lambda r: r.benefit, reverse=True)
 
 
-def _moves_job(crews, p30, towns, seed):
-    return recommend_moves(crews, p30, towns, seed=seed)
+def _recommend_job(snapshot, p30, towns, seed, eta=None, ahead=None, tired=None):
+    return _with_reliefs(recommend(snapshot, p30, towns, seed=seed, eta=eta, screened=True, ahead=ahead),
+                         tired, towns, seed)
+
+
+def _moves_job(crews, p30, towns, seed, tired=None):
+    return _with_reliefs(recommend_moves(crews, p30, towns, seed=seed), tired, towns, seed)
