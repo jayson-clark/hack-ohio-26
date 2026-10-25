@@ -5,7 +5,7 @@ description: Regenerate training data for, retrain, evaluate or debug the learne
 
 The emulator mimics `run_forecast`: P(burn by T+30/T+60) from the fire state, per-direction spread (fuel x slope x wind) and suppression at +0/15/30/60 ticks. It's an optional `ml` extra (mlx, Apple silicon). Without it, or without `engine/emulator/weights/fire_emulator.safetensors`, the engine is Monte Carlo only.
 
-Run the engine with it: `ENGINE_EXTRAS=ml` in `.env`, then `make engine`. The log says "fire emulator loaded".
+Run the engine with it: `ENGINE_EXTRAS=ml` in `.env`, then `make engine`. The log says "fire emulator loaded". To run without it but keep MLX installed (for example while the weights predate a fire-model change), set `EMULATOR=off`. The log then says "switched off", and previews and crew-spot screening stop. The conformal calibration never uses the emulator, so it works the same either way.
 
 Retrain (needed whenever the fire model changes, since it learned the old one):
 ```sh

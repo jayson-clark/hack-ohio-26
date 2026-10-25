@@ -143,3 +143,15 @@ def test_real_emulator_previews_on_every_scenario():
             e.recommender.shutdown()
 
     asyncio.run(go())
+
+
+def test_emulator_off_switch(monkeypatch):
+    """EMULATOR=off runs Monte Carlo only, even with MLX and weights (#113)."""
+    from emulator import model
+
+    for value in ("off", "0", "False", " no "):
+        monkeypatch.setenv("EMULATOR", value)
+        assert model.disabled() and model.load_emulator() is None
+    for value in ("", "on", "1"):
+        monkeypatch.setenv("EMULATOR", value)
+        assert not model.disabled()

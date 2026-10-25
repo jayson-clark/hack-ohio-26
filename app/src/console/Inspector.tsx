@@ -113,7 +113,13 @@ function TownDetail({ town: t, scenario, onClose, onFocus }: { town: TownView; s
             th?.fire_inside
               ? "In town now"
               : th?.eta_lo_min != null && th.eta_hi_min != null
-                ? `${aboutMinutes(th.eta_lo_min)}–${aboutMinutes(th.eta_hi_min)} (90%)`
+                ? th.eta_lo_min < 1
+                  ? `Within ${aboutMinutes(th.eta_hi_min)} (90%)`
+                  : `${aboutMinutes(th.eta_lo_min)}–${aboutMinutes(th.eta_hi_min)} (90%)`
+                : th?.eta_lo_min != null
+                  ? th.eta_lo_min < 1
+                    ? "Any time"
+                    : `${aboutMinutes(th.eta_lo_min)} or later`
                 : th?.soonest_min != null
                   ? `${aboutMinutes(th.soonest_min)}`
                   : "Not within 1 h"

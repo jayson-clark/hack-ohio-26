@@ -138,13 +138,14 @@ PREVIEW_MIN_TICKS = 5  # engine ticks (0.5 s) between emulator previews (#113)
 def _load_emulator():
     """The learned fire emulator, or None without the ml extra or its weights."""
     try:
-        from emulator.model import load_emulator
+        from emulator.model import disabled, load_emulator
 
         emu = load_emulator()
     except Exception as e:  # a broken ML install must never stop the engine
         log.warning("fire emulator unavailable: %r", e)
         return None
-    log.info("fire emulator %s", "loaded" if emu else "not installed (uv run --extra ml); Monte Carlo only")
+    why = "switched off (EMULATOR=off)" if disabled() else "not installed (uv run --extra ml)"
+    log.info("fire emulator %s", "loaded" if emu else f"{why}; Monte Carlo only")
     return emu
 # Recommendations rerun at most this often (a run is ~0.3 s in its own worker).
 RECOMMEND_MIN_TICKS = 20
@@ -459,13 +460,16 @@ class Engine:
         s = self.scenario
         f = self.latest_forecast
         pv = self._preview
+        kind = BinaryType.FORECAST_GRID
         if pv is not None and (f is None or pv[0] > f.tick):
-            grids, tick = np.round(pv[1] * 255).astype(np.uint8), pv[0]  # emulator preview (#113)
+            # The emulator's preview (#113). Tagged, so the console doesn't draw
+            # the calibrated envelope (learned on Monte Carlo only) around it.
+            grids, tick, kind = np.round(pv[1] * 255).astype(np.uint8), pv[0], BinaryType.FORECAST_PREVIEW
         elif f is None:
             grids, tick = np.zeros((len(HORIZONS_MIN), s.height, s.width), np.uint8), self.fire.tick
         else:
             grids, tick = np.round(f.probability * 255).astype(np.uint8), f.tick
-        return pack_binary(BinaryType.FORECAST_GRID, tick, s.width, s.height, grids.tobytes())
+        return pack_binary(kind, tick, s.width, s.height, grids.tobytes())
 
     async def handle_client(self, ws: ServerConnection) -> None:
         self.clients.add(ws)

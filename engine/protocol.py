@@ -15,6 +15,10 @@ app/src/shared/binary.ts), followed by a payload:
   scaled to 0-255. `tick` is the sim tick the forecast started from. Sent
   whenever a forecast finishes (a few per second), and once, all zero, on
   reset.
+- FORECAST_PREVIEW: the same layout as FORECAST_GRID, from the learned emulator
+  (#113) while a Monte Carlo forecast is on its way. The calibrated envelope
+  (#12) is learned on Monte Carlo forecasts only, so clients draw it on
+  FORECAST_GRID frames and the plain 50% edge on previews.
 - PLAN_GRID: two width*height uint8 grids, P(burned by the plan's horizon)
   as 0-255: first without the plan's orders, then with them, both under the
   plan's wind. `tick` is the PlanResult.id it belongs to (not a sim tick).
@@ -37,7 +41,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 27
+PROTOCOL_VERSION = 28
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -47,6 +51,7 @@ class BinaryType(IntEnum):
     FORECAST_GRID = 2
     CAMERA_FRAME = 3
     PLAN_GRID = 4
+    FORECAST_PREVIEW = 5  # a FORECAST_GRID from the learned emulator, not Monte Carlo (#113)
 
 
 # type: u8, 3 pad bytes, tick: u32, width: u16, height: u16 (little-endian)

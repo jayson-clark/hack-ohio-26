@@ -78,6 +78,7 @@ def test_engine_scores_envelopes_and_sends_them():
 
     async def go():
         e = Engine()
+        e.emulator = None  # calibration needs only the simulator: no learned emulator (#113)
         try:
             e.fire.ignite(409.3, 118.5)  # the Camp Fire origin near Pulga, in the extended map (#197)
             for _ in range(5):
@@ -153,6 +154,7 @@ def test_town_board_carries_calibrated_eta_once_a_long_forecast_lands():
 
     async def go():
         e = Engine()
+        e.emulator = None  # calibration needs only the simulator: no learned emulator (#113)
         try:
             e.fire.ignite(409.3, 118.5)  # the Camp Fire origin near Pulga, in the extended map (#197)
             for _ in range(10):
