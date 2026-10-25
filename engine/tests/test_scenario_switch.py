@@ -171,11 +171,11 @@ def test_scenario_sets_its_own_wind():
         try:
             assert engine.fire.wind == DEFAULT_WIND  # paradise has none
             engine.switch_scenario("marshall")
-            assert (engine.fire.wind.speed_ms, engine.fire.wind.from_deg) == (15, 255)
+            assert (engine.fire.wind.speed_ms, engine.fire.wind.from_deg) == (15, 245)
             engine.dispatch(SetWind(speed_ms=3, from_deg=90))
             assert engine.fire.wind.speed_ms == 3  # exercise control can still change it
             engine.dispatch(StartRound())
-            assert (engine.fire.wind.speed_ms, engine.fire.wind.from_deg) == (15, 255)
+            assert (engine.fire.wind.speed_ms, engine.fire.wind.from_deg) == (15, 245)
         finally:
             engine.forecaster.shutdown()
             engine.recommender.shutdown()
