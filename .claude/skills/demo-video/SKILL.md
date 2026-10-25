@@ -11,3 +11,4 @@ The takes and their command language are in `tools/demo_video/README.md`. Read i
 - Find a click target: Recordly's `find_elements` (or a `perform` dry run) lists what's clickable. Text targets beat coordinates; coordinates are window points for the 1668×1084 Chrome app window.
 - A failed step means the page didn't match the script, usually because the queue's order or timing changed. Add a `waitfor` before the click, or an `index=`.
 - Safari upgrades `localhost` to https here. The runner uses a Chrome app window.
+- The frame (wallpaper, padding, corners) is `LOOK` in `run.py`, or `look` in a take. To try one without recording: `open_editor` on a recent take, `set_look`, then `render_preview count=4`.
