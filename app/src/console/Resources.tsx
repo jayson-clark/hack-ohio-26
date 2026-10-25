@@ -4,6 +4,7 @@
 // the physical table.
 
 import { orderText, unitFor } from "../shared/dispatch";
+import { useIncidentNames } from "./Incidents";
 import { useEngine } from "../shared/engine";
 import { describeLocation } from "../shared/places";
 import type { TokenType, UnitStatus } from "../shared/protocol";
@@ -33,6 +34,7 @@ export default function Resources({
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
+  const fireNames = useIncidentNames();
   const { units, tokens, score } = useEngine();
   const inactive = new Set(score?.inactive_tokens ?? []);
 
@@ -65,6 +67,7 @@ export default function Resources({
         <ul className="-mx-2">
           {tokens.map((t) => {
             const u = unitFor(t, units);
+            const fire = u?.incident ? fireNames.get(u.incident) : undefined;
             const tone: Tone = inactive.has(t.id) ? "crit" : u ? STATUS_TONE[u.status] : "neutral";
             const status = inactive.has(t.id)
               ? "Over the exercise limit"
@@ -90,6 +93,7 @@ export default function Resources({
                     </span>
                     <span className={`block truncate text-xs ${tone === "neutral" ? "text-ink-3" : TONE[tone].text}`}>
                       {status}
+                      {fire && ` · ${fire}`}
                       {t.source === "vision" && " · on the table"}
                     </span>
                   </span>
