@@ -29,6 +29,18 @@ export const DEFAULT_LAYERS: Layers = {
   forecast: true,
 };
 
+/** The projector's default (#198): the table is the real world and the camera
+ * the drone over it, so only what's really there is lit: the ground and the
+ * fire. Annotations go on the camera view instead. */
+export const DRONE_LAYERS: Layers = {
+  tint: true,
+  contours: false,
+  labels: false,
+  grid: false,
+  routes: false,
+  forecast: false,
+};
+
 // sim_grid cell states, in PLAN.md order. Switch to the generated enum once
 // the sim defines it in protocol.py.
 const CELL_BURNING = 2;
@@ -63,6 +75,9 @@ export function blur(a: Float32Array, tmp: Float32Array, w: number, h: number) {
 export interface Projection {
   material: THREE.ShaderMaterial;
   setTokens(tokens: Token[], selectedId: string | null): void;
+  /** Draw token rings, crew reach and selection. Off (the drone-view
+   * projector), only the white disc under each marker is lit, for detection. */
+  setShowTokens(on: boolean): void;
   setCrewReach(cells: number): void;
   setLayers(layers: Layers): void;
   setFire(frame: BinaryFrame | null): void;
@@ -145,6 +160,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       uLayers: { value: new THREE.Vector4(1, 1, 1, 0) },
       uTokens: { value: tokenData },
       uTokenCount: { value: 0 },
+      uShowTokens: { value: 1 },
       uTokenColors: { value: TOKEN_TYPES.map((t) => rgb(TOKEN_STYLE[t].color)) },
       uHalo: { value: HALO_RADIUS },
       uCrewReach: { value: 14 },
@@ -182,6 +198,10 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
         tokenData[i].set(t.x, t.y, TOKEN_TYPES.indexOf(t.token_type), t.id === selectedId ? 1 : 0);
       }
       u.uTokenCount.value = n;
+    },
+
+    setShowTokens(on) {
+      u.uShowTokens.value = on ? 1 : 0;
     },
 
     setLayers(l) {

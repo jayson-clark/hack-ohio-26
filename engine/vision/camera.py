@@ -68,6 +68,7 @@ class CameraVision:
         self._fps = 0.0
         self._frame_size = (0, 0)
         self._markers_seen = 0
+        self._feed_rectified = False  # the latest feed JPEG is the orthophoto
         self._lock = threading.Lock()
         self._snap = Snapshot(status=self._status(CameraState.NO_SIGNAL))
         self._want_pattern: int | DotSearch | None = None  # set from the main thread
@@ -144,6 +145,7 @@ class CameraVision:
                 if now >= next_feed:
                     next_feed = now + 1 / FEED_HZ
                     img = draw_pattern_overlay(frame, self._finder.last, progress, FEED_WIDTH)
+                    self._feed_rectified = False
                     feed = self._encode(img)
                 self._publish(state=CameraState.OK, feed=feed, pattern=progress)
                 continue
@@ -162,8 +164,11 @@ class CameraVision:
                 next_feed = now + 1 / FEED_HZ
                 # Any solve, even one held from an earlier frame: a corner
                 # missed for a frame shouldn't flip the feed to the raw view.
-                if self._board.cam_to_map is not None:
-                    feed = self._encode(self._ortho.draw(frame, self._board, tokens), ORTHO_JPEG_QUALITY)
+                # The rectified feed stays clean: the UI draws tokens and
+                # every other layer over it, in map coords.
+                self._feed_rectified = self._board.cam_to_map is not None
+                if self._feed_rectified:
+                    feed = self._encode(self._ortho.draw(frame, self._board, []), ORTHO_JPEG_QUALITY)
                 else:
                     feed = self._encode(draw_overlay(frame, detections, self._board, tokens, FEED_WIDTH))
             board = self._board.cam_to_map.copy() if locked else None
@@ -202,6 +207,7 @@ class CameraVision:
             markers_seen=self._markers_seen,
             corners_seen=list(self._board.corners_seen),
             board_found=self._board.cam_to_map is not None,
+            feed_rectified=self._feed_rectified,
         )
 
     def _encode(self, img: np.ndarray, quality: int = FEED_JPEG_QUALITY) -> tuple[bytes, tuple[int, int]]:

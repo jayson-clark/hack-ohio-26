@@ -70,8 +70,10 @@ class IncidentTracker:
 
     # --- ignitions --------------------------------------------------------------
 
-    def ignite(self, x: float, y: float, tick: int, radius: float = 2.0) -> str:
-        """An ignition at (x, y): joins the incident burning there, or opens one."""
+    def ignite(self, x: float, y: float, tick: int, radius: float = 2.0, state: np.ndarray | None = None) -> str:
+        """An ignition at (x, y): joins the incident burning there, or opens one.
+        Pass the fire's state after igniting, so only cells that actually lit
+        are claimed (not rock or water in the ignition disk)."""
         h, w = self.owner.shape
         cy, cx = int(min(max(y, 0), h - 1)), int(min(max(x, 0), w - 1))
         r = int(math.ceil(radius)) + 1
@@ -83,6 +85,8 @@ class IncidentTracker:
             k = self._open(x, y, tick)
         ys, xs = np.ogrid[:h, :w]
         disk = (xs + 0.5 - x) ** 2 + (ys + 0.5 - y) ** 2 <= radius**2
+        if state is not None:
+            disk &= (state == BURNING) | (state == BURNED)
         self.owner[disk & (self.owner == 0)] = k
         return self.incidents[k].id
 

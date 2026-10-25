@@ -156,3 +156,17 @@ def test_moves_are_distinct_crews_and_spots():
     for i, m in enumerate(moves):
         for o in moves[i + 1:]:
             assert math.hypot(m.x - o.x, m.y - o.y) >= 12
+
+
+def test_a_recommendation_names_the_fire_its_spot_is_on():
+    """#179: with two fires, a crew card says which one it's about."""
+    e = engine_in_round(3)
+    try:
+        west = e.incidents.ignite(40.5, 80.5, e.fire.tick)
+        east = e.incidents.ignite(200.5, 80.5, e.fire.tick)
+        r = e.rec_message(Rec(180.5, 80.5, 3.0, 1.0), "r1", 2.18)
+        assert r.incident == east
+        r = e.rec_message(Rec(60.5, 80.5, 3.0, 1.0), "r2", 2.18)
+        assert r.incident == west
+    finally:
+        shut(e)

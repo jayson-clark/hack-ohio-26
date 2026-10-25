@@ -23,6 +23,7 @@ import { DemoBar, useAutopilot, useDemoMode } from "./Demo";
 import DispatchDrafts from "./DispatchDrafts";
 import { EventAlerts } from "./EventLog";
 import { FlameMark, Icon, type IconName } from "./icons";
+import Incidents from "./Incidents";
 import Inspector from "./Inspector";
 import IncidentMap, { DEFAULT_MAP_LAYERS, type ConsoleMode, type MapLayers } from "./map/IncidentMap";
 import type { MapHandle } from "./map/MapView";
@@ -209,6 +210,7 @@ export default function Console() {
           {scenario && mode === "monitor" && (
             <>
               <Situation towns={towns} />
+              <Incidents onFocus={focusOn} />
               <Section title="Needs decision" count={decisions} className="mt-2">
                 <Decisions scenario={scenario} towns={towns} onSelect={select} onTryInPlan={tryInPlan} onReview={() => switchMode("review")} autopilot={autopilot} />
               </Section>

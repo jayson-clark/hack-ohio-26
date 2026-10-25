@@ -5,16 +5,16 @@
 // details in the inspector.
 
 import type { ReactNode } from "react";
-import { orderText } from "../shared/dispatch";
+import { orderText, recButton, recVerb } from "../shared/dispatch";
 import { acceptRecommendation, orderEvacuation, useEngine } from "../shared/engine";
 import { aboutMinutes, describeLocation } from "../shared/places";
 import { END_REASON_TEXT, formatSimMinutes, headline } from "../shared/round";
 import type { Recommendation } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
-import { ORDER_STYLE } from "../shared/tokens";
 import { AutopilotCountdown, type AutopilotState } from "./Demo";
 import { Icon, type IconName } from "./icons";
 import { minutesUntil, type Selection, type TownView } from "./model";
+import { useIncidentNames } from "./Incidents";
 import { Button, Empty, TONE, type Tone } from "./ui";
 
 interface Item {
@@ -49,6 +49,9 @@ interface Props {
 
 export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props): Item[] {
   const { recommendations, units, tokens, hello, score } = useEngine();
+  // With several fires, say which one a card is about (#179).
+  const fireNames = useIncidentNames();
+  const onFire = (id: string | null | undefined) => (id && fireNames.get(id) ? ` (${fireNames.get(id)})` : "");
   const perTick = hello?.sim_minutes_per_tick ?? 1;
   const now = score?.tick ?? 0;
   const items: Item[] = [];
@@ -63,7 +66,7 @@ export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props):
         tone: "crit",
         icon: "alert",
         rank: 0,
-        title: `No way out of ${t.name}`,
+        title: `No way out of ${t.name}${onFire(t.threat?.incident)}`,
         detail: `${t.population.toLocaleString()} residents. Every exit is cut or will burn first. Shelter in place, or send a crew to hold a road.`,
         select: sel,
         actions: null,
@@ -84,7 +87,7 @@ export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props):
         tone: e.status === "order_soon" ? "warn" : "crit",
         icon: "users",
         rank: e.status === "order_soon" ? 2 : 1,
-        title: `Order ${t.name} to evacuate`,
+        title: `Order ${t.name} to evacuate${onFire(t.threat?.incident)}`,
         detail: (
           <>
             <span className="font-medium text-ink">{when}.</span> {e.people.toLocaleString()} people
@@ -135,7 +138,7 @@ export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props):
         tone: th.fire_inside || (th.soonest_min ?? Infinity) <= 30 ? "crit" : "warn",
         icon: "users",
         rank: 2,
-        title: `Order ${t.name} to evacuate`,
+        title: `Order ${t.name} to evacuate${onFire(t.threat?.incident)}`,
         detail: (
           <>
             <span className="font-medium text-ink">{th.fire_inside ? "Fire is in town." : arrivalText(th)}</span>{" "}
@@ -159,14 +162,14 @@ export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props):
       tone: "info",
       icon: "bulb",
       rank: 3 + i * 0.01,
-      title: `${r.action === "move" ? "Move a crew" : ORDER_STYLE[r.token_type].verb} ${describeLocation(scenario, r.x, r.y)}`,
+      title: `${recVerb(r)} ${describeLocation(scenario, r.x, r.y)}${onFire(r.incident)}`,
       detail: <RecLine rec={r} />,
       select: { kind: "rec", id: r.id, x: r.x, y: r.y },
       auto: r.auto ? () => acceptRecommendation(r.id) : undefined,
       actions: (
         <>
           <Button size="sm" variant="primary" disabled={!r.auto} title={r.auto ? undefined : "A crew on the table: move it by hand"} onClick={() => { acceptRecommendation(r.id); onSelect(null); }}>
-            {r.action === "move" ? "Move crew" : "Dispatch"}
+            {recButton(r)}
           </Button>
           <Button size="sm" onClick={() => onTryInPlan(r)}>
             Try in plan
@@ -184,7 +187,7 @@ export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props):
       tone: "warn",
       icon: "route",
       rank: 4,
-      title: u.status === "grounded" ? "Air tankers grounded" : `${u.id} can't get through`,
+      title: u.status === "grounded" ? "Air tankers grounded" : `${u.id} can't get through${onFire(u.incident)}`,
       detail: `${orderText(u)}.${u.status === "blocked" ? " Cancel the order or pick a spot a road reaches." : ""}`,
       select: order ? { kind: "order", id: order.id } : null,
       actions: null,

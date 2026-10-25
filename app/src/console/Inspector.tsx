@@ -3,8 +3,8 @@
 // (its unit and status). Opens beside the map; the actions live here too.
 
 import type { ReactNode } from "react";
-import { orderText, unitFor } from "../shared/dispatch";
-import { acceptRecommendation, orderEvacuation, useEngine } from "../shared/engine";
+import { orderText, recButton, recVerb, unitFor } from "../shared/dispatch";
+import { acceptRecommendation, orderEvacuation, relieveOrder, useEngine } from "../shared/engine";
 import { aboutMinutes, describeLocation } from "../shared/places";
 import type { KofN, Recommendation, Token, TownEffect } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
@@ -238,7 +238,7 @@ function RecDetail({ rec, rank, scenario, onClose, onFocus, onTryInPlan }: Props
     <>
       <Header
         eyebrow={`Recommendation ${rank}`}
-        title={`${rec.action === "move" ? "Move a crew" : ORDER_STYLE[rec.token_type].verb} ${describeLocation(scenario, rec.x, rec.y)}`}
+        title={`${recVerb(rec)} ${describeLocation(scenario, rec.x, rec.y)}`}
         badge={
           <>
             <Badge tone="info">{rec.confidence === "high" ? "High confidence" : "Rough estimate"}</Badge>
@@ -271,7 +271,7 @@ function RecDetail({ rec, rank, scenario, onClose, onFocus, onTryInPlan }: Props
       </Block>
       <div className="flex gap-2 px-4 py-4">
         <Button variant="primary" className="flex-1" disabled={!rec.auto} onClick={() => { acceptRecommendation(rec.id); onClose(); }}>
-          {rec.action === "move" ? "Move crew" : "Dispatch"}
+          {recButton(rec)}
         </Button>
         <Button onClick={() => onTryInPlan(rec)}>Try in plan</Button>
       </div>
@@ -316,6 +316,14 @@ function OrderDetail({ token: t, scenario, onClose, onFocus }: Props & { token: 
               <>
                 <div className="text-[13px] font-medium text-ink">{u.id}</div>
                 {orderText(u)}
+                {u.status === "working" && u.token_type === "crew" && (
+                  <div className="mt-2">
+                    <Meter value={1 - u.fatigue} tone={u.fatigue > 0 ? "warn" : "ok"} />
+                    <div className="mt-1 text-[11px] text-ink-3">
+                      {u.fatigue > 0 ? "Past its shift: send a fresh crew to take over the line." : "Fresh: full strength for its first 4 h on the line."}
+                    </div>
+                  </div>
+                )}
               </>
             ) : t.token_type === "bus" ? (
               "Picking up residents."
@@ -327,6 +335,18 @@ function OrderDetail({ token: t, scenario, onClose, onFocus }: Props & { token: 
           </div>
         </div>
       </Block>
+      {u?.status === "working" && t.token_type === "crew" && (
+        <div className="px-4 pt-4">
+          <Button
+            className="w-full"
+            disabled={!units.some((x) => x.token_type === "crew" && x.status === "available")}
+            title="The tired crew keeps working until the fresh one arrives, then rests"
+            onClick={() => relieveOrder(t.id)}
+          >
+            Relieve crew
+          </Button>
+        </div>
+      )}
       {t.source === "virtual" && (
         <div className="px-4 py-4">
           <Button variant="danger" className="w-full" onClick={() => { removeToken(t.id); onClose(); }}>

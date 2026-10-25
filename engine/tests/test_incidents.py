@@ -103,3 +103,50 @@ def test_incidents_follow_a_real_fire():
     owned = inc.owner > 0
     assert (lit & ~owned).sum() == 0  # every burning or burned cell has an incident
     assert len(inc.report(sim.state)) >= 1
+
+
+def _two_fires():
+    """A west fire and an east fire, with a town between them."""
+    inc = IncidentTracker(SCEN)
+    west = inc.ignite(40.5, 100.5, 0)
+    east = inc.ignite(200.5, 100.5, 0)
+    s = blank()
+    burn(s, 39, 42, 99, 102)
+    burn(s, 199, 202, 99, 102)
+    inc.update(s, 1)
+    yy, xx = np.mgrid[: SCEN.height, : SCEN.width]
+    town = np.hypot(xx + 0.5 - 120, yy + 0.5 - 100) <= 8
+    return inc, west, east, s, town, xx
+
+
+def test_a_town_is_threatened_by_the_fire_that_reaches_it_first():
+    from commander.tools import threat_incident
+
+    inc, west, east, s, town, xx = _two_fires()
+    burnt = s >= BURNING
+    # Five simulated futures: in three the east fire arrives first (the town's
+    # east edge burns first), in two the west fire does.
+    n = 5
+    first = np.full((n, SCEN.height, SCEN.width), np.inf, np.float32)
+    east_first = np.where(town, 100.0 - (xx - 112), np.inf)  # east edge soonest
+    west_first = np.where(town, 100.0 + (xx - 128), np.inf)  # west edge soonest
+    for k, (grid, delay) in enumerate([(east_first, 0), (west_first, 30), (east_first, 10), (west_first, 50), (east_first, 20)]):
+        first[k] = grid + delay
+    arrivals = first.reshape(n, -1)[:, town.ravel()].min(axis=1)
+    assert threat_incident(inc, first, arrivals, town, burnt) == east
+    # Flip which fire comes first in most runs, and the median run follows.
+    first2 = np.stack([west_first, west_first + 5, east_first + 40, west_first + 10, east_first + 60])
+    arrivals2 = first2.reshape(n, -1)[:, town.ravel()].min(axis=1)
+    assert threat_incident(inc, first2, arrivals2, town, burnt) == west
+
+
+def test_a_town_already_burning_belongs_to_the_fire_inside_it():
+    from commander.tools import threat_incident
+
+    inc, west, east, s, town, _ = _two_fires()
+    burn(s, 120, 125, 98, 103)  # the east fire spreads into town, connected to it
+    burn(s, 125, 202, 100, 101)
+    inc.update(s, 2)
+    assert threat_incident(inc, None, None, town, s >= BURNING) == east
+    # No forecast and no fire inside: no incident to name.
+    assert threat_incident(inc, None, None, town, np.zeros_like(town)) is None
