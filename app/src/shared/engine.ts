@@ -26,6 +26,7 @@ import type {
   VisionStatus,
   WindState,
   Incident,
+  TokenType,
 } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
@@ -318,6 +319,16 @@ export function clearPlan() {
 /** Place a recommended crew where the engine suggested it. */
 export function acceptRecommendation(id: string) {
   send({ type: "accept_recommendation", id });
+}
+
+/** Send a fresh crew to take over a tiring crew order (#178). */
+export function relieveOrder(tokenId: string) {
+  send({ type: "relieve_order", token_id: tokenId });
+}
+
+/** Ask for one more unit from outside the map (#178), within the round's budget. */
+export function requestMutualAid(tokenType: TokenType) {
+  send({ type: "request_mutual_aid", token_type: tokenType });
 }
 
 function subscribe(listener: () => void) {
