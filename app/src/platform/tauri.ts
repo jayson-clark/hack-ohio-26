@@ -44,7 +44,7 @@ export const tauriPlatform: Platform = {
     const scale = monitor.scaleFactor;
     const win = new WebviewWindow(PROJECTOR_LABEL, {
       url: "/?view=projector",
-      title: "Firewatch Projector",
+      title: "Fireline Projector",
       x: monitor.position.x / scale,
       y: monitor.position.y / scale,
       width: monitor.size.width / scale,
@@ -69,7 +69,7 @@ export const tauriPlatform: Platform = {
     }
     const win = new WebviewWindow(CONTROL_LABEL, {
       url: "/?view=control",
-      title: "Firewatch Exercise Control",
+      title: "Fireline Exercise Control",
       width: 1400,
       height: 900,
     });

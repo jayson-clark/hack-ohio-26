@@ -59,7 +59,7 @@ export default function Console() {
   const towns = useTowns(scenario);
 
   useEffect(() => {
-    document.title = "Firewatch";
+    document.title = "Fireline";
   }, []);
 
   const focusOn = (x: number, y: number) => {
@@ -148,7 +148,7 @@ export default function Console() {
       <header className="relative z-20 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-panel px-4">
         <div className="flex items-center gap-2.5">
           <FlameMark size={26} />
-          <span className="text-[15px] font-semibold tracking-tight text-ink">Firewatch</span>
+          <span className="text-[15px] font-semibold tracking-tight text-ink">Fireline</span>
         </div>
         <div className="h-6 w-px bg-line" />
         <div className="min-w-0 leading-tight">

@@ -3,8 +3,8 @@
 
 import type { MonitorInfo, Platform } from "./types";
 
-const PROJECTOR_NAME = "firewatch-projector";
-const CONTROL_NAME = "firewatch-control";
+const PROJECTOR_NAME = "fireline-projector";
+const CONTROL_NAME = "fireline-control";
 let projector: Window | null = null;
 
 export const browserPlatform: Platform = {

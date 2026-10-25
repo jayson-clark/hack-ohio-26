@@ -240,7 +240,7 @@ wheels = [
 ]
 
 [[package]]
-name = "firewatch-engine"
+name = "fireline-engine"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
