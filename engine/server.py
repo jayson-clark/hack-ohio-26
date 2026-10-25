@@ -58,6 +58,7 @@ from protocol import (
     ResourceUse,
     RoundPhase,
     ScenarioState,
+    Incidents,
     Score,
     SetRunning,
     SetSpeed,
@@ -101,6 +102,7 @@ from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
 from uq.conformal import ArrivalCalibrator, EnvelopeLedger
 from uq.mc import wilson
 from sim.dispatch import Dispatcher
+from sim.incidents import IncidentTracker
 from sim.game import Game, GameTown
 from routing.units import TURNOUT_MIN, Station, UnitRouter
 from vision import camera
@@ -256,6 +258,9 @@ class Engine:
         self.calibrator = Calibrator(s)
         self.fire = FireSim(s)
         self.effects = TokenEffects(s.width, s.height)
+        self.incidents = IncidentTracker(s)  # several fires on one map (#179)
+        self._inc_env_tick: int | None = None
+        self._inc_env: np.ndarray | None = None
         # Evacuation routes (PLAN.md, Evacuation routing), replanned off the
         # tick loop whenever a forecast lands. No road layer means no routes.
         self.roads = load_network(s.dir, s.width, s.height)
@@ -371,6 +376,21 @@ class Engine:
     def routes_msg(self) -> str:
         return routes_message(self.routes, self._routes_tick).model_dump_json()
 
+    def incidents_msg(self) -> str:
+        return Incidents(tick=self.fire.tick, incidents=self.incidents.report(self.fire.state)).model_dump_json()
+
+    def incident_envelope(self) -> np.ndarray | None:
+        """The calibrated T+60 envelope the console draws (#12), which decides
+        whether a spot fire joins an incident or starts one (#179). Recomputed
+        when a new forecast lands."""
+        f = self.latest_forecast
+        if f is None:
+            return None
+        if self._inc_env_tick != f.tick:
+            self._inc_env_tick = f.tick
+            self._inc_env = self.envelope.envs[-1].envelope(f.probability[-1], self.fire.state >= BURNING)
+        return self._inc_env
+
     def envelope_msg(self) -> str:
         envs = self.envelope.envs
         return ForecastEnvelope(
@@ -455,6 +475,7 @@ class Engine:
                 await ws.send(self.clock_msg())
             await ws.send(self.recs_msg())
             await ws.send(self.envelope_msg())
+            await ws.send(self.incidents_msg())
             await ws.send(self.drafts.message(self.fire.tick))
             await ws.send(self.units_msg())
             await ws.send(self.situation_msg())
@@ -481,6 +502,7 @@ class Engine:
                 self.virtual.handle(msg)
             case Ignite():
                 self.fire.ignite(msg.x, msg.y)
+                self.incidents.ignite(msg.x, msg.y, self.fire.tick)
                 self._ignitions += 1
                 # Send the map now: while paused no step would, and the new fire wouldn't show.
                 broadcast(self.clients, self.sim_grid_frame())
@@ -500,6 +522,7 @@ class Engine:
                 self.reset_map()
                 if (ig := self.game.ignition) is not None:
                     self.fire.ignite(*ig)
+                    self.incidents.ignite(*ig, self.fire.tick)
                 broadcast(self.clients, self.state_msg())
             case EndRound():
                 phase = self.game.phase
@@ -572,6 +595,7 @@ class Engine:
         self._preview_tick = -PREVIEW_MIN_TICKS  # the throttle counts engine ticks, which just restarted
         self.fire.reset()
         self.effects.reset()
+        self.incidents.reset()
         self._fire_epoch += 1
         self._forecast_started = -FORECAST_MIN_TICKS
         self.latest_forecast = None
@@ -617,6 +641,7 @@ class Engine:
         self.eta_cal.clear_pending()
         self._burn_tick[:] = np.inf
         self.effects.reset()
+        self.incidents.reset()
         self._fire_epoch += 1
         self._forecast_started = -FORECAST_MIN_TICKS
         self.latest_forecast = None
@@ -718,6 +743,10 @@ class Engine:
             self._acting = self.dispatcher.update(tokens, self.fire.tick, self.fire.wind.speed_ms, closed)
             self.fire.set_suppression(self.effects.update(self._acting, self.fire.tick))
             self.fire.step()
+            for x, y in self.game.due_ignitions(self.fire.tick):  # a second fire (#179)
+                self.fire.ignite(x, y)
+                self.incidents.ignite(x, y, self.fire.tick)
+            self.incidents.update(self.fire.state, self.fire.tick, self.incident_envelope())
             lit = self.fire.state >= BURNING
             self._burn_tick[lit & np.isinf(self._burn_tick)] = self.fire.tick
             self.eta_cal.mature(self.fire.tick, self._burn_tick, SIM_MINUTES_PER_TICK)
@@ -726,6 +755,9 @@ class Engine:
             self.check_road_cuts()
             self.score_step(tokens)
         broadcast(self.clients, self.sim_grid_frame())
+        if self.incidents.changed:
+            self.incidents.changed = False
+            broadcast(self.clients, self.incidents_msg())
         if self._envelope_dirty:
             self._envelope_dirty = False
             broadcast(self.clients, self.envelope_msg())
@@ -852,6 +884,7 @@ class Engine:
                 eta_min=round((u.arrive_tick - tick) * mpt, 1) if u.status == "en_route" else None,
                 path=u.path if u.status == "en_route" else [],
                 line=self.effects.line_of(u.token_id, tick) if u.status == "working" and u.token_id else [],
+                incident=self.incidents.of(*u.target) if u.target is not None and u.token_id else None,
             ))
         return Units(tick=tick, units=units).model_dump_json()
 
@@ -1289,6 +1322,8 @@ class Engine:
                 broadcast(self.clients, self.state_msg())
                 broadcast(self.clients, self.vision_status_msg())
                 broadcast(self.clients, self.score_msg())
+                if any(i.active for i in self.incidents.report(self.fire.state)):
+                    broadcast(self.clients, self.incidents_msg())  # sizes and growth
                 if self.evac_orders:
                     self.schedule_clock()  # people left and the queues change as towns empty
             next_tick += period
