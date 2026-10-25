@@ -63,7 +63,19 @@ export function townView(t: Town, threat: TownThreat | null, evac: TownEvac | nu
     if (soon !== null && soon <= 30) [tone, status] = ["crit", "Threatened"];
     else if ((soon !== null && soon <= 60) || share >= SHARE_WARN) [tone, status] = ["warn", "Threatened"];
   }
-  const eta = threat?.fire_inside ? "Fire in town" : soon !== null ? `Fire in ~${aboutMinutes(soon)}` : null;
+  // The map's town label uses the calibrated 90% range (#13) when there is one,
+  // like the inspector and the cards; otherwise the simulations' early end.
+  const lo = threat?.eta_lo_min ?? null;
+  const hi = threat?.eta_hi_min ?? null;
+  const eta = threat?.fire_inside
+    ? "Fire in town"
+    : lo !== null && hi !== null
+      ? `Fire in ${aboutMinutes(lo)}–${aboutMinutes(hi)}`
+      : lo !== null
+        ? `Fire in ${aboutMinutes(lo)}+`
+        : soon !== null
+          ? `Fire in ~${aboutMinutes(soon)}`
+          : null;
   const toneRank = { crit: 0, warn: 1, info: 2, ok: 4, neutral: 3 }[tone];
   return { ...t, threat, evac, tone, status, eta, rank: toneRank * 1e4 + (threat?.fire_inside ? 0 : (soon ?? 9999)) };
 }

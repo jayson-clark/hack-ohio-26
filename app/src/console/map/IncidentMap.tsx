@@ -229,7 +229,6 @@ export default function IncidentMap(props: Props) {
                     </label>
                   );
                 })}
-                <EnvelopeNote envelope={envelope} />
               </Floating>
             )}
           </div>
@@ -248,7 +247,7 @@ export default function IncidentMap(props: Props) {
 
       {/* Legend and cursor, bottom left */}
       <div className="pointer-events-none absolute bottom-4 left-4 flex flex-col items-start gap-2">
-        <Legend planning={planning && !!plan.grids} drone={drone} />
+        <Legend planning={planning && !!plan.grids} drone={drone} envelope={envelope} preview={!!forecast?.preview} />
         <div className="rounded-md bg-panel/90 px-2 py-1 text-[11px] text-ink-2 shadow-card tnum">
           {hover ? describeLocation(scenario, hover.x, hover.y) : "Drag to pan · scroll to zoom"}
         </div>
@@ -292,7 +291,8 @@ function WindRose({ speed, from }: { speed: number; from: number }) {
   );
 }
 
-function Legend({ planning, drone }: { planning: boolean; drone: boolean }) {
+function Legend(props: { planning: boolean; drone: boolean; envelope: ForecastEnvelope | null; preview: boolean }) {
+  const { planning, drone } = props;
   const [open, setOpen] = useState(true);
   return (
     <Floating className="pointer-events-auto w-52 overflow-hidden">
@@ -322,8 +322,16 @@ function Legend({ planning, drone }: { planning: boolean; drone: boolean }) {
             </>
           ) : (
             <>
-              <Swatch fill="#f5a35f" line="#cc5412" label="Likely fire in 30 min" />
-              <Swatch fill="#fad38a" line="#cc850f" label="Likely fire in 60 min" />
+              <Swatch fill="#f5a35f" label="Likely fire in 30 min" />
+              <Swatch fill="#fad38a" label="Likely fire in 60 min" />
+              <p className="pl-6 text-[10px] leading-snug text-ink-3">Shaded: at least half the simulations burn there.</p>
+              <div className="flex items-center gap-2">
+                <span className="flex h-3 w-4 items-center">
+                  <span className="h-[2px] w-4 rounded bg-[#cc5412]" />
+                </span>
+                {props.preview ? "Outline: half the simulations" : "Calibrated outline"}
+              </div>
+              <EnvelopeNote envelope={props.envelope} preview={props.preview} />
             </>
           )}
           <div className="flex items-center gap-2 pt-0.5">
@@ -352,17 +360,29 @@ function Swatch({ fill, line, label }: { fill: string; line?: string; label: str
 /** How well the forecast outline keeps its promise (#12): the share of new
  * fire that recently fell outside it, against the target. Shown once the
  * engine has scored a few forecasts on this map. */
-function EnvelopeNote({ envelope }: { envelope: ForecastEnvelope | null }) {
-  if (!envelope || envelope.scored.every((n) => n < 3)) return null;
+function EnvelopeNote({ envelope, preview }: { envelope: ForecastEnvelope | null; preview: boolean }) {
+  if (preview)
+    return (
+      <p className="pl-6 text-[10px] leading-snug text-ink-3">
+        Quick preview. The calibrated outline returns when the full forecast lands.
+      </p>
+    );
+  if (!envelope || envelope.scored.every((n) => n < 3))
+    return (
+      <p className="pl-6 text-[10px] leading-snug text-ink-3">
+        Aims for 1 in 10 acres of new fire outside it; checked once forecasts come due.
+      </p>
+    );
   const pct = (x: number | null) => (x == null ? "–" : `${Math.round(x * 100)}%`);
   const parts = envelope.horizons_min.map((h, i) => `${pct(envelope.miss_recent[i])} at ${h} min`);
   const over = envelope.miss_recent.some((m) => m != null && m > envelope.target_miss + 0.05);
   return (
     <p
-      className={`mx-2 mt-1.5 border-t border-line pt-2 text-[11px] leading-snug ${over ? "text-warn" : "text-ink-3"}`}
-      title="The outline is calibrated online: each forecast is checked when its time comes, and the outline widens or tightens to keep the miss rate near the target."
+      className={`pl-6 text-[10px] leading-snug ${over ? "font-medium text-warn" : "text-ink-3"}`}
+      title="The outline is calibrated as the fire burns: each forecast is checked when its time comes, and the outline widens or tightens to keep the share of new fire outside it near the target. It widens after a wind shift, then tightens again."
     >
-      Forecast outline: {parts.join(", ")} of new fire fell outside it lately (target {pct(envelope.target_miss)}).
+      New fire outside it lately: {parts.join(", ")} (target {pct(envelope.target_miss)}).
+      {over && " Widening: the forecast was recently off."}
     </p>
   );
 }
