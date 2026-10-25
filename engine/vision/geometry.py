@@ -127,6 +127,40 @@ def onto_surface(view: Viewpoint, plane: np.ndarray, surface: Surface, lift_mm: 
     return pts, surface.at(pts) + lift_mm
 
 
+def orthophoto_remap(
+    cam_to_map: np.ndarray,
+    view: Viewpoint | None,
+    surface: Surface,
+    out_size: tuple[int, int],
+) -> np.ndarray:
+    """A cv2.remap table that rectifies the camera frame to a top-down view of
+    the board: output pixels cover the whole map grid, each sampling the camera
+    pixel that saw the ground under it.
+
+    `out_size` is (width, height) in output pixels. The board (`surface.width` x
+    `surface.height` cells) is scaled to fill it, so one output pixel is a fixed
+    fraction of a cell and the result lines up with the map frame.
+
+    With a camera viewpoint the line of sight through each ground point is
+    followed from the terrain back up to the marker plane (to_plane), so hills
+    no longer lean outward; without one (CAMERA_FOCAL off, or an unplaceable
+    solve) it's the plain plane homography. Returns an (h, w, 2) float32 array
+    of camera pixel coords for cv2.remap."""
+    out_w, out_h = out_size
+    sx, sy = surface.width / out_w, surface.height / out_h
+    # Map-cell centre of each output pixel: pixel (i, j) covers [i, i+1) px.
+    xs = (np.arange(out_w, dtype=np.float64) + 0.5) * sx
+    ys = (np.arange(out_h, dtype=np.float64) + 0.5) * sy
+    gx, gy = np.meshgrid(xs, ys)
+    ground = np.column_stack([gx.ravel(), gy.ravel()])
+    if view is None:
+        plane = ground
+    else:
+        plane = to_plane(view, ground, surface.at(ground))
+    cam = cv2.perspectiveTransform(plane.reshape(-1, 1, 2), np.linalg.inv(cam_to_map)).reshape(out_h, out_w, 2)
+    return cam.astype(np.float32)
+
+
 def camera_viewpoint(board: np.ndarray, map_pts: np.ndarray, frame_size: tuple[int, int], cell_mm: float) -> Viewpoint | None:
     """The camera's centre from the board homography (camera px -> map) and the
     map points it was solved from (the corner markers), or None if it can't be
