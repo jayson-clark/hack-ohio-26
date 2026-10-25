@@ -3,8 +3,9 @@ engine fresh 0.5 paused
 engine advance 28
 
 prep
-  key r mods=cmd
+  reload
   waitfor "Fit the whole map" timeout=15
+  click "Fit the whole map"
   move 1000,560
 
 scene "2x: the fire cuts the road and routes replan"

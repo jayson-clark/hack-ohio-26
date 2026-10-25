@@ -40,7 +40,8 @@ One command per line; `#` starts a comment. Quote text with spaces.
 | `click "text" [role=button] [index=0]` | Click an element by its visible text. `index` picks among several matches, top to bottom |
 | `click 75,514` | Click a window point |
 | `move "text"` / `move 1200,560 [ms=1500]` | Glide the pointer there |
-| `key period` / `key right x9` / `key r mods=cmd` | Press a key, optionally repeated or with modifiers |
+| `key period` / `key right x9` / `key k mods=cmd+shift` | Press a key, optionally repeated or with modifiers |
+| `reload` | Reload the console page (prep only). Done through AppleScript, because keys don't reach the Chrome app window's menu |
 | `type "text" [into="placeholder"]` | Type text (`\n` presses Return) |
 | `hold 4` | Keep 4 s in the video, for reading |
 | `wait 1` | Pause 1 s |
@@ -64,6 +65,6 @@ Times (for zooms, labels, captions and trim) are `0`, `end`, or `<scene>@<second
 ## Gotchas
 
 - Recordly cuts idle stretches and adds click zooms and captions when a recording loads. The runner undoes all of that, because most of this footage is the fire moving, and applies only the take's own zooms and text. It also turns off zoom motion blur, which smears the map's labels.
-- Every take reloads the console in `prep` (`key r mods=cmd`), so autopilot, plan drafts and the commander dock start from scratch.
+- Every take reloads the console and fits the map in `prep`, so the last take's selection, zoom, plan drafts, commander dock and autopilot don't leak into it.
 - Recordly's `type` has dropped letters in this window. Prefer clicking the commander's suggestion buttons.
 - Above 1× the Paradise fire outruns every decision. Most takes run at 0.25–0.5×.

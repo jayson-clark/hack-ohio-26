@@ -5,8 +5,9 @@ engine fresh 0.5 paused
 engine advance 90
 
 prep
-  key r mods=cmd
+  reload
   waitfor "Fit the whole map" timeout=15
+  click "Fit the whole map"
   move 1100,700
 
 scene "Plan mode: assume the wind swings east and picks up"

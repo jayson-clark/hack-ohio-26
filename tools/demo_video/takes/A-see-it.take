@@ -3,7 +3,7 @@
 engine fresh 0.5 paused
 
 prep
-  key r mods=cmd                # reload: clears autopilot, plan and dock state
+  reload                        # clears selection, zoom, plan, dock and autopilot
   waitfor "Fit the whole map" timeout=15
   click "Fit the whole map"
   move 1150,560

@@ -274,6 +274,10 @@ def parse(path: Path) -> Take:
             pos, kw = opts(rest)
             if cmd == "engine":
                 (block.items if block else take.setup).append(("engine", rest))
+            elif cmd == "reload":
+                if block is None:
+                    raise TakeError("reload goes inside prep")
+                block.items.append(("reload", rest))
             elif cmd in ("prep", "scene"):
                 block = Block(cmd, pos[0] if pos else "", kw.get("pace", "brisk" if cmd == "prep" else "relaxed"))
                 take.blocks.append(block)
@@ -346,13 +350,24 @@ def find_window(rec: Recordly) -> tuple[dict, dict]:
     return win, screen
 
 
+def reload_console() -> None:
+    """Reload the console so the last take's selection, zoom, plan, dock and
+    autopilot are gone. Keys don't reach a Chrome app window, so AppleScript."""
+    script = f'tell application "Google Chrome" to tell (first window whose title is "{WINDOW_TITLE}") to reload active tab'
+    subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
+    time.sleep(1)
+
+
 def run_items(rec: Recordly, block: Block) -> None:
     steps: list[dict] = []
     for item in block.items:
         if isinstance(item, tuple):
             rec.perform(steps, block.pace)
             steps = []
-            engine(item[1])
+            if item[0] == "reload":
+                reload_console()
+            else:
+                engine(item[1])
         else:
             steps.append(item)
     rec.perform(steps, block.pace)

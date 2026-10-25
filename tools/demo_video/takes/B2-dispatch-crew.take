@@ -2,8 +2,9 @@
 engine fresh 0.25 paused
 
 prep
-  key r mods=cmd
+  reload
   waitfor "Fit the whole map" timeout=15
+  click "Fit the whole map"
   move 700,500
 
 scene "The queue fills; read a crew recommendation"
