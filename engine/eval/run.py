@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from forecast.recommend import ACRE_WEIGHT, TownInfo, _town_masks, candidates, recommend
+from forecast.recommend import ACRE_WEIGHT, REC_HORIZON_TICKS, TownInfo, _town_masks, candidates, recommend
 from forecast.runner import horizon_ticks, run_forecast
 from routing.evac import BUS_SPEED_KMH, plan_routes, replan_routes
 from routing.roads import load_network
@@ -218,7 +218,8 @@ def run_episode(scenario, net, towns, sched: str, seed: int, ticks: int, every: 
                     top = recs[0]
                     rnd = spots[int(rng.integers(len(spots)))]
                     variants = [crew_layer(W, H, top.x, top.y), crew_layer(W, H, *rnd)]
-                    loss = _future_losses(snap, variants, 8, int(horizon_ticks(60)), wind_at, tick,
+                    # Realized over the same window the recommendation was scored on.
+                    loss = _future_losses(snap, variants, 8, REC_HORIZON_TICKS, wind_at, tick,
                                           seed * 31 + tick, towns, masks)
                     res.recs.rec_realized.append(float((loss[0] - loss[1]).mean()))
                     res.recs.random_realized.append(float((loss[0] - loss[2]).mean()))
