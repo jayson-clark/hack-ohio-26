@@ -37,6 +37,11 @@ export function EventAlerts() {
   const next = useRef(0);
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  // The end of an exercise outranks whatever was urgent a moment before (#128).
+  const over = score?.phase === "ended";
+  useEffect(() => {
+    if (over) setShown([]);
+  }, [over]);
 
   useEffect(() => {
     // Not found: the store was cleared (a reconnect) and refilled with the
@@ -47,7 +52,7 @@ export function EventAlerts() {
     const fresh = idx >= 0 ? events.slice(idx + 1) : events.filter((e) => e.tick >= now - RECENT_TICKS);
     lastSeen.current = events[events.length - 1];
     const urgent = fresh.filter((e) => EVENT_STYLE[e.kind].alert).map((event) => ({ key: next.current++, event }));
-    if (urgent.length === 0) return;
+    if (urgent.length === 0 || over) return;
     setShown((s) => [...urgent.reverse(), ...s].slice(0, 3));
     const keys = new Set(urgent.map((u) => u.key));
     timers.current.push(window.setTimeout(() => setShown((s) => s.filter((x) => !keys.has(x.key))), ALERT_MS));

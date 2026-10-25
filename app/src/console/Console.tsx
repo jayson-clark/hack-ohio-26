@@ -84,7 +84,10 @@ export default function Console() {
     setSelection(null);
     switchMode("plan");
   }
-  const decisions = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan }).length;
+  // An ended exercise takes no orders, so nothing is waiting on a decision (#128).
+  const over = score?.phase === "ended";
+  const pending = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan }).length;
+  const decisions = over ? 0 : pending;
 
   // Keys: 1-4 pick an order tool, Esc goes back to selecting (then closes the
   // inspector), M/P/R switch modes, and holding Space talks to the commander.
@@ -92,6 +95,8 @@ export default function Console() {
   modeRef.current = mode;
   const toolRef = useRef(tool);
   toolRef.current = tool;
+  const overRef = useRef(over);
+  overRef.current = over;
   useEffect(() => {
     const typing = (e: KeyboardEvent) =>
       e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
@@ -102,7 +107,7 @@ export default function Console() {
         if (!e.repeat) pttStart();
         return;
       }
-      const tools = modeRef.current === "plan" ? PLAN_TYPES : modeRef.current === "monitor" ? ORDER_TOOLS : [];
+      const tools = overRef.current ? [] : modeRef.current === "plan" ? PLAN_TYPES : modeRef.current === "monitor" ? ORDER_TOOLS : [];
       const i = Number(e.key) - 1;
       if (i >= 0 && i < tools.length) setTool(tools[i]);
       if (e.key === "Escape") {
@@ -128,7 +133,10 @@ export default function Console() {
 
   // scenario_state.tick counts engine ticks; the fire's clock is the score's.
   const perTick = hello?.sim_minutes_per_tick ?? 1;
-  const fireTick = score?.tick ?? null;
+  // In free play the fire's clock runs from the last map reset whether or not
+  // anything has burned, so hide it until something has (#128).
+  const fireStarted = !!score && (score.phase !== "sandbox" || score.acres_burned > 0);
+  const fireTick = fireStarted ? score.tick : null;
   const forecastAge = fireTick != null && situation?.forecast_tick != null ? (fireTick - situation.forecast_tick) * perTick : null;
   const burning = !!simGrid && simGrid.payload.includes(2);
 
@@ -198,7 +206,7 @@ export default function Console() {
             <>
               <Situation towns={towns} />
               <Section title="Needs decision" count={decisions} className="mt-2">
-                <Decisions scenario={scenario} towns={towns} onSelect={select} onTryInPlan={tryInPlan} />
+                <Decisions scenario={scenario} towns={towns} onSelect={select} onTryInPlan={tryInPlan} onReview={() => switchMode("review")} />
               </Section>
               <Section title="Towns" count={towns.length}>
                 <Towns towns={towns} selected={selection?.kind === "town" ? selection.name : null} onSelect={(name) => select({ kind: "town", name })} />
