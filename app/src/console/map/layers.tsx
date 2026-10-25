@@ -178,8 +178,20 @@ export function StationsLayer({ stations, k }: { stations: StationInfo[]; k: num
 
 export function UnitsLayer({ units, k }: { units: UnitInfo[]; k: number }) {
   const moving = units.filter((u) => u.status === "en_route" || u.status === "blocked" || u.status === "grounded");
+  // A working crew's cut line (#99, #159): a fuel break along the wind that
+  // grows from the crew while it works, so the operator can see what the
+  // fire is bending around.
+  const lines = units.filter((u) => u.status === "working" && u.line.length === 2);
   return (
     <g className="pointer-events-none">
+      {lines.map((u) => (
+        <g key={`l${u.id}`}>
+          <line x1={u.line[0][0]} y1={u.line[0][1]} x2={u.line[1][0]} y2={u.line[1][1]} stroke="var(--color-panel)" strokeWidth={5} strokeLinecap="round" {...NS} />
+          <line x1={u.line[0][0]} y1={u.line[0][1]} x2={u.line[1][0]} y2={u.line[1][1]} stroke={ORDER_COLOR[u.token_type]} strokeWidth={3} strokeLinecap="round" {...NS}>
+            <title>{`${u.id}: cut line`}</title>
+          </line>
+        </g>
+      ))}
       {moving.map((u) =>
         u.path.length > 1 ? (
           <polyline

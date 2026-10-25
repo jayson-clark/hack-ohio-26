@@ -282,6 +282,7 @@ export interface UnitInfo {
   y: number;
   eta_min: number | null;
   path: number[][];
+  line: number[][];
 }
 /**
  * When each town has to be ordered out (#121): fire arrival from a long
