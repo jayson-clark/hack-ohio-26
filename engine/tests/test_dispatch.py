@@ -141,8 +141,8 @@ def test_engine_tokens_wait_for_their_unit_and_units_go_on_the_wire():
         try:
             hello = json.loads(e.hello_msg())
             assert {s["kind"] for s in hello["stations"]} == {"ground", "air"}
-            e.fire.ignite(217.3, 54.5)
-            e.virtual.handle(VirtualTokenAdd(token_type=TokenType.CREW, x=200, y=70))
+            e.fire.ignite(409.3, 118.5)  # the Camp Fire origin near Pulga, in the extended map (#197)
+            e.virtual.handle(VirtualTokenAdd(token_type=TokenType.CREW, x=392, y=134))
             e.step_fire()
             assert e.fire.suppression.max() == 0  # the crew isn't there yet
             units = json.loads(e.units_msg())["units"]

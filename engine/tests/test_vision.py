@@ -20,11 +20,16 @@ TOKEN_SIZE = 12.0  # cells (~15 mm)
 # slightly keystoned, off-centre view like a real overhead webcam.
 CAMERA_QUAD = np.float32([[260, 50], [1690, 110], [1630, 1040], [310, 990]])
 
+# The camera sees the print, a window of the sim map (#197): renders are of
+# that window, and positions are shifted by its offset into map coordinates.
+_X0, _Y0, PW, PH = load_scenario("paradise").print_window
+OFF = np.array([_X0, _Y0], float)
+
 TOKENS = [  # marker id, map x, y, angle (deg clockwise from +x)
-    (10, 40.0, 30.0, 0.0),
-    (21, 128.5, 96.25, 37.0),
-    (33, 200.0, 150.0, -120.0),
-    (44, 20.0, 170.0, 90.0),
+    (10, _X0 + 40.0, _Y0 + 30.0, 0.0),
+    (21, _X0 + 128.5, _Y0 + 96.25, 37.0),
+    (33, _X0 + 200.0, _Y0 + 150.0, -120.0),
+    (44, _X0 + 20.0, _Y0 + 170.0, 90.0),
 ]
 
 
@@ -48,7 +53,7 @@ def _paste_marker(canvas, marker_id, cx, cy, size_cells, angle_deg):
     a = math.radians(angle_deg)
     u = np.array([math.cos(a), math.sin(a)])  # marker +x, map y down
     v = np.array([-math.sin(a), math.cos(a)])  # marker +y
-    c = (np.array([cx, cy]) + MARGIN) * PX_PER_CELL - 0.5  # OpenCV: pixel i is centred on i
+    c = (np.array([cx, cy]) - OFF + MARGIN) * PX_PER_CELL - 0.5  # OpenCV: pixel i is centred on i
     h = size_cells * PX_PER_CELL / 2
     dst = np.float32([c - h * u - h * v, c + h * u - h * v, c + h * u + h * v, c - h * u + h * v])
     src = np.float32([[0, 0], [side, 0], [side, side], [0, side]]) - 0.5
@@ -61,13 +66,13 @@ def _paste_marker(canvas, marker_id, cx, cy, size_cells, angle_deg):
 
 def render_camera_image(scenario, tokens=TOKENS, hide_corner=None):
     """A grayscale 'webcam frame' of the board with the given token markers."""
-    w = (scenario.width + 2 * MARGIN) * PX_PER_CELL
-    h = (scenario.height + 2 * MARGIN) * PX_PER_CELL
+    w = (PW + 2 * MARGIN) * PX_PER_CELL
+    h = (PH + 2 * MARGIN) * PX_PER_CELL
     canvas = np.full((h, w), 235, np.uint8)  # light-grey board
     # The terrain itself, a bit darker, so the map edge is visible.
     x0, y0 = MARGIN * PX_PER_CELL, MARGIN * PX_PER_CELL
-    canvas[y0 : y0 + scenario.height * PX_PER_CELL, x0 : x0 + scenario.width * PX_PER_CELL] = 205
-    cells_per_mm = scenario.width / scenario.terrain["model"]["width_mm"]
+    canvas[y0 : y0 + PH * PX_PER_CELL, x0 : x0 + PW * PX_PER_CELL] = 205
+    cells_per_mm = PW / scenario.terrain["model"]["width_mm"]
     corner_size = scenario.terrain["markers"]["marker_size_mm"] * cells_per_mm
     for c in scenario.terrain["markers"]["corners"]:
         if c["corner"] != hide_corner:
@@ -199,6 +204,6 @@ def test_camera_thread_reports_tokens_from_a_still_image(scenario, tmp_path):
     assert snap.status.board_found
     assert snap.feed_jpeg[:2] == b"\xff\xd8"  # a JPEG
     assert snap.feed_size[0] == 960
-    # Locked, so the feed is the orthophoto: the map grid's aspect, flagged for the UI.
+    # Locked, so the feed is the orthophoto: the print window's aspect, flagged for the UI.
     assert snap.status.feed_rectified
-    assert snap.feed_size[1] == round(960 * scenario.height / scenario.width)
+    assert snap.feed_size[1] == round(960 * PH / PW)

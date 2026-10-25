@@ -21,6 +21,6 @@ def test_concow_lake_does_not_burn():
     s = load_scenario("paradise")
     sim = FireSim(s, seed=0)
     # Concow Lake, just south-west of the Concow place marker.
-    lake = sim.state[95:110, 135:150]
+    lake = sim.state[159:174, 327:342]  # the print sits at (192, 64) in the extended map (#197)
     assert (lake == UNBURNABLE).any()
     assert (sim.state == FUEL).mean() > 0.95  # but nearly the whole map is fuel

@@ -94,8 +94,8 @@ def test_a_round_can_light_a_second_fire_on_schedule():
 def test_incidents_follow_a_real_fire():
     sim = FireSim(SCEN, seed=1)
     inc = IncidentTracker(SCEN)
-    sim.ignite(217, 54)
-    inc.ignite(217, 54, 0)
+    sim.ignite(409, 118)
+    inc.ignite(409, 118, 0)
     for t in range(60):
         sim.step()
         inc.update(sim.state, sim.tick)

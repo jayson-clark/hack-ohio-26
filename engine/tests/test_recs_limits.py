@@ -80,7 +80,7 @@ def test_no_crews_left_asks_for_moves(monkeypatch):
     try:
         monkeypatch.setattr(e.recommender, "submit_moves", lambda *a, **k: calls.append(a) or asyncio.Future())
         monkeypatch.setattr(e.recommender, "submit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("place")))
-        e.fire.ignite(217.3, 54.5)
+        e.fire.ignite(409.3, 118.5)
         active = e.game.active(e.tracker.tokens)
         for _ in range(25):  # let the crews dig in, as the engine's tick loop does
             e.fire.set_suppression(e.effects.update(active, e.fire.tick))

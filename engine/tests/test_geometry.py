@@ -22,6 +22,18 @@ from vision.tracking import TOKEN_TOP_MM, measure
 
 FRAME = (1920, 1080)
 
+# The print is a window of the sim map (#197). This file works in print-local
+# cells, as it did when the print was the whole map, and shifts by the print's
+# offset wherever the engine wants map coordinates.
+_SCEN = load_scenario("paradise")
+OFF = np.array(_SCEN.print_window[:2], float)
+PW, PH = _SCEN.print_window[2:]
+
+
+def shift(h: np.ndarray) -> np.ndarray:
+    """A homography from print-local cells -> the same from map cells."""
+    return h @ np.array([[1, 0, -OFF[0]], [0, 1, -OFF[1]], [0, 0, 1]])
+
 
 @pytest.fixture(scope="module")
 def scenario():
@@ -49,13 +61,13 @@ class Camera:
     def px(self, pts: np.ndarray, heights_mm: np.ndarray) -> np.ndarray:
         """Map points at heights above the marker plane -> image pixels."""
         pts = np.asarray(pts, float).reshape(-1, 2)
-        world = np.column_stack([pts * self.cell_mm, -np.asarray(heights_mm, float).reshape(-1)])
+        world = np.column_stack([(pts - OFF) * self.cell_mm, -np.asarray(heights_mm, float).reshape(-1)])
         cam = (self.r @ (world - self.c).T).T
         uv = (self.k @ cam.T).T
         return uv[:, :2] / uv[:, 2:]
 
     def viewpoint(self) -> Viewpoint:
-        return Viewpoint(self.c[0] / self.cell_mm, self.c[1] / self.cell_mm, -self.c[2])
+        return Viewpoint(OFF[0] + self.c[0] / self.cell_mm, OFF[1] + self.c[1] / self.cell_mm, -self.c[2])
 
 
 def corner_detections(scenario, cam: Camera) -> list[Detection]:
@@ -71,16 +83,17 @@ def corner_detections(scenario, cam: Camera) -> list[Detection]:
 def test_surface_heights_match_the_print(scenario, surface):
     t = scenario.terrain
     floor = t["model"]["base_mm"] - t["markers"]["marker_top_z_mm"]  # the base's top, the lowest point
-    assert floor <= surface.mm.min() < floor + 1
-    assert surface.mm.max() == pytest.approx(floor + t["model"]["relief_mm"], abs=1)
+    on_print = surface.mm[int(OFF[1]):int(OFF[1]) + PH, int(OFF[0]):int(OFF[0]) + PW]
+    assert floor <= on_print.min() < floor + 1
+    assert on_print.max() == pytest.approx(floor + t["model"]["relief_mm"], abs=1)
     # Off the print it's the bare table, below the marker plane.
-    assert surface.at(np.array([[-5.0, 10.0], [300.0, 50.0]])).tolist() == [surface.floor] * 2
+    assert surface.at(np.array([[-5.0, 10.0], [300.0, 50.0]]) + OFF).tolist() == [surface.floor] * 2
 
 
 def test_plane_and_surface_round_trip(surface):
-    view = Viewpoint(140.0, 210.0, 650.0)
+    view = Viewpoint(OFF[0] + 140.0, OFF[1] + 210.0, 650.0)
     rng = np.random.default_rng(1)
-    ground = rng.uniform([2, 2], [254, 190], (200, 2))
+    ground = rng.uniform([2, 2], [254, 190], (200, 2)) + OFF
     plane = to_plane(view, ground, surface.at(ground))
     back, heights = onto_surface(view, plane, surface)
     assert np.abs(back - ground).max() < 0.02
@@ -101,7 +114,7 @@ def test_tokens_on_hills_read_where_they_sit(scenario, surface):
     board = BoardHomography(scenario)
     board.update(corner_detections(scenario, cam), FRAME)
     rng = np.random.default_rng(2)
-    spots = rng.uniform([10, 10], [246, 182], (40, 2))
+    spots = rng.uniform([10, 10], [246, 182], (40, 2)) + OFF
     seen = cam.px(spots, surface.at(spots) + TOKEN_TOP_MM)
     flat = board.to_map(seen)
     fixed = board.to_surface(seen, TOKEN_TOP_MM)
@@ -121,11 +134,11 @@ def test_calibration_fit_takes_the_terrain_out(scenario, surface):
     cam = Camera(scenario.terrain["grid"]["cell_size_mm"])
     board = BoardHomography(scenario)
     board.update(corner_detections(scenario, cam), FRAME)
-    lens = Viewpoint(150.0, 230.0, 620.0)
+    lens = Viewpoint(OFF[0] + 150.0, OFF[1] + 230.0, 620.0)
     # The truth: map (marker plane) -> pattern px, the board filling the middle.
-    true_h = cv2.getPerspectiveTransform(
+    true_h = shift(cv2.getPerspectiveTransform(
         np.float32([[0, 0], [256, 0], [256, 192], [0, 192]]), np.float32([[250, 60], [1700, 90], [1680, 1030], [230, 1000]])
-    ).astype(np.float64)
+    ).astype(np.float64))
     # Each ring corner lands where the lens's ray first meets the terrain; the camera sees it there.
     target = pattern_corners()
     ground, heights = onto_surface(lens, transform(np.linalg.inv(true_h), target), surface)
@@ -135,7 +148,7 @@ def test_calibration_fit_takes_the_terrain_out(scenario, surface):
     fit = PatternFit(norm @ flat_h, 0.0, 8, seen, target / PATTERN_SIZE)
 
     map_to_proj, cam_to_proj, err = fit_on_terrain(fit, board.cam_to_map, surface, board.camera, lens)
-    probe = np.array([[0, 0], [256, 0], [256, 192], [0, 192], [128, 96]], float)
+    probe = np.array([[0, 0], [256, 0], [256, 192], [0, 192], [128, 96]], float) + OFF
     want = transform(true_h, probe)
     got = transform(np.linalg.inv(norm) @ map_to_proj, probe)
     flat = transform(np.linalg.inv(norm) @ derive(fit.cam_to_proj, board.cam_to_map), probe)
@@ -149,7 +162,7 @@ def test_projector_position_from_env(scenario):
     t = scenario.terrain
     cell = t["grid"]["cell_size_mm"]
     v = projector_from_env(f"{t['model']['width_mm'] / 2}, 0, 706", scenario)
-    assert v.x == pytest.approx(scenario.width / 2) and v.y == pytest.approx(scenario.height)
+    assert v.x == pytest.approx(OFF[0] + PW / 2) and v.y == pytest.approx(OFF[1] + PH)
     assert v.h == pytest.approx(706 - t["markers"]["marker_top_z_mm"])
     assert projector_from_env("", scenario) is None
     with pytest.raises(ValueError):
@@ -159,17 +172,18 @@ def test_projector_position_from_env(scenario):
 
 # The real rig's projector: low and off the south-west corner, shining across
 # with lens shift, onto the board filling the middle of its frame.
-LENS = Viewpoint(46.0, 228.0, 534.0)
-MAP_TO_PX = cv2.getPerspectiveTransform(
+LENS = Viewpoint(OFF[0] + 46.0, OFF[1] + 228.0, 534.0)
+LOCAL_TO_PX = cv2.getPerspectiveTransform(
     np.float32([[0, 0], [256, 0], [256, 192], [0, 192]]), np.float32([[250, 60], [1700, 90], [1680, 1030], [230, 1000]])
 ).astype(np.float64)
+MAP_TO_PX = shift(LOCAL_TO_PX)
 NORM = np.diag([1 / PATTERN_SIZE[0], 1 / PATTERN_SIZE[1], 1.0])
 
 
 def seen_dots(scenario, surface, cam, noise_px=0.0, seed=3):
     """Dots placed through MAP_TO_PX, where the lens really lands them on the
     terrain, as the camera sees them."""
-    centres = dot_centres(NORM @ MAP_TO_PX, scenario.width, scenario.height)
+    centres = dot_centres(NORM @ MAP_TO_PX, scenario.print_window)
     ground, heights = onto_surface(LENS, transform(np.linalg.inv(MAP_TO_PX), centres), surface)
     px = cam.px(ground, heights)
     return centres, px + np.random.default_rng(seed).normal(0, noise_px, px.shape)
@@ -187,14 +201,14 @@ def test_dot_grid_solves_the_projector_lens(scenario, surface):
     p = lens.projector
     assert np.hypot(p.x - LENS.x, p.y - LENS.y) * cell < 25 and abs(p.h - LENS.h) < 30  # mm
     assert lens.flat_error_px > 4 * lens.error_px and lens.error_px < 1.0
-    probe = np.array([[0, 0], [256, 0], [256, 192], [0, 192], [128, 96]], float)
+    probe = np.array([[0, 0], [256, 0], [256, 192], [0, 192], [128, 96]], float) + OFF
     got = transform(np.linalg.inv(NORM) @ lens.map_to_proj, probe)
     assert np.abs(got - transform(MAP_TO_PX, probe)).max() < 2.0  # pattern px
     assert np.allclose(derive(lens.cam_to_proj, board.cam_to_map), lens.map_to_proj, atol=1e-9)
 
     # The light it predicts lands where the real light does, over the hills.
     rng = np.random.default_rng(4)
-    spots = rng.uniform([10, 10], [246, 182], (50, 2))
+    spots = rng.uniform([10, 10], [246, 182], (50, 2)) + OFF
     real = transform(MAP_TO_PX, to_plane(LENS, spots, surface.at(spots)))
     model = transform(np.linalg.inv(NORM) @ lens.map_to_proj, to_plane(p, spots, surface.at(spots)))
     assert np.linalg.norm(model - real, axis=1).max() < 2.0  # pattern px, under 0.5 mm on the board
@@ -211,7 +225,7 @@ def test_dot_grid_without_a_camera_pose_is_flat(scenario, surface):
 
 
 def test_find_dots_finds_each_dot_centre():
-    centres = dot_centres(NORM @ MAP_TO_PX, 256, 192)
+    centres = dot_centres(NORM @ LOCAL_TO_PX, (0, 0, 256, 192))
     pattern = cv2.imdecode(np.frombuffer(dots_png(centres), np.uint8), cv2.IMREAD_GRAYSCALE)
     # Seen by a camera: pattern px -> camera px, smaller and keystoned.
     to_cam = cv2.getPerspectiveTransform(
@@ -240,8 +254,8 @@ def test_orthophoto_without_a_pose_is_the_flat_homography(scenario, surface):
     # Each output pixel's cell centre, pushed through the inverse homography,
     # is exactly what the table stored.
     sx, sy = board.width / out_size[0], board.height / out_size[1]
-    xs = (np.arange(out_size[0]) + 0.5) * sx
-    ys = (np.arange(out_size[1]) + 0.5) * sy
+    xs = OFF[0] + (np.arange(out_size[0]) + 0.5) * sx
+    ys = OFF[1] + (np.arange(out_size[1]) + 0.5) * sy
     gx, gy = np.meshgrid(xs, ys)
     ground = np.column_stack([gx.ravel(), gy.ravel()]).astype(np.float32)
     want = cv2.perspectiveTransform(ground.reshape(-1, 1, 2), np.linalg.inv(board.cam_to_map)).reshape(-1, 2)
@@ -261,12 +275,12 @@ def test_orthophoto_corrects_terrain_lean(scenario, surface):
     assert table is not None and table.shape == (384, 512, 2)
 
     rng = np.random.default_rng(7)
-    cells = rng.uniform([12, 12], [244, 180], (60, 2))
+    cells = rng.uniform([12, 12], [244, 180], (60, 2)) + OFF
     px = board.map_to_ortho(cells, out_size)
     sampled = table[px[:, 1].astype(int), px[:, 0].astype(int)]
     # Sample the output-pixel cell centres, not the jittered input, so compare
     # the truth at those same centres.
-    centres = px / [out_size[0] / board.width, out_size[1] / board.height]
+    centres = OFF + px / [out_size[0] / board.width, out_size[1] / board.height]
     want = cam.px(centres, surface.at(centres))
     assert np.abs(sampled - want).max() < 1.5  # camera px
 
@@ -286,7 +300,7 @@ def test_orthophoto_rectifies_a_synthetic_frame(scenario, surface):
     board = BoardHomography(scenario)
     board.update(corner_detections(scenario, cam), FRAME)
     frame = np.zeros((FRAME[1], FRAME[0], 3), np.uint8)
-    marks = np.array([[60, 50], [200, 50], [200, 150], [60, 150], [128, 96]], float)
+    marks = np.array([[60, 50], [200, 50], [200, 150], [60, 150], [128, 96]], float) + OFF
     seen = cam.px(marks, surface.at(marks))
     for p in seen:
         cv2.circle(frame, (round(p[0]), round(p[1])), 8, (255, 255, 255), -1)
