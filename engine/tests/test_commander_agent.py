@@ -207,3 +207,29 @@ def test_default_model_is_haiku_without_server_fallbacks(engine, monkeypatch):
     assert req["model"] == "claude-haiku-5-5" and req["max_tokens"] == 1500
     assert "fallbacks" not in req and "betas" not in req  # Haiku has no server-side fallback
     assert req["output_config"] == {"effort": "low"}
+
+
+def test_system_prompt_names_the_loaded_scenario(engine):
+    """The commander is told where the fire is from the scenario, not a
+    hard-coded Paradise (#157), and nothing says answers are spoken (#140)."""
+    def system_text(cmd):
+        return cmd.client.requests[-1]["system"][0]["text"]
+
+    cmd = Commander(CommanderTools(engine), client=FakeClient(text_msg("Pulga is threatened.")))
+    run(cmd.answer("Status?"))
+    assert "Paradise" in system_text(cmd) and "spoken back" not in system_text(cmd)
+    engine.switch_scenario("marshall")
+    cmd = Commander(engine.tools, client=FakeClient(text_msg("Superior is threatened.")))
+    run(cmd.answer("Status?"))
+    text = system_text(cmd)
+    assert "Marshall" in text and "Louisville" in text and "Paradise" not in text
+
+
+def test_setting_falls_back_to_the_towns():
+    from types import SimpleNamespace
+
+    from commander.agent import scenario_setting
+
+    e = SimpleNamespace(game=SimpleNamespace(config={}), towns=[SimpleNamespace(name="A"), SimpleNamespace(name="B")],
+                        scenario=SimpleNamespace(name="x"))
+    assert scenario_setting(e) == "the country around A and B"
