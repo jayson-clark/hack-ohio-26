@@ -159,7 +159,9 @@ export default function Console() {
         <div className="min-w-0 leading-tight">
           <div className="flex items-center gap-2">
             <span className="truncate text-[13px] font-semibold capitalize text-ink">{scenario?.info.name ?? "—"} incident</span>
-            {burning ? (
+            {over ? (
+              <span className="rounded-full bg-sunken px-2 text-[11px] font-medium leading-[18px] text-ink-2">Exercise over</span>
+            ) : burning ? (
               <span className="flex items-center gap-1 rounded-full bg-crit-soft px-2 text-[11px] font-medium leading-[18px] text-crit">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-crit" />
                 Active fire

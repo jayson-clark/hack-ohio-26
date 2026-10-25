@@ -47,7 +47,7 @@ interface Props {
   autopilot?: AutopilotState;
 }
 
-export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
+export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props): Item[] {
   const { recommendations, units, tokens, hello, score } = useEngine();
   const perTick = hello?.sim_minutes_per_tick ?? 1;
   const now = score?.tick ?? 0;
@@ -165,7 +165,7 @@ export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
       auto: r.auto ? () => acceptRecommendation(r.id) : undefined,
       actions: (
         <>
-          <Button size="sm" variant="primary" disabled={!r.auto} title={r.auto ? undefined : "A crew on the table: move it by hand"} onClick={() => acceptRecommendation(r.id)}>
+          <Button size="sm" variant="primary" disabled={!r.auto} title={r.auto ? undefined : "A crew on the table: move it by hand"} onClick={() => { acceptRecommendation(r.id); onSelect(null); }}>
             {r.action === "move" ? "Move crew" : "Dispatch"}
           </Button>
           <Button size="sm" onClick={() => onTryInPlan(r)}>

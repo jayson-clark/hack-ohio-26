@@ -262,7 +262,7 @@ function RecDetail({ rec, rank, scenario, onClose, onFocus, onTryInPlan }: Props
         </p>
       </Block>
       <div className="flex gap-2 px-4 py-4">
-        <Button variant="primary" className="flex-1" disabled={!rec.auto} onClick={() => acceptRecommendation(rec.id)}>
+        <Button variant="primary" className="flex-1" disabled={!rec.auto} onClick={() => { acceptRecommendation(rec.id); onClose(); }}>
           {rec.action === "move" ? "Move crew" : "Dispatch"}
         </Button>
         <Button onClick={() => onTryInPlan(rec)}>Try in plan</Button>
