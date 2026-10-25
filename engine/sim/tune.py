@@ -14,7 +14,10 @@ import sim.fire as fire
 from scenario import load_scenario
 
 
-def spread(scenario, wind, seed, ticks, at=(128, 96)):
+def spread(scenario, wind, seed, ticks, at=None):
+    if at is None:  # the middle of the printed terrain
+        x0, y0, w, h = scenario.print_window
+        at = (x0 + w // 2, y0 + h // 2)
     s = fire.FireSim(scenario, seed=seed)
     s.set_wind(wind)
     s.ignite(*at)

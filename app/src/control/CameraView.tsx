@@ -11,7 +11,7 @@ import type { BinaryFrame } from "../shared/binary";
 import { useEngine } from "../shared/engine";
 import { useFeedUrl } from "../shared/feed";
 import type { VisionStatus } from "../shared/protocol";
-import type { Scenario } from "../shared/scenario";
+import { printWindow, type Scenario } from "../shared/scenario";
 import { useTowns } from "../console/model";
 import { ForecastLayer, OrdersLayer, PlacesLayer, RecsLayer, RoutesLayer, StationsLayer, TownsLayer, UnitsLayer } from "../console/map/layers";
 import { ToggleGroup } from "../console/ui";
@@ -89,7 +89,6 @@ function RectifiedFeed({ url, scenario, overlays }: { url: string; scenario: Sce
   const towns = useTowns(scenario);
   const box = useRef<HTMLDivElement>(null);
   const [px, setPx] = useState(1);
-  const { width: W, height: H } = scenario;
 
   useEffect(() => {
     const el = box.current!;
@@ -98,17 +97,20 @@ function RectifiedFeed({ url, scenario, overlays }: { url: string; scenario: Sce
     return () => ro.disconnect();
   }, []);
 
-  const k = W / px; // map cells per screen pixel, for the layers' pixel sizes
+  // The camera sees the printed terrain only, which is a window of the sim map
+  // (#197): the orthophoto covers that window, so the layers are drawn in it.
+  const win = printWindow(scenario);
+  const k = win.w / px; // map cells per screen pixel, for the layers' pixel sizes
   const reach = hello?.crew_radius ?? 14;
   return (
     <div className="flex h-full w-full items-center justify-center [container-type:size]">
       <div
         ref={box}
         className="relative overflow-hidden rounded-md"
-        style={{ aspectRatio: `${W} / ${H}`, width: `min(100cqw, 100cqh * ${W / H})` }}
+        style={{ aspectRatio: `${win.w} / ${win.h}`, width: `min(100cqw, 100cqh * ${win.w / win.h})` }}
       >
         <img src={url} alt="Camera feed, top-down" className="absolute inset-0 h-full w-full object-fill" />
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+        <svg viewBox={`${win.x0} ${win.y0} ${win.w} ${win.h}`} preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
           {overlays.forecast && <ForecastLayer scenario={scenario} forecast={forecast} simGrid={simGrid} />}
           {overlays.routes && <RoutesLayer routes={routes} k={k} highlight={null} />}
           {overlays.towns && <PlacesLayer scenario={scenario} k={k} />}

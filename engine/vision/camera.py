@@ -432,8 +432,8 @@ if __name__ == "__main__":
     print(f"{frame.shape[1]}x{frame.shape[0]}, markers {sorted(d.id for d in dets)}, corners {board.corners_seen}")
     if board.camera is not None:
         cam, cell = board.camera, board.surface.cell_mm
-        north = scen.terrain["model"]["height_mm"] - cam.y * cell
-        print(f"  camera lens at about {cam.x * cell:.0f} mm east, {north:.0f} mm north of the terrain's SW corner, "
+        north = scen.terrain["model"]["height_mm"] - (cam.y - board.y0) * cell
+        print(f"  camera lens at about {(cam.x - board.x0) * cell:.0f} mm east, {north:.0f} mm north of the terrain's SW corner, "
               f"{cam.h + scen.terrain['markers']['marker_top_z_mm']:.0f} mm up")
     if board.cam_to_map is not None:
         for i, s in measure(dets, board).items():

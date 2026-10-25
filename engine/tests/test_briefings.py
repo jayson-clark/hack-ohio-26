@@ -111,7 +111,7 @@ def test_steady_paradise_fire_does_not_storm():
         e = Engine()
         try:
             e.fire.set_wind(Wind(10, 45))
-            e.fire.ignite(217.3, 54.5)
+            e.fire.ignite(409.3, 118.5)  # the Camp Fire origin near Pulga, in the extended map (#197)
             events = []
             for tick in range(1, 121):
                 e.fire.step()

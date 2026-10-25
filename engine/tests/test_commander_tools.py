@@ -16,7 +16,7 @@ def burning_engine(ticks: int = 30) -> Engine:
     """An engine with the Camp Fire start burning under a NE wind, and a fresh forecast."""
     e = Engine()
     e.fire.set_wind(Wind(10, 45))
-    e.fire.ignite(217.3, 54.5)
+    e.fire.ignite(409.3, 118.5)
     for _ in range(ticks):
         e.fire.step()
     e.latest_forecast = run_forecast(e.fire.snapshot(), seed=0)

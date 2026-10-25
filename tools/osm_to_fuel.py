@@ -75,6 +75,12 @@ CLASSES = [
 SCENARIO_WEIGHTS = {
     "marshall": {"residential": 0.25, "commercial": 0.3},
 }
+# Unmapped land below this elevation (m) is farmland, not background. OSM
+# maps few of the Sacramento Valley's orchards and rice fields around Chico
+# and Oroville, and without this the valley floor would burn like foothill
+# brush. The print's terrain is all above it, so the Camp Fire replay's fuel
+# doesn't change.
+LOWLAND_FARMLAND_M = {"paradise": 100.0}
 # The PNG stores fuel / MAX_FUEL (sim/fire.py's white = 1.5x).
 MAX_FUEL = 1.5
 
@@ -208,7 +214,12 @@ def main():
     print(f"{len(elements)} land-cover elements")
 
     ss = SUPERSAMPLE
-    classes = rasterize(elements, proj, ss)
+    classes = rasterize(elements, proj, ss).copy()
+    if args.scenario in LOWLAND_FARMLAND_M:
+        names = [name for name, _, _ in CLASSES]
+        heights = np.load(d / terrain["heightmap"]["file"]).repeat(ss, axis=0).repeat(ss, axis=1)
+        low = (classes == names.index("background")) & (heights < LOWLAND_FARMLAND_M[args.scenario])
+        classes[low] = names.index("farmland")
     over = SCENARIO_WEIGHTS.get(args.scenario, {})
     weights = [over.get(name, f) for name, f, _ in CLASSES]
     lut = np.array(weights, np.float32)

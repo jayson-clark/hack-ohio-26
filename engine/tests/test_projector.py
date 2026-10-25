@@ -25,7 +25,10 @@ from vision.projector import (
 # keystoned and off-centre, like a projector beside the webcam.
 PROJ_QUAD = np.float32([[180, 90], [1760, 40], [1700, 1010], [240, 1050]])
 # camera px -> map cells, for a board seen roughly where the projector lands.
-BOARD = cv2.getPerspectiveTransform(
+# The print is a window of the sim map (#197), so the board's cells are the
+# window's, shifted by its offset into map coordinates.
+_X0, _Y0, _PW, _PH = load_scenario("paradise").print_window
+BOARD = np.array([[1, 0, _X0], [0, 1, _Y0], [0, 0, 1]]) @ cv2.getPerspectiveTransform(
     np.float32([[300, 150], [1600, 140], [1580, 1000], [320, 990]]), np.float32([[0, 0], [256, 0], [256, 192], [0, 192]])
 ).astype(np.float64)
 
@@ -125,7 +128,7 @@ def test_calibrator_wizard_flow(scenario, tmp_path):
     msg = cal.message_model()
     h = np.array(msg.map_to_proj).reshape(3, 3)
     # The map's corners land where the board's corners are in the projector.
-    map_corners = np.array([[0, 0], [256, 0], [256, 192], [0, 192]], float)
+    map_corners = np.array([[0, 0], [256, 0], [256, 192], [0, 192]], float) + [_X0, _Y0]
     cam_corners = transform(np.linalg.inv(BOARD), map_corners)
     assert np.allclose(transform(h, map_corners), transform(_fit().cam_to_proj, cam_corners), atol=1e-6)
     assert not path.exists()
