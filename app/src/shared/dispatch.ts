@@ -27,7 +27,9 @@ export function orderText(u: UnitInfo): string {
       return u.eta_min != null ? `arrives in ${formatSimMinutes(u.eta_min)}` : "en route";
     case "working":
       // A crew past its shift fades until relieved (#178).
-      return u.fatigue > 0 ? `on scene, tiring (${Math.round((1 - u.fatigue / 2) * 100)}% strength)` : "on scene";
+      // `fatigue` runs 0 (end of shift) to 1 (faded to the engine's floor), so
+      // say how far through the fade it is rather than guess the floor here.
+      return u.fatigue > 0 ? `on scene, tiring (${Math.round(u.fatigue * 100)}% faded)` : "on scene";
     case "reloading":
       return u.ready_in_min != null ? `refilling at base, out again in ${formatSimMinutes(u.ready_in_min)}` : "refilling at base";
     case "resting":
