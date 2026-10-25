@@ -113,6 +113,16 @@
       }
     },
     {
+      "name": "Mountain View Fire Rescue Station 8",
+      "x": 226.45,
+      "y": 12.71,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
       "name": "North Metro Fire / Rescue Station 65",
       "x": 160.78,
       "y": 123.2,
@@ -136,6 +146,36 @@
       "name": "North Metro Fire Station 61",
       "x": 182.7,
       "y": 113.4,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "North Metro Fire Station 64",
+      "x": 227.78,
+      "y": 90.39,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "North Metro Fire Station 66",
+      "x": 252.49,
+      "y": 37.46,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Westminster Fire Department - Station 4",
+      "x": 218.89,
+      "y": 140.37,
       "kind": "ground",
       "units": {
         "crew": 1,

@@ -98,10 +98,13 @@ SAFE_ZONES = {
         {"name": "Chico", "road": ["Skyway", "Skyway Road"], "lat": 39.7290, "lon": -121.8020},
         {"name": "Oroville", "road": ["CA 70", "Oroville Dam Boulevard", "Montgomery Street"], "lat": 39.5138, "lon": -121.5564},
     ],
+    # With the map 6 km past the print (#197), Lafayette and Broomfield are on
+    # it, so evacuees head for the towns rather than wherever a road leaves the
+    # map. Boulder is still off it to the north-west.
     "marshall": [
-        {"name": "Denver (US 36)", "road": ["US 36"], "edge": "east"},
-        {"name": "Lafayette (South Boulder Rd)", "road": ["East South Boulder Road"], "edge": "east"},
-        {"name": "Lafayette (CO 42)", "road": ["CO 42"], "edge": "north"},
+        {"name": "Lafayette", "road": ["South Boulder Road", "West South Boulder Road", "East South Boulder Road", "CO 42"],
+         "lat": 39.9936, "lon": -105.0897},
+        {"name": "Broomfield (US 36)", "road": ["US 36"], "lat": 39.9205, "lon": -105.0867},
         {"name": "Boulder (US 36)", "road": ["US 36"], "edge": "north"},
     ],
 }
