@@ -45,6 +45,9 @@ DEFAULTS = {
     "limits": {"crew": 3, "water": 2, "firebreak": 1, "bus": 2},
     # [x, y] in map coords, or null to leave the first ignition to the operator.
     "ignition": None,
+    # Later ignitions in a round, [{"x", "y", "at_min"}]: a second fire for the
+    # operator to split units between (#179).
+    "ignitions": [],
     # {"speed_ms", "from_deg"}: the wind the scenario starts with, in free play
     # and at each round's start. Null is sim.fire.DEFAULT_WIND (NE 8 m/s),
     # which would blow Marshall's fire back into the foothills.
@@ -89,8 +92,19 @@ class Game:
         self._town_burnable: list[np.ndarray] = []
         self.reset()
 
+    def due_ignitions(self, tick: int) -> list[tuple[float, float]]:
+        """Timed ignitions (#179) whose minute has come in a running round."""
+        if self.phase != Phase.RUNNING:
+            return []
+        mins = self.elapsed_min(tick)
+        due = [i for i, ig in enumerate(self.config.get("ignitions", []))
+               if i not in self._lit and mins >= float(ig["at_min"])]
+        self._lit.update(due)
+        return [(float(self.config["ignitions"][i]["x"]), float(self.config["ignitions"][i]["y"])) for i in due]
+
     def reset(self) -> None:
         """Back to the sandbox, with nothing scored."""
+        self._lit: set[int] = set()  # timed ignitions already lit this round
         self.phase = Phase.SANDBOX
         self.end_reason: EndReason | None = None
         self.start_tick = 0
