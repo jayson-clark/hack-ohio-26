@@ -1,6 +1,6 @@
 {
   "duration_min": 240,
   "ignition": [48.5, 86.2],
-  "wind": {"speed_ms": 15, "from_deg": 255},
+  "wind": {"speed_ms": 15, "from_deg": 245},
   "bus_people_per_min": 40
 }
