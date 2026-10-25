@@ -64,7 +64,7 @@ export default function Control() {
     <div className="flex h-full flex-col">
       <header
         data-tauri-drag-region
-        className={`flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge pr-4 ${isTauri ? "pl-[80px]" : "pl-4"}`}
+        className={`flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge pr-4 ${isTauri ? "pl-[88px]" : "pl-4"}`}
       >
         <div data-tauri-drag-region className="flex items-center gap-2">
           <FlameMark size={24} />

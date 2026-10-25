@@ -142,7 +142,7 @@ export default function Console() {
           the traffic lights, and let the empty parts drag the window. */}
       <header
         data-tauri-drag-region
-        className={`relative z-20 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-panel pr-4 ${isTauri ? "pl-[84px]" : "pl-4"}`}
+        className={`relative z-20 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-panel pr-4 ${isTauri ? "pl-[92px]" : "pl-4"}`}
       >
         <div data-tauri-drag-region className="flex items-center gap-2.5">
           <FlameMark size={26} />

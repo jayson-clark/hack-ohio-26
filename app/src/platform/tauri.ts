@@ -76,7 +76,7 @@ export const tauriPlatform: Platform = {
       // The traffic lights sit in the header row, as in the console.
       titleBarStyle: "overlay",
       hiddenTitle: true,
-      trafficLightPosition: new LogicalPosition(16, 18),
+      trafficLightPosition: new LogicalPosition(16, 24),
     });
     await new Promise<void>((resolve, reject) => {
       win.once("tauri://created", () => resolve());
