@@ -8,6 +8,7 @@ import pytest
 from protocol import CameraState, TokenSource, TokenType
 from scenario import load_scenario
 from vision.calibration import BoardHomography
+from vision import geometry
 from vision.camera import CameraVision
 from vision.markers import CORNER_IDS, DICTIONARY, Detection, detect, make_detector, token_type_for
 from vision.tracking import APPEAR_FRAMES, SNAP_CELLS, VANISH_FRAMES, MarkerTracker, Sighting, measure
@@ -30,6 +31,14 @@ TOKENS = [  # marker id, map x, y, angle (deg clockwise from +x)
 @pytest.fixture(scope="module")
 def scenario():
     return load_scenario("paradise")
+
+
+@pytest.fixture(autouse=True)
+def flat_camera(monkeypatch):
+    """These renders paste markers onto a flat picture of the board, which no
+    real camera sees, so the height correction is off (tests/test_geometry.py
+    covers it with a 3D camera)."""
+    monkeypatch.setattr(geometry, "CAMERA_FOCAL", None)
 
 
 def _paste_marker(canvas, marker_id, cx, cy, size_cells, angle_deg):

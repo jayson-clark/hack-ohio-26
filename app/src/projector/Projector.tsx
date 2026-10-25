@@ -54,6 +54,7 @@ export default function Projector() {
           placeType={placeType}
           selectedId={null}
           mapToProj={calibration?.map_to_proj}
+          lens={calibration?.projector}
           testPattern={calibration?.phase === "review"}
         />
       ) : (

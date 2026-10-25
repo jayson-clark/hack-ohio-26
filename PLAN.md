@@ -200,7 +200,11 @@ A second product for the people carrying out orders (fire crews, police and sher
 
 Code: `engine/vision/projector.py` (engine), `app/src/control/CalibrationPanel.tsx` and `app/src/render/ProjectionView.tsx` (UI).
 
-**Height parallax.** Projected points land offset by roughly `h × d / H` (feature height × distance from the projector's center axis ÷ projector height). With a projector about 150 cm up, a 4 cm hill 30 cm off-axis shifts about 0.8 cm. That's acceptable with low relief. The full fix (rendering the terrain mesh from a calibrated projector pose) is in Phase 7.
+**Height parallax.** A point at height `h` is seen (and lit) about `h × d / H` from where the marker-plane homography puts it (distance from the viewpoint's foot × height ÷ viewpoint height). Our rig is under a metre up, so 35 mm of relief is up to ~1 cm off at the edges, so both the camera and the projector are corrected as pinholes (`engine/vision/geometry.py`):
+- **Camera:** placed on every board lock from the four corner markers (solvePnP with the C920's nominal focal length). Token positions follow the line of sight down to the heightmap (plus the token's height), so a crew on a ridge reads where it sits.
+- **Calibration** runs with the terrain in place. After the ring, the projector shows a grid of ~100 dots placed with the ring's flat fit. Each dot's camera ray, followed down to the heightmap, gives a 3D point and the projector pixel that lit it, and the vision thread solves for the projector lens position and map → projector together (a pattern search over the lens, a homography per trial). The ring's corners can't do this: they're intersections of lines fitted along whole edges that cross hills. `PROJECTOR_MM` in `.env` (east, north from the terrain's SW corner, up from the table, mm) is only a starting guess and the fallback; if the dots aren't seen, the ring alone is used.
+- **Projector:** the solved lens is saved in `calibration.json` and moves with the rig when the board is bumped. The projector window draws the map as a mesh with the print's height at each vertex, and the vertex shader moves each one to where the lens's ray through it meets the marker plane. The review grid and map border are drawn in the shader, on the terrain.
+- On the first table (camera ~730 mm up, projector ~570 mm up beside it) the dots fit to 3.7 projector px RMS (~0.85 mm) against 7.6 px for the ring. Camera and projector close together means their parallaxes mostly cancel, so the correction matters most on ridges and the raised edges.
 
 ### Token tracking
 
@@ -448,7 +452,6 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 
 ### Phase 7: Stretch
 - **Camp Fire replay:** real ignition point and wind, compared against the actual 2018 perimeter (public data from NIFC) for validation
-- **3D-corrected projection:** calibrate the projector as a pinhole camera and render the terrain mesh from its pose in Three.js, so projections stay aligned on tall features
 - **Multiple players:** role-specific tokens and parallel objectives
 
 ---

@@ -107,6 +107,7 @@ from sim.dispatch import Dispatcher
 from sim.game import Game, GameTown
 from routing.units import TURNOUT_MIN, Station, UnitRouter
 from vision import camera
+from vision.geometry import projector_from_env
 from vision.projector import Calibrator
 from vision.tokens import TokenTracker
 from vision.virtual import VirtualTable
@@ -115,6 +116,7 @@ HOST = os.environ.get("ENGINE_HOST", "localhost")
 PORT = int(os.environ.get("ENGINE_PORT", "8765"))
 SCENARIO = os.environ.get("SCENARIO", "paradise")
 CAMERA = os.environ.get("CAMERA", "")  # see vision/camera.py; empty = virtual table only
+PROJECTOR_MM = os.environ.get("PROJECTOR_MM", "")  # see vision/geometry.py; empty = no height correction
 # Any web page open in a browser can connect to ws://localhost, so only the
 # app's own pages may: Vite in dev (and Tauri dev, which loads it) and the
 # built Tauri app. Comma-separated, to add e.g. a LAN address.
@@ -256,7 +258,7 @@ class Engine:
         # Projector calibration (map -> projector), saved in calibration.json.
         # Another scenario keeps the rig's camera -> projector and re-derives
         # the map part once the camera sees the new board.
-        self.calibrator = Calibrator(s)
+        self.calibrator = Calibrator(s, projector=projector_from_env(PROJECTOR_MM, s))
         self.fire = FireSim(s)
         self.effects = TokenEffects(s.width, s.height)
         # Evacuation routes (PLAN.md, Evacuation routing), replanned off the
@@ -424,7 +426,7 @@ class Engine:
             return
         self.camera.find_pattern(self.calibrator.finding)
         snap = self.camera.snapshot()
-        if self.calibrator.poll(snap.pattern, snap.board):
+        if self.calibrator.poll(snap.pattern, snap.board, snap.camera):
             broadcast(self.clients, self.calibration_msg())
         self.tracker.update(TokenSource.VISION, snap.tokens)
         if snap.feed_seq != self._sent_feed_seq and snap.feed_jpeg:

@@ -16,6 +16,11 @@ varying vec3 vNormal;
 // uCalibrated = 0 to use the camera (letterboxed map).
 uniform mat3 uMapToProj;
 uniform float uCalibrated;
+// The projector lens (Calibration.projector): x, y in map cells below it, z mm
+// above the corner markers' plane, w = 1 to correct for terrain height.
+uniform vec4 uLens;
+// The printed surface's height above the corner markers' plane, mm.
+attribute float aHeight;
 #endif
 
 void main() {
@@ -27,10 +32,16 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * wp;
 #else
   if (uCalibrated > 0.5) {
-    // The flat view's world is (x, -y) in map cells. Keeping the homography's
-    // w as clip w makes the GPU interpolate perspective-correctly.
-    vec3 p = uMapToProj * vec3(wp.x, -wp.y, 1.0);
-    gl_Position = vec4(2.0 * p.x - p.z, p.z - 2.0 * p.y, 0.0, p.z);
+    // The flat view's world is (x, -y) in map cells. The calibration is for
+    // the marker plane, so a raised point is drawn where the lens's line of
+    // sight through it meets that plane (vision/geometry.py, to_plane).
+    vec2 m = vec2(wp.x, -wp.y);
+    if (uLens.w > 0.5) m = uLens.xy + (m - uLens.xy) * (uLens.z / (uLens.z - aHeight));
+    // Keeping the homography's w as clip w makes the GPU interpolate
+    // perspective-correctly. Depth: higher ground is nearer the lens, so it
+    // wins where a ridge hides the slope behind it.
+    vec3 p = uMapToProj * vec3(m, 1.0);
+    gl_Position = vec4(2.0 * p.x - p.z, p.z - 2.0 * p.y, -aHeight / 200.0 * p.z, p.z);
   } else {
     gl_Position = projectionMatrix * viewMatrix * wp;
   }
@@ -67,6 +78,7 @@ uniform vec3 uTokenColors[4];
 uniform float uHalo;
 uniform float uCrewReach; // cells: a crew's reach (hello.crew_radius)
 uniform float uRing;
+uniform float uTestGrid;   // calibration check: grid and map border on the terrain
 
 #ifdef DRAPED
 varying vec3 vNormal;
@@ -234,6 +246,15 @@ void main() {
   vec4 lab = texture2D(uLabels, vUv);
   col = mix(col, lab.rgb, lab.a * uLayers.z);
   col = tokens(col, cell);
+
+  // Drawn here rather than as an overlay so it lands on the terrain through
+  // the height correction: the border should sit on the print's edge.
+  if (uTestGrid > 0.5) {
+    float g = max(isoLine(cell.x / 16.0, 2.0), isoLine(cell.y / 16.0, 2.0));
+    float edge = min(min(cell.x, uGrid.x - cell.x), min(cell.y, uGrid.y - cell.y));
+    float border = 1.0 - smoothstep(1.0, 1.0 + fwidth(edge), edge);
+    col = mix(col, vec3(0.13, 0.83, 0.93), max(g * 0.85, border));
+  }
 
 #ifdef DRAPED
   // Projected light on matte white PLA, plus a little room light.

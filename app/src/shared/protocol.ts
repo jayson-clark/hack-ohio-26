@@ -412,6 +412,7 @@ export interface Calibration {
   type: "calibration";
   phase: CalibrationPhase;
   map_to_proj: number[] | null;
+  projector: number[] | null;
   pattern: string | null;
   corners_found: number;
   corners_total: number;

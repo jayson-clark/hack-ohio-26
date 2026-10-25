@@ -4,15 +4,17 @@
 //
 // With a projector calibration (mapToProj) the view fills its whole frame and
 // the vertex shader places the map through the homography, so it lands on the
-// printed terrain. The input overlay follows through the same matrix as a CSS
-// matrix3d, so clicks and the test grid line up with the picture.
+// printed terrain. The map is a mesh with the print's height at each vertex, so
+// with the projector lens known (lens) each point is offset for its height. The
+// input overlay follows through the same matrix as a CSS matrix3d, flat, so
+// clicks line up at the marker plane.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
 import type { RouteInfo, Token } from "../shared/protocol";
-import type { Scenario } from "../shared/scenario";
+import { elevationAt, modelZ, type Scenario } from "../shared/scenario";
 import type { PlaceType } from "../shared/virtualTokens";
 import { apply, cssMatrix3d, invert, toPixels, type Mat3 } from "./homography";
 import MapOverlay from "./MapOverlay";
@@ -37,12 +39,14 @@ export interface ViewProps {
 interface CalibrationProps {
   /** Row-major map -> projector window (normalised); null letterboxes the map. */
   mapToProj?: Mat3 | null;
+  /** The projector lens (Calibration.projector) for the height correction; null draws the map flat. */
+  lens?: number[] | null;
   /** Draw the calibration test grid and corner crosses over the map. */
   testPattern?: boolean;
 }
 
 export default function ProjectionView(props: ViewProps & CalibrationProps & { showGlyphs?: boolean; children?: ReactNode }) {
-  const { scenario, tokens, placeType, showGlyphs, onSelect, onHover, mapToProj = null, testPattern = false } = props;
+  const { scenario, tokens, placeType, showGlyphs, onSelect, onHover, mapToProj = null, lens = null, testPattern = false } = props;
   const frameRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const projRef = useRef<Projection | null>(null);
@@ -61,14 +65,32 @@ export default function ProjectionView(props: ViewProps & CalibrationProps & { s
     const projection = createProjection(scenario, { draped: false });
     projRef.current = projection;
 
-    // Map coords as world units: x right, -y down, so the camera frame is the map.
+    // Map coords as world units: x right, -y down, so the camera frame is the
+    // map. One vertex per cell corner, each with the print's height above the
+    // corner markers' plane for the calibrated height correction.
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute([0, 0, 0, width, 0, 0, 0, -height, 0, width, -height, 0], 3),
-    );
-    geometry.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
-    geometry.setIndex([0, 2, 1, 1, 2, 3]);
+    const markerTop = scenario.info.markers.marker_top_z_mm;
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const lift: number[] = [];
+    for (let y = 0; y <= height; y++) {
+      for (let x = 0; x <= width; x++) {
+        pos.push(x, -y, 0);
+        uv.push(x / width, y / height);
+        lift.push(modelZ(scenario, elevationAt(scenario, x, y)) - markerTop);
+      }
+    }
+    const index: number[] = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * (width + 1) + x;
+        index.push(i, i + width + 1, i + 1, i + 1, i + width + 1, i + width + 2);
+      }
+    }
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    geometry.setAttribute("aHeight", new THREE.Float32BufferAttribute(lift, 1));
+    geometry.setIndex(index);
 
     const scene = new THREE.Scene();
     scene.add(new THREE.Mesh(geometry, projection.material));
@@ -94,6 +116,8 @@ export default function ProjectionView(props: ViewProps & CalibrationProps & { s
 
   useProjectionSync(projRef, props, generation);
   useEffect(() => projRef.current?.setMapToProj(mapToProj), [mapToProj, generation]);
+  useEffect(() => projRef.current?.setLens(mapToProj ? lens : null), [mapToProj, lens, generation]);
+  useEffect(() => projRef.current?.setTestGrid(testPattern), [testPattern, generation]);
 
   const overlay = (toMap?: (clientX: number, clientY: number) => { x: number; y: number }) => (
     <>
@@ -159,16 +183,14 @@ export default function ProjectionView(props: ViewProps & CalibrationProps & { s
   );
 }
 
-const TEST_GRID_CELLS = 16;
 const TEST_COLOR = "#22d3ee";
 
-/** Calibration check, in map cells: grid, map border, and crosses that should
- * sit on the printed corner markers. */
+/** Calibration check, in map cells: crosses that should sit on the printed
+ * corner markers. They're on the marker plane, so the flat overlay is exact;
+ * the grid and map border are in the shader, on the terrain. */
 function TestPattern({ scenario }: { scenario: Scenario }) {
   const { width, height, info } = scenario;
   const markerHalf = (info.markers.marker_size_mm / info.grid.cell_size_mm) / 2;
-  const xs = Array.from({ length: Math.floor(width / TEST_GRID_CELLS) + 1 }, (_, i) => i * TEST_GRID_CELLS);
-  const ys = Array.from({ length: Math.floor(height / TEST_GRID_CELLS) + 1 }, (_, i) => i * TEST_GRID_CELLS);
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
@@ -177,13 +199,6 @@ function TestPattern({ scenario }: { scenario: Scenario }) {
       fill="none"
       stroke={TEST_COLOR}
     >
-      {xs.map((x) => (
-        <line key={`x${x}`} x1={x} y1={0} x2={x} y2={height} strokeWidth={0.35} />
-      ))}
-      {ys.map((y) => (
-        <line key={`y${y}`} x1={0} y1={y} x2={width} y2={y} strokeWidth={0.35} />
-      ))}
-      <rect width={width} height={height} strokeWidth={1.2} />
       {info.markers.corners.map(({ corner, center_map: [cx, cy] }) => (
         <g key={corner} strokeWidth={0.8}>
           <rect x={cx - markerHalf} y={cy - markerHalf} width={markerHalf * 2} height={markerHalf * 2} />

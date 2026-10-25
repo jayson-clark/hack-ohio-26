@@ -46,6 +46,12 @@ def start(cal: Calibrator) -> None:
     cal.poll(None, BOARD)
 
 
+def ring_only(cal: Calibrator) -> None:
+    """The dot grid after the ring isn't seen: review falls back to the ring."""
+    assert cal.finding == cal.search and cal.phase == CalibrationPhase.PATTERN
+    cal.poll(PatternProgress(cal.search, 0, 0, None, failed=True, dots=True), None)
+
+
 def proj_to_cam() -> np.ndarray:
     """Normalised projector coords -> camera px for PROJ_QUAD."""
     return cv2.getPerspectiveTransform(np.float32([[0, 0], [1, 0], [1, 1], [0, 1]]), PROJ_QUAD).astype(np.float64)
@@ -110,7 +116,11 @@ def test_calibrator_wizard_flow(scenario, tmp_path):
     assert not cal.poll(PatternProgress(cal.search - 1, 90, FRAMES_NEEDED, _fit()), None)
     assert cal.phase == CalibrationPhase.PATTERN
     assert cal.poll(PatternProgress(cal.search, 90, FRAMES_NEEDED, _fit()), None)
-    assert cal.phase == CalibrationPhase.REVIEW and cal.finding is None
+    # Then the dot grid; the ring's search stays on while the projector switches.
+    dots = cal.message_model().pattern
+    assert cal.phase == CalibrationPhase.PATTERN and dots not in (black, None)
+    ring_only(cal)
+    assert cal.phase == CalibrationPhase.REVIEW and cal.finding is None and "ring" in cal.message
 
     msg = cal.message_model()
     h = np.array(msg.map_to_proj).reshape(3, 3)
@@ -135,12 +145,14 @@ def test_cancel_keeps_the_saved_calibration(scenario, tmp_path):
     cal = Calibrator(scenario, tmp_path / "calibration.json")
     start(cal)
     cal.poll(PatternProgress(cal.search, 90, FRAMES_NEEDED, _fit()), None)
+    ring_only(cal)
     cal.step("save", has_camera=True)
     saved = cal.message_model().map_to_proj
 
     start(cal)
     other = PatternFit(_fit().cam_to_proj @ np.diag([1.1, 1.0, 1.0]), 0.8, 90)
     cal.poll(PatternProgress(cal.search, 90, FRAMES_NEEDED, other), None)
+    ring_only(cal)
     assert cal.phase == CalibrationPhase.REVIEW and cal.message_model().map_to_proj != saved
     cal.step("cancel", has_camera=True)
     assert cal.phase == CalibrationPhase.CALIBRATED
@@ -151,6 +163,7 @@ def test_calibrator_follows_a_moved_board(scenario, tmp_path):
     cal = Calibrator(scenario, tmp_path / "calibration.json")
     start(cal)
     cal.poll(PatternProgress(cal.search, 90, FRAMES_NEEDED, _fit()), None)
+    ring_only(cal)
     cal.step("save", has_camera=True)
     before = np.array(cal.message_model().map_to_proj).reshape(3, 3)
 
