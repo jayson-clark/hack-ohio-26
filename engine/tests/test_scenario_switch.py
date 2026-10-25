@@ -7,9 +7,9 @@ from protocol import Hello, LoadScenario, TokenType, VirtualTokenAdd, client_mes
 from server import Engine
 
 def test_load_scenario_message_round_trips():
-    raw = LoadScenario(scenario="valley").model_dump_json()
+    raw = LoadScenario(scenario="marshall").model_dump_json()
     msg = client_message_adapter.validate_json(raw)
-    assert isinstance(msg, LoadScenario) and msg.scenario == "valley"
+    assert isinstance(msg, LoadScenario) and msg.scenario == "marshall"
 
 def test_switch_scenario_rebuilds_the_world():
     async def run():
@@ -19,16 +19,16 @@ def test_switch_scenario_rebuilds_the_world():
             pw, ph = engine.scenario.width, engine.scenario.height
             assert engine.fire.state.shape == (ph, pw)
 
-            engine.switch_scenario("valley")
+            engine.switch_scenario("marshall")
 
-            assert engine.scenario.name == "valley"
+            assert engine.scenario.name == "marshall"
             vw, vh = engine.scenario.width, engine.scenario.height
-            assert (vw, vh) != (pw, ph)  # the valley is a different size
+            assert (vw, vh) != (pw, ph)  # marshall is a different size
             # Everything scenario-derived was rebuilt to the new size.
             assert engine.fire.state.shape == (vh, vw)
             assert (engine.effects.width, engine.effects.height) == (vw, vh)
             assert engine.roads is not None and engine.roads.width == vw
-            assert {t.name for t in engine.game.towns} == {"Millbrook", "Cedar Flats", "Ridgeview"}
+            assert {t.name for t in engine.game.towns} == {"Louisville", "Superior", "Marshall", "Eldorado Springs"}
             # Fire and forecast state were reset for the new map.
             assert engine.tick == 0 and engine.latest_forecast is None
             assert engine.fire.counts() == (0, 0)
@@ -43,9 +43,9 @@ def test_switch_scenario_hello_reports_the_new_map():
     async def run():
         engine = Engine()
         try:
-            engine.switch_scenario("valley")
+            engine.switch_scenario("marshall")
             hello = Hello.model_validate_json(engine.hello_msg())
-            assert hello.scenario == "valley"
+            assert hello.scenario == "marshall"
             assert hello.map_width == engine.scenario.width
             assert hello.map_height == engine.scenario.height
         finally:
@@ -87,13 +87,14 @@ def test_switch_clears_old_map_state():
         engine = Engine()
         try:
             engine.dispatch(VirtualTokenAdd(token_type=TokenType.CREW, x=240, y=180))
-            assert engine.tracker.tokens  # a Paradise token, off the valley's 160x120 grid
-            engine.switch_scenario("valley")
+            assert engine.tracker.tokens  # a Paradise token, off marshall's 192x144 grid
+            engine.switch_scenario("marshall")
             s = engine.scenario
             assert engine.tracker.tokens == []
-            # Dispatch is rebuilt from the valley's own stations.json.
-            assert {st.name for st in engine.stations} == {
-                "Millbrook Station", "Cedar Flats Station", "Valley Air Attack Base"}
+            # Dispatch is rebuilt from marshall's own stations.json.
+            names = {st.name for st in engine.stations}
+            assert "Jeffco Airtanker Base" in names and "Louisville Fire Department Station #1" in names
+            assert not any("Paradise" in n or "Chico" in n for n in names)
             assert engine.unit_router is not None and engine.dispatcher.units
             # The commander's town masks are rebuilt for the new grid.
             assert engine.tools.masks.shape[1:] == (s.height, s.width)
@@ -115,12 +116,12 @@ def test_failed_load_falls_back_to_the_previous_scenario(monkeypatch):
             real = server.load_network
 
             def broken(d, w, h):
-                if d.name == "valley":
+                if d.name == "marshall":
                     raise RuntimeError("bad roads.json")
                 return real(d, w, h)
 
             monkeypatch.setattr(server, "load_network", broken)
-            engine.switch_scenario("valley")
+            engine.switch_scenario("marshall")
             assert engine.scenario.name == "paradise"
             assert engine.fire.state.shape == (engine.scenario.height, engine.scenario.width)
         finally:
@@ -140,13 +141,13 @@ def test_switch_keeps_only_the_new_maps_routes():
     async def run():
         engine = Engine()
         try:
-            engine.switch_scenario("valley")
+            engine.switch_scenario("marshall")
             fresh = {r.key: r.edges for r in engine.routes}
             engine.switch_scenario("paradise")
             # A same-named town on the old map, holding a route on the old graph.
             old = engine.routes[0]
-            engine.route_tracker.shown["Millbrook"] = dataclasses.replace(old, town="Millbrook", eta_min=0.1, cost=0.1)
-            engine.switch_scenario("valley")
+            engine.route_tracker.shown["Superior"] = dataclasses.replace(old, town="Superior", eta_min=0.1, cost=0.1)
+            engine.switch_scenario("marshall")
             assert {r.key: r.edges for r in engine.routes} == fresh
             n = len(engine.roads.edges)
             held = engine.route_tracker.held()
@@ -154,6 +155,29 @@ def test_switch_keeps_only_the_new_maps_routes():
         finally:
             engine.forecaster.shutdown()
             engine.long_forecaster.shutdown()
+            engine.recommender.shutdown()
+
+    asyncio.run(run())
+
+
+def test_scenario_sets_its_own_wind():
+    """game.json's wind is where a scenario starts, in free play and at each
+    round's start; without one it's the default NE wind."""
+    from protocol import SetWind, StartRound
+    from sim.fire import DEFAULT_WIND
+
+    async def run():
+        engine = Engine()
+        try:
+            assert engine.fire.wind == DEFAULT_WIND  # paradise has none
+            engine.switch_scenario("marshall")
+            assert (engine.fire.wind.speed_ms, engine.fire.wind.from_deg) == (15, 255)
+            engine.dispatch(SetWind(speed_ms=3, from_deg=90))
+            assert engine.fire.wind.speed_ms == 3  # exercise control can still change it
+            engine.dispatch(StartRound())
+            assert (engine.fire.wind.speed_ms, engine.fire.wind.from_deg) == (15, 255)
+        finally:
+            engine.forecaster.shutdown()
             engine.recommender.shutdown()
 
     asyncio.run(run())
