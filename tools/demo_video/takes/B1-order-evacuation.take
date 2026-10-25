@@ -15,6 +15,6 @@ scene "Order Pulga's evacuation from the queue"
   click "Order evacuation" role=button index=0
   hold 3
 
-zoom 1@1..end at=0.25,0.45
+zoom 1@1..end depth=3 at=0.30,0.46
 label "0.25× · 2.5 sim-min/s" 1@1..end
 export B1-order-evacuation.mp4

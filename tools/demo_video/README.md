@@ -16,7 +16,7 @@ Hands off the mouse and keyboard while it runs. If you touch them, Recordly stop
 
 ## The window
 
-The runner records the whole screen and drives a Chrome app window titled "Fireline" (no tabs or address bar). If none is open it opens one at `http://localhost:1420/?view=console&demo=1`. The video is cropped to that window minus its title bar. Takes that click by coordinates (C's sliders and map point) assume the 1668×1084 window this was written on; re-aim them with `--rehearse` if yours differs.
+The runner records the whole screen and drives a Chrome app window titled "Fireline" (no tabs or address bar). If none is open it opens one at `http://localhost:1420/?view=console&demo=1`. The video is cropped to that window minus its title bar and framed on a wallpaper, so a shot with no zoom shows the whole window like a Mac screenshot and the zooms move in from there. The window fills about 78% of the frame, so `depth=3` (1.8×) is roughly the old full-window framing. Takes that click by coordinates (C's sliders and map point) assume the 1668×1084 window this was written on; re-aim them with `--rehearse` if yours differs.
 
 ## Commands
 
@@ -39,6 +39,7 @@ One command per line; `#` starts a comment. Quote text with spaces.
 |---|---|
 | `click "text" [role=button] [index=0]` | Click an element by its visible text. `index` picks among several matches, top to bottom |
 | `click 75,514` | Click a window point |
+| `drag 75,514 114,514 [ms=900]` | Press, glide and release, e.g. a slider's thumb to a new value. Either end can be text instead of a point |
 | `move "text"` / `move 1200,560 [ms=1500]` | Glide the pointer there |
 | `key period` / `key right x9` / `key k mods=cmd+shift` | Press a key, optionally repeated or with modifiers |
 | `reload` | Reload the console page (prep only). Done through AppleScript, because keys don't reach the Chrome app window's menu |
@@ -53,7 +54,8 @@ Console keys worth knowing in demo mode: `.` pauses, `[` `]` change speed, `A` t
 
 | | |
 |---|---|
-| `zoom <from>..<to> [depth=2] [at=cx,cy]` | Zoom in. Depth 1–6 is 1.25× to 5×; `at` is the focus as a fraction of the frame |
+| `zoom <from>..<to> [follow] [depth=2] [at=cx,cy]` | Zoom in. Depth 1–6 is 1.25× to 5×; `at` is the focus as a fraction of the frame (wallpaper included). `follow` tracks the pointer instead |
+| `look wallpaper=/wallpapers/tahoe-dark.jpg padding=20` | Change this take's frame: `wallpaper` (a Recordly wallpaper, image path or colour), `padding` (0–100, damped to 0–20% a side), `borderRadius`, `shadowIntensity`, `backgroundBlur`. Defaults are `LOOK` in `run.py` |
 | `trim <from>..<to>` | Keep only this span |
 | `label "0.5× · 5 sim-min/s" <from>..<to> [at=x,y]` | A text plate pinned to the frame (top right by default; `at` in percent), so zooms can't crop it. Used for the sim-speed badge: caption every speed change so nobody thinks the footage is sped up behind their back |
 | `caption "text" <from>..<to>` | A caption along the bottom (one at a time) |
@@ -66,5 +68,6 @@ Times (for zooms, labels, captions and trim) are `0`, `end`, or `<scene>@<second
 
 - Recordly cuts idle stretches and adds click zooms and captions when a recording loads. The runner undoes all of that, because most of this footage is the fire moving, and applies only the take's own zooms and text. It also turns off zoom motion blur, which smears the map's labels.
 - Every take reloads the console and fits the map in `prep`, so the last take's selection, zoom, plan drafts, commander dock and autopilot don't leak into it.
+- Move sliders with `drag`, not a click and arrow keys: with keys the thumb jumps while the pointer sits still. Thumb x for a value is about `36 + 308 × fraction` in the Plan panel at 1668 wide; check the value with `--rehearse`.
 - Recordly's `type` has dropped letters in this window. Prefer clicking the commander's suggestion buttons.
 - Above 1× the Paradise fire outruns every decision. Most takes run at 0.25–0.5×.

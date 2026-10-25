@@ -23,7 +23,7 @@ scene "Dispatch the crew and speed up to watch it drive in"
   move 1150,600
   hold 8
 
-zoom 1@end-5.5..2@0.5 at=0.78,0.30
+zoom 1@end-5.5..2@0.5 depth=3 at=0.72,0.32
 label "0.25× · 2.5 sim-min/s" 1@0.8..2@2
 label "1× · 10 sim-min/s" 2@2..end
 export B2-dispatch-crew.mp4

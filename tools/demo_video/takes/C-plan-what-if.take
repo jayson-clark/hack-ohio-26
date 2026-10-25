@@ -16,11 +16,9 @@ scene "Plan mode: assume the wind swings east and picks up"
   hold 1.5
   click "What if…"
   hold 0.6
-  click 75,514                  # wind direction slider
-  key right x9                  # NE 45 -> E 90
+  drag 75,514 114,514 ms=900    # wind direction thumb: NE 45 -> E 90
   hold 0.7
-  click 159,465                 # wind speed slider
-  key right x4                  # 8 -> 12 m/s
+  drag 159,465 221,465 ms=700   # wind speed thumb: 8 -> 12 m/s
   hold 1.2
 
 scene "Add the recommended crews and a dozer line"
@@ -39,7 +37,7 @@ scene "Dispatch the plan"
   click "Dispatch" role=button index=0
   hold 4
 
-zoom 1@3..2@0 depth=3 at=0.17,0.50
-zoom 2@end-8..2@end at=0.30,0.70
+zoom 1@3..2@0 depth=4 at=0.24,0.50
+zoom 2@end-8..2@end depth=3 at=0.34,0.68
 label "Paused · planning" 1@0..end
 export C-plan-what-if.mp4
