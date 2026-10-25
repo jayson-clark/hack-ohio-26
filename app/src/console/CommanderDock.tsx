@@ -1,10 +1,10 @@
 // The incident commander (#29, #130), docked in the map's corner. Collapsed,
-// it shows the latest briefing; open, the conversation, a box to ask, and
-// push-to-talk. The engine doesn't echo questions back, so the ones asked
+// it shows the latest briefing; open, the conversation and a box to ask.
+// The engine doesn't echo questions back, so the ones asked
 // here are kept locally and slotted in where they were asked.
 
 import { useEffect, useRef, useState } from "react";
-import { askCommander, pttStart, pttStop, useEngine } from "../shared/engine";
+import { askCommander, useEngine } from "../shared/engine";
 import type { CommanderMessage } from "../shared/protocol";
 import { formatSimMinutes } from "../shared/round";
 import { Icon } from "./icons";
@@ -18,7 +18,7 @@ interface Asked {
 }
 
 export default function CommanderDock() {
-  const { status, hello, transcript, listening, heard } = useEngine();
+  const { status, hello, transcript } = useEngine();
   const [open, setOpen] = useState(false);
   const [asked, setAsked] = useState<Asked[]>([]);
   const [draft, setDraft] = useState("");
@@ -48,10 +48,6 @@ export default function CommanderDock() {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [open, transcript.length, asked.length, waiting]);
-  // Speaking opens the dock, so the answer is in view.
-  useEffect(() => {
-    if (listening) setOpen(true);
-  }, [listening]);
 
   function ask(text: string) {
     const q = text.trim();
@@ -152,25 +148,9 @@ export default function CommanderDock() {
           onChange={(e) => setDraft(e.target.value)}
           maxLength={500}
           disabled={!online}
-          placeholder={listening ? "Listening…" : online ? "Ask about the fire…" : "Engine offline"}
+          placeholder={online ? "Ask about the fire…" : "Engine offline"}
           className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-sunken px-3 text-[13px] text-ink outline-none select-text placeholder:text-ink-3 focus:border-accent focus:bg-panel"
         />
-        <button
-          type="button"
-          disabled={!online || !(hello?.speech_to_text ?? false)}
-          title={hello?.speech_to_text ? "Hold to talk (or hold Space)" : "Speech-to-text isn't installed: cd engine && uv sync --extra voice"}
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId);
-            pttStart();
-          }}
-          onPointerUp={pttStop}
-          onPointerCancel={pttStop}
-          className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            listening ? "border-crit bg-crit-soft text-crit" : "border-line text-ink-2 hover:bg-hover"
-          }`}
-        >
-          <Icon name="mic" size={16} />
-        </button>
         <button
           type="submit"
           disabled={!online || !draft.trim()}
@@ -180,9 +160,6 @@ export default function CommanderDock() {
           <Icon name="send" size={15} />
         </button>
       </form>
-      {heard && (heard.text || heard.error) && (
-        <p className="truncate px-3 pb-2 text-[11px] text-ink-3">{heard.text ? `Heard “${heard.text}”` : heard.error}</p>
-      )}
     </Floating>
   );
 }

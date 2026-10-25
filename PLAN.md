@@ -30,7 +30,7 @@ Fireline is decision-support software for people forecasting and responding to a
 | Projector rendering | **WebGL** via Three.js (one projection shader; 3D only for the virtual table) | Shaders for fire, terrain, forecast ghost, routes |
 | Engine | **Python**: OpenCV, NumPy, networkx | Vision, simulation, forecasting, routing, LLM commander |
 | Transport | **WebSocket** | Binary grids and JSON messages between engine and UI |
-| Commander | Claude API (tool use) + push-to-talk speech-to-text | Briefings and what-if questions (text; no in-app TTS, #138) |
+| Commander | Claude API (tool use) | Briefings and typed what-if questions (text only; TTS removed in #138, push-to-talk in #171) |
 
 ### Why Tauri + React
 
@@ -131,7 +131,7 @@ engine/                 Python
   sim/                  fire CA, suppression, layers
   forecast/             batched rollouts, crew recommendations
   routing/              road graph, evac routing
-  commander/            LLM tools, briefings, push-to-talk speech-to-text
+  commander/            LLM tools, briefings, drafted orders and alerts
   uq/                   uncertainty: sampling intervals (mc.py); conformal calibration to come
   protocol.py           Pydantic message models
   gen_schema.py         protocol JSON schema for `make types`
@@ -165,7 +165,7 @@ Three modes over the one incident map:
 - **Plan** (#123): try orders and an assumed wind without changing anything. Clicks add draft orders; each is assigned the free unit dispatch would send, and only acts once that unit could get there. The plan runs against doing nothing on paired simulations (`forecast/plan.py`, `rollout_paired` with the plan as one suppression schedule), so the difference is the plan, not luck. The map shades where the plan keeps fire out (green) or pushes it in (red); the panel shows acres and residents affected with intervals, and per-town reach. It re-runs a moment after each edit; the engine skips a plan that a newer one replaced. "Dispatch" sends the orders for real.
 - **Review:** outcome so far (people evacuated, structures, acres, per town) and the event log. The after-action comparison against doing nothing is #124.
 
-The commander (briefings, typed questions, push-to-talk) sits beside every mode. Voice is off by default: operators mostly want it on screen.
+The commander (briefings and typed questions) sits beside every mode, as text: operators mostly want it on screen.
 
 ### Exercise control (`app/src/control/`)
 
@@ -367,7 +367,7 @@ The LLM gets **tools**, not a raw state dump, so its answers come from real simu
 | `evaluate_placement(token_type, x, y)` | Expected outcome change from placing a resource |
 | `get_routes()` | Current evacuation routes and their risk |
 
-- Triggered by events (town threatened, road cut) for proactive briefings, and by push-to-talk questions.
+- Triggered by events (town threatened, road cut) for proactive briefings, and by typed questions.
 - Answers are kept to about two sentences. In-app text-to-speech was removed (#138); the text messages are what an external TTS would read if speech is wanted.
 - Uses a fast model for low latency.
 
@@ -433,10 +433,10 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 ### Phase 5: Incident commander
 - Crew placement recommendations, projected and shown as cards in the console
 - LLM commander with the simulation tools
-- Push-to-talk speech-to-text in, briefings out as text
+- Typed questions in, briefings out as text
 - Proactive event-driven briefings
 
-**Exit:** a judge asks "What if the wind shifts west?" (typed or by push-to-talk) and gets an answer backed by a real forecast.
+**Exit:** a judge asks "What if the wind shifts west?" (typed) and gets an answer backed by a real forecast.
 
 ### Phase 6: Game and polish
 - Scenarios, limited resources, cooldowns, timer, scoring, end summary
@@ -481,7 +481,7 @@ Virtual table mode means nobody is blocked waiting for hardware.
 | App | Tauri shell, console UI, projector shaders, polish | 0, 1 (render), 6 |
 | Vision | Calibration, token tracking, 3D projection | 2, 7 |
 | Sim | Fire CA, terrain layers, suppression, rollouts | 1, 3, 4 (forecaster) |
-| AI | Routing, recommendations, commander, voice | 4 (routing), 5 |
+| AI | Routing, recommendations, commander, uncertainty | 4 (routing), 5 |
 
 ---
 

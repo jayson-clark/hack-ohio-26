@@ -23,7 +23,6 @@ import type {
   Score,
   Situation,
   Token,
-  Transcript,
   VisionStatus,
   WindState,
 } from "./protocol";
@@ -92,9 +91,6 @@ export interface EngineState {
   score: Score | null;
   /** What the commander has said (briefings and answers), oldest first. For #29. */
   transcript: CommanderMessage[];
-  /** Push-to-talk: held down now, and what it heard last time (cleared when pressed again). */
-  listening: boolean;
-  heard: Transcript | null;
 }
 
 let state: EngineState = {
@@ -118,8 +114,6 @@ let state: EngineState = {
   plan: { pending: 0, result: null, grids: null },
   score: null,
   transcript: [],
-  listening: false,
-  heard: null,
 };
 const listeners = new Set<() => void>();
 let ws: WebSocket | null = null;
@@ -179,9 +173,6 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "recommendations":
       setState({ recommendations: msg.recommendations });
-      break;
-    case "transcript":
-      setState({ heard: msg });
       break;
     case "commander_message":
       setState({ transcript: [...state.transcript, msg].slice(-MAX_TRANSCRIPT) });
@@ -271,20 +262,6 @@ function connect() {
 
 export function send(msg: ClientMessage) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-}
-
-/** Push-to-talk down: the engine starts recording. */
-export function pttStart() {
-  if (state.listening) return;
-  setState({ listening: true, heard: null });
-  send({ type: "ptt_start" });
-}
-
-/** Push-to-talk up: the engine transcribes, sends a transcript, and asks the commander. */
-export function pttStop() {
-  if (!state.listening) return;
-  setState({ listening: false });
-  send({ type: "ptt_stop" });
 }
 
 /** Ask the incident commander a question; the answer arrives as a commander_message. */
