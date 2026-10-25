@@ -27,9 +27,9 @@ prep
 
 scene "Slate: the test grid flashes on the table"
   hold 1
-  engine send {"type":"calibration_step","action":"check"}
+  engine send '{"type":"calibration_step","action":"check"}'
   hold 1
-  engine send {"type":"calibration_step","action":"cancel"}
+  engine send '{"type":"calibration_step","action":"cancel"}'
   hold 1.5
 
 scene "The table: projected fire, filmed top-down"
