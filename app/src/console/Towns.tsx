@@ -1,8 +1,11 @@
 // Every town in one list (#130): its status (from the evacuation clock when
 // there is one), how soon fire could get there, how likely within the hour,
-// and its way out. Most urgent first; a row opens the town in the inspector.
+// its way out, and when its evacuation order is due (#121). Most urgent
+// first; a row opens the town in the inspector.
 
-import type { TownView } from "./model";
+import { useEngine } from "../shared/engine";
+import { aboutMinutes } from "../shared/places";
+import { minutesUntil, type TownView } from "./model";
 import { Badge, Meter, TONE } from "./ui";
 
 const ROUTE = {
@@ -12,6 +15,9 @@ const ROUTE = {
 } as const;
 
 export default function Towns({ towns, selected, onSelect }: { towns: TownView[]; selected: string | null; onSelect: (name: string) => void }) {
+  const { hello, score } = useEngine();
+  const perTick = hello?.sim_minutes_per_tick ?? 1;
+  const now = score?.tick ?? 0;
   return (
     <ul className="-mx-2">
       {towns.map((t) => {
@@ -40,6 +46,7 @@ export default function Towns({ towns, selected, onSelect }: { towns: TownView[]
                   </>
                 )}
               </div>
+              <OrderBy t={t} now={now} perTick={perTick} />
               {w && share > 0 && (
                 <div className="mt-1.5 flex items-center gap-2 pl-4" title={`${w.k} of ${w.n} simulations reach it within 1 hour (likely ${Math.round(w.lo * 100)}–${Math.round(w.hi * 100)}%)`}>
                   <div className="flex-1">
@@ -55,5 +62,21 @@ export default function Towns({ towns, selected, onSelect }: { towns: TownView[]
         );
       })}
     </ul>
+  );
+}
+
+/** When the town's evacuation order has to go out, while it's still ahead:
+ * a town far from the hour-ahead forecast can need hours to empty. Overdue
+ * and ordered towns say so in their badge. */
+function OrderBy({ t, now, perTick }: { t: TownView; now: number; perTick: number }) {
+  const e = t.evac;
+  if (!e || e.ordered_tick !== null || (e.status !== "watch" && e.status !== "order_soon")) return null;
+  const left = minutesUntil(e.order_by_tick, now, perTick);
+  if (left === null || left <= 0) return null;
+  return (
+    <div className={`mt-1 pl-4 text-xs ${e.status === "order_soon" ? "font-medium text-warn" : "text-ink-2"}`}>
+      Order evacuation within <span className="tnum">{aboutMinutes(left)}</span>
+      {e.order_by_bound && " or more"}
+    </div>
   );
 }
