@@ -31,6 +31,8 @@ One command per line; `#` starts a comment. Quote text with spaces.
 | `engine speed <x>` / `engine pause` / `engine resume` | |
 | `engine send <json>` | Any client message, e.g. `engine send {"type":"set_wind","speed_ms":12,"from_deg":90}` |
 
+**Windows.** `window console` or `window control` (exercise control) picks the window the steps drive. The first one named is where the take starts; inside a block it cuts to the other window mid-take. Both are Chrome app windows, opened if missing and moved onto the console's bounds, so the crop holds across the cut. `reload` reloads whichever window is being driven.
+
 **Blocks.** `prep` runs steps without recording; `scene "title"` records them. Recording starts at the first scene and runs to the end of the take. Each block is one Recordly `perform` call, so keep a scene under a minute. `pace=brisk|normal|relaxed` sets how fast the pointer glides (default: `brisk` for prep, `relaxed` for scenes).
 
 **Steps** (inside a block)
@@ -66,7 +68,7 @@ Times (for zooms, labels, captions and trim) are `0`, `end`, or `<scene>@<second
 
 ## Gotchas
 
-- Recordly cuts idle stretches and adds click zooms and captions when a recording loads. The runner undoes all of that, because most of this footage is the fire moving, and applies only the take's own zooms and text. It also turns off zoom motion blur, which smears the map's labels.
+- Recordly cuts idle stretches and adds click zooms and captions when a recording loads. The runner undoes all of that, because most of this footage is the fire moving, and applies only the take's own zooms and text. It also turns off zoom motion blur, which smears the map's labels. On a busy machine Recordly's suggestions can land after the runner has placed its zooms, so it checks the edit after a pause and puts its zooms and captions back.
 - Every take reloads the console and fits the map in `prep`, so the last take's selection, zoom, plan drafts, commander dock and autopilot don't leak into it.
 - Move sliders with `drag`, not a click and arrow keys: with keys the thumb jumps while the pointer sits still. Thumb x for a value is about `36 + 308 × fraction` in the Plan panel at 1668 wide; check the value with `--rehearse`.
 - Recordly's `type` has dropped letters in this window. Prefer clicking the commander's suggestion buttons.

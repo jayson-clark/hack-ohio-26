@@ -1,0 +1,56 @@
+# The table plays the incident: the projector paints the fire on the printed
+# terrain and the camera films it top-down, as a drone would. Exercise control
+# lays the forecast and routes over that photo, then the operator console runs
+# on the same live feed. Needs the camera on with the board locked, and the
+# projector calibrated and open (exercise control's Projector panel).
+engine fresh 0.5 paused
+engine advance 60
+
+prep
+  window console
+  reload
+  waitfor "Fit the whole map" timeout=15
+  click "Fit the whole map"
+  waitfor "Drone" timeout=15        # the basemap switch shows once the feed is live
+  window control
+  reload
+  waitfor "Camera" timeout=15
+  click "Camera"
+  waitfor "Units" timeout=15        # the overlay toggles show once the feed is rectified
+  click "Forecast"
+  click "Routes"
+  click "Towns"
+  click "Units"
+  move 640,820
+
+scene "The table: projected fire, filmed top-down"
+  engine resume
+  hold 8
+
+scene "Forecast, routes and towns over the photo"
+  click "Forecast"
+  hold 1.5
+  click "Routes"
+  hold 1.5
+  click "Towns"
+  click "Units"
+  move 640,560
+  hold 4
+
+scene "The operator console, Map then Drone"
+  window console
+  hold 2
+  click "Map"
+  hold 2
+  click "Drone"
+  hold 1
+
+scene "The operator console on the same feed"
+  move 900,560
+  hold 5
+  engine pause
+
+zoom 1@1..1@end depth=2 at=0.40,0.54      # the camera feed, left of the toggles
+zoom 4@0..end depth=2 at=0.62,0.52        # the console's map, once the basemap is back on Drone
+label "0.5× · 5 sim-min/s" 1@0.5..end
+export F-table-camera.mp4

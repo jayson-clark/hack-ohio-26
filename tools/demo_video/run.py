@@ -30,8 +30,10 @@ import websockets
 HERE = Path(__file__).resolve().parent
 ENGINE_URL = os.environ.get("ENGINE_URL", f"ws://{os.environ.get('ENGINE_HOST', 'localhost')}:{os.environ.get('ENGINE_PORT', '8765')}")
 CONSOLE_URL = os.environ.get("DEMO_CONSOLE_URL", "http://localhost:1420/?view=console&demo=1")
+CONTROL_URL = os.environ.get("DEMO_CONTROL_URL", "http://localhost:1420/?view=control")
 OUT_DIR = Path(os.environ.get("DEMO_OUT_DIR", "~/Movies/fireline-demo")).expanduser()
-WINDOW_TITLE = "Fireline"
+# The windows a take can drive, each a Chrome app window: name -> (title, URL).
+WINDOWS = {"console": ("Fireline", CONSOLE_URL), "control": ("Fireline · Exercise control", CONTROL_URL)}
 TITLEBAR_PT = 28  # a Chrome app window's title bar, cropped out of the video
 # The frame around the window: a wallpaper with room around the window, so a
 # wide shot looks like a Mac screenshot and the zooms have somewhere to go.
@@ -203,6 +205,11 @@ class Take:
     cards: list[dict] = field(default_factory=list)
     trim: tuple[str, str] | None = None
     export: str | None = None
+    windows: list[str] = field(default_factory=list)  # in order of use; the first is driven at the start
+
+    @property
+    def first_window(self) -> str:
+        return self.windows[0] if self.windows else "console"
 
     @property
     def scenes(self) -> list[str]:
@@ -289,6 +296,13 @@ def parse(path: Path) -> Take:
             pos, kw = opts(rest)
             if cmd == "engine":
                 (block.items if block else take.setup).append(("engine", rest))
+            elif cmd == "window":
+                if pos[0] not in WINDOWS:
+                    raise TakeError(f"window is one of {', '.join(WINDOWS)}")
+                if pos[0] not in take.windows:
+                    take.windows.append(pos[0])
+                if block:
+                    block.items.append(("window", pos))
             elif cmd == "reload":
                 if block is None:
                     raise TakeError("reload goes inside prep")
@@ -351,42 +365,58 @@ def resolve(t: str, scenes: list[dict], duration: float) -> float:
 # --- Running a take -------------------------------------------------------------
 
 
-def find_window(rec: Recordly) -> tuple[dict, dict]:
+def find_windows(rec: Recordly, names: list[str]) -> tuple[dict[str, dict], dict]:
+    """The take's windows, opened if missing, and the screen they're on. A
+    second window is moved onto the first's bounds, so the crop holds when the
+    take cuts between them."""
     def look():
         sources = rec.call("list_sources")
-        wins = [s for s in sources if s.get("type") == "window" and s.get("appName") == "Google Chrome" and s.get("windowTitle") == WINDOW_TITLE]
-        return sources, wins
+        chrome = [s for s in sources if s.get("type") == "window" and s.get("appName") == "Google Chrome"]
+        return sources, {n: next((s for s in chrome if s.get("windowTitle") == WINDOWS[n][0]), None) for n in names}
 
     sources, wins = look()
-    if not wins:
-        # The console as a Chrome app window: no tabs or address bar on camera.
-        subprocess.run(["open", "-na", "Google Chrome", "--args", f"--app={CONSOLE_URL}"], check=True)
+    if not all(wins.values()):
+        # Chrome app windows: no tabs or address bar on camera.
+        for n in names:
+            if not wins[n]:
+                subprocess.run(["open", "-na", "Google Chrome", "--args", f"--app={WINDOWS[n][1]}"], check=True)
         time.sleep(4)
         sources, wins = look()
-    if not wins:
-        raise TakeError(f"No Chrome window titled {WINDOW_TITLE!r}; open {CONSOLE_URL} as an app window")
-    win = wins[0]
+    for n in names:
+        if not wins[n]:
+            raise TakeError(f"No Chrome window titled {WINDOWS[n][0]!r}; open {WINDOWS[n][1]} as an app window")
+    # The console's bounds win, since the console takes' coordinates assume them.
+    ref = wins["console"] if "console" in wins else wins[names[0]]
+    for w in wins.values():
+        if (w["x"], w["y"], w["width"], w["height"]) != (ref["x"], ref["y"], ref["width"], ref["height"]):
+            rec.call("set_window_bounds", source=w["id"], x=ref["x"], y=ref["y"], width=ref["width"], height=ref["height"])
+            w.update({k: ref[k] for k in ("x", "y", "width", "height")})
     screens = [s for s in sources if s.get("type") == "screen"]
-    screen = next((s for s in screens if s["x"] <= win["x"] < s["x"] + s["width"] and s["y"] <= win["y"] < s["y"] + s["height"]), screens[0])
-    return win, screen
+    screen = next((s for s in screens if s["x"] <= ref["x"] < s["x"] + s["width"] and s["y"] <= ref["y"] < s["y"] + s["height"]), screens[0])
+    return wins, screen
 
 
-def reload_console() -> None:
-    """Reload the console so the last take's selection, zoom, plan, dock and
+def reload_window(title: str) -> None:
+    """Reload a window so the last take's selection, zoom, plan, dock and
     autopilot are gone. Keys don't reach a Chrome app window, so AppleScript."""
-    script = f'tell application "Google Chrome" to tell (first window whose title is "{WINDOW_TITLE}") to reload active tab'
+    script = f'tell application "Google Chrome" to tell (first window whose title is "{title}") to reload active tab'
     subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
     time.sleep(1)
 
 
-def run_items(rec: Recordly, block: Block) -> None:
+def run_items(rec: Recordly, block: Block, wins: dict[str, dict], cur: list[str]) -> None:
+    """cur holds the name of the window being driven; `window` changes it."""
     steps: list[dict] = []
     for item in block.items:
         if isinstance(item, tuple):
             rec.perform(steps, block.pace)
             steps = []
             if item[0] == "reload":
-                reload_console()
+                reload_window(WINDOWS[cur[0]][0])
+            elif item[0] == "window":
+                # The screen is what's recorded; this raises the window and drives it.
+                cur[0] = item[1][0]
+                rec.call("select_source", id=wins[cur[0]]["id"])
             else:
                 engine(item[1])
         else:
@@ -406,9 +436,32 @@ def editor_ready(rec: Recordly, video: str) -> dict:
     raise TakeError("the Recordly editor didn't load the recording")
 
 
+def place_zooms_and_captions(rec: Recordly, video: str, zooms: list, cues: list[dict]) -> None:
+    """Make the take's zooms and captions the only ones. On a busy machine
+    Recordly's own suggestions (auto zooms, an empty caption) can land after
+    the undo above and replace ours, so check after a pause and redo."""
+    want = sorted((round(a), round(b)) for a, b, _ in zooms)
+    for _ in range(3):
+        rec.call("edit_zoom", op="clear")
+        for a, b, z in zooms:
+            rec.call("edit_zoom", op="add", startMs=a, endMs=b, depth=z["depth"], focus=z["focus"], mode=z["mode"])
+        if cues:
+            rec.call("edit_captions", op="set", cues=cues)
+        elif editor_ready(rec, video)["captions"]:
+            rec.call("edit_captions", op="remove", all=True)
+        time.sleep(3)
+        st = editor_ready(rec, video)
+        have = sorted((round(z["startMs"]), round(z["endMs"])) for z in st["zooms"])
+        if have == want and len(st["captions"]) == len(cues):
+            return
+    raise TakeError("Recordly kept changing the zooms or captions; run the take again")
+
+
 def run_take(rec: Recordly, take: Take, rehearse: bool, out_dir: Path) -> None:
     print(f"== {take.name}")
-    win, screen = find_window(rec)
+    names = take.windows or ["console"]
+    wins, screen = find_windows(rec, names)
+    win, cur = wins[take.first_window], [take.first_window]
     # Record the whole screen and drive the window; recording a Chrome window
     # directly loses track of it.
     rec.call("select_source", id=screen["id"])
@@ -423,7 +476,7 @@ def run_take(rec: Recordly, take: Take, rehearse: bool, out_dir: Path) -> None:
                 rec.call("start_recording", countdownSeconds=0, scenes=take.scenes)
                 recording = True
             print(f"   {block.kind}: {block.title}" if block.title else f"   {block.kind}")
-            run_items(rec, block)
+            run_items(rec, block, wins, cur)
     except TakeError:
         if recording:
             rec.call("cancel_recording")
@@ -455,17 +508,15 @@ def run_take(rec: Recordly, take: Take, rehearse: bool, out_dir: Path) -> None:
         st = editor_ready(rec, video)
     scenes, dur = st["scenes"], st["durationMs"]
     span = lambda it: (resolve(it["start"], scenes, dur), resolve(it["end"], scenes, dur))
-    for z in take.zooms:
-        a, b = span(z)
-        rec.call("edit_zoom", op="add", startMs=a, endMs=b, depth=z["depth"], focus=z["focus"], mode=z["mode"])
+    zooms = [(*span(z), z) for z in take.zooms]
+    cues = [{"startMs": a, "endMs": b, "text": c["text"]} for c in take.captions for a, b in [span(c)]]
+    place_zooms_and_captions(rec, video, zooms, cues)
     for lb in take.labels:
         # Pinned to the output frame, so a zoom can't crop it.
         a, b = span(lb)
         x, y = lb.get("at", LABEL_AT)
         rec.call("annotate", op="add", kind="text", text=lb["text"], startMs=a, endMs=b, x=x, y=y, width=LABEL_SIZE[0], height=LABEL_SIZE[1],
                  space="screen", backgroundColor=LABEL_PLATE, color="#ffffff", fontSize=LABEL_FONT, textAlign="center")
-    if take.captions:
-        rec.call("edit_captions", op="set", cues=[{"startMs": a, "endMs": b, "text": c["text"]} for c in take.captions for a, b in [span(c)]])
     # Cards add time, so they go last.
     for c in take.cards:
         rec.call("add_card", op=c["op"], text=c["text"], subtitle=c["subtitle"], durationMs=c["ms"], background="#0e1113")
