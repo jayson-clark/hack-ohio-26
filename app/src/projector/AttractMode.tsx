@@ -152,7 +152,7 @@ export default function AttractMode({ scenario, mapToProj = null }: { scenario: 
         {/* Near-black pill: projects as near-darkness, so the title reads over any terrain. */}
         <div className="absolute inset-x-0 bottom-[6%] flex justify-center">
           <div className="rounded-2xl bg-black/80 px-8 py-3 text-center">
-            <div className="text-3xl font-semibold tracking-[0.3em] text-white/90">FIREWATCH</div>
+            <div className="text-3xl font-semibold tracking-[0.3em] text-white/90">FIRELINE</div>
             <div className="mt-1 text-lg text-white/60">Place a crew on the map to begin</div>
           </div>
         </div>

@@ -48,7 +48,7 @@ REPO = Path(__file__).resolve().parent.parent
 CACHE = REPO / "tools" / ".cache" / "overpass"
 OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
 # overpass-api.de answers 406 to urllib's default User-Agent.
-USER_AGENT = "firewatch-hackathon/0.1 (tools/osm_to_layers.py)"
+USER_AGENT = "fireline-hackathon/0.1 (tools/osm_to_layers.py)"
 EARTH_R = 6371008.8
 
 # Drivable classes, most important first. Residential is included because

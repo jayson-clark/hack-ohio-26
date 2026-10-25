@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react";
 
 export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "firewatch.theme";
+const STORAGE_KEY = "fireline.theme";
 const system = window.matchMedia("(prefers-color-scheme: dark)");
 const listeners = new Set<() => void>();
 
