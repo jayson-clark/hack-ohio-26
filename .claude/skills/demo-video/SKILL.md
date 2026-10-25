@@ -3,7 +3,7 @@ name: demo-video
 description: Re-record, edit or add the demo video's console takes (tools/demo_video/*.take, make demo-video), or record new console footage with Recordly. Use when asked to redo a demo segment, change what a take shows or zooms on, or fix a take that fails.
 ---
 
-The takes and their command language are in `tools/demo_video/README.md`. Read it first. The script the takes serve is `tools/demo_video/SCRIPT_v3.md` (A, B1, B2, F, G; the older `SCRIPT.md` also uses C, D, E); keep the two in step when a take's content changes.
+The takes and their command language are in `tools/demo_video/README.md`. Read it first. The script the takes serve is `tools/demo_video/SCRIPT.md` (A, B1, B2, F, G; C, D and E aren't in the cut); keep its picture cues in step when a take's content changes.
 
 - Prereqs: `make engine`, `make web`, and the Recordly app open with "Let agents use the mouse and keyboard" on. The runner finds Recordly through its entry in `~/.claude.json` (or `RECORDLY_MCP_URL`/`RECORDLY_MCP_TOKEN`).
 - Record with `EMULATOR=off` and `FIRE_SEED=7` in `.env` (the fire is the same every take, and doesn't die out early), and restart the engine before G: the legend's miss rates carry over between rounds.
