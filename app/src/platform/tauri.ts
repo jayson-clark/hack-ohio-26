@@ -1,5 +1,6 @@
 // Tauri implementation. The only file allowed to import @tauri-apps/*.
 
+import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { availableMonitors, primaryMonitor, type Monitor } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { MonitorInfo, Platform } from "./types";
@@ -72,6 +73,10 @@ export const tauriPlatform: Platform = {
       title: "Fireline Exercise Control",
       width: 1400,
       height: 900,
+      // The traffic lights sit in the header row, as in the console.
+      titleBarStyle: "overlay",
+      hiddenTitle: true,
+      trafficLightPosition: new LogicalPosition(16, 24),
     });
     await new Promise<void>((resolve, reject) => {
       win.once("tauri://created", () => resolve());
