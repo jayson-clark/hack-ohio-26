@@ -130,6 +130,33 @@ def test_llm_trouble_falls_back_to_rules(engine, monkeypatch, trouble):
     assert any(t.name in ans.text for t in engine.towns)  # the live fire isn't seeded, so which town varies
 
 
+class StallingStream(FakeStream):
+    """Streams its first sentence, then hangs."""
+
+    @property
+    def text_stream(self):
+        async def gen():
+            first, _ = self.msg.content[0].text.split(". ", 1)
+            for word in (first + ". ").split(" "):
+                yield word + " "
+            await asyncio.sleep(1.0)
+        return gen()
+
+
+@pytest.mark.parametrize("listening", [True, False])
+def test_timeout_mid_answer_keeps_only_what_a_listener_heard(engine, monkeypatch, listening):
+    monkeypatch.setattr(agent_mod, "ANSWER_TIMEOUT_S", 0.2)
+    first = "Pulga is threatened in 32 of 32 simulations."
+    stream = StallingStream(text_msg(first + " Concow is next."))
+    cmd = Commander(CommanderTools(engine), client=FakeClient(tool_msg("get_situation", {}), stream))
+    said = []
+    ans = run(cmd.answer("Which town is in danger?", on_sentence=said.append if listening else None))
+    if listening:
+        assert said == [first] and ans.text == first  # already out; finish there
+    else:
+        assert ans.source == "rules"  # half an answer is never sent as if it were whole (#153)
+
+
 def test_no_key_means_rules(engine, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
