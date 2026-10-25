@@ -46,6 +46,9 @@ export interface ForecastGrids {
   // One width*height grid per Hello.forecast_horizons_min entry, in order:
   // P(burned by that horizon) scaled to 0-255.
   horizons: Uint8Array[];
+  // The emulator's instant preview, not a Monte Carlo forecast (#113): the
+  // calibrated envelope (#12) doesn't apply to it.
+  preview: boolean;
 }
 
 /** A plan's answer (#123) and its PLAN_GRID: P(burned by the horizon) without and with the plan, 0-255. */
@@ -217,12 +220,13 @@ function handleBinary(buf: ArrayBuffer) {
     case BinaryType.SimGrid:
       setState({ simGrid: frame });
       break;
-    case BinaryType.ForecastGrid: {
+    case BinaryType.ForecastGrid:
+    case BinaryType.ForecastPreview: {
       const { tick, width, height, payload } = frame;
       const cells = width * height;
       const n = Math.floor(payload.length / cells);
       const horizons = Array.from({ length: n }, (_, i) => payload.subarray(i * cells, (i + 1) * cells));
-      setState({ forecast: { tick, width, height, horizons } });
+      setState({ forecast: { tick, width, height, horizons, preview: frame.type === BinaryType.ForecastPreview } });
       break;
     }
     case BinaryType.CameraFrame:

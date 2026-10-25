@@ -158,7 +158,9 @@ export default function MapView(props: Props) {
   }, [scenario]);
 
   useEffect(() => carto.current?.setFire(simGrid), [simGrid, scenario]);
-  useEffect(() => carto.current?.setForecast(forecast, envelope), [forecast, envelope, scenario]);
+  // The calibrated envelope is learned on Monte Carlo forecasts; around an
+  // emulator preview the line falls back to the plain 50% edge.
+  useEffect(() => carto.current?.setForecast(forecast, forecast?.preview ? null : envelope), [forecast, envelope, scenario]);
   useEffect(() => carto.current?.setStyle(style), [style.terrain, style.contours, style.forecast, style.dark, scenario]);
 
   // Wheel and trackpad: zoom about the cursor (pinch arrives as ctrl+wheel).

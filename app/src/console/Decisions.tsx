@@ -295,8 +295,12 @@ function RecLine({ rec }: { rec: Recommendation }) {
 /** When fire could reach a town: the calibrated 90% range when the engine has
  * one (#13), else the hour forecast's 10th percentile. */
 function arrivalText(th: { soonest_min: number | null; eta_lo_min: number | null; eta_hi_min: number | null }): string {
+  const now = th.eta_lo_min != null && th.eta_lo_min < 1; // the calibrated range starts now
   if (th.eta_lo_min != null && th.eta_hi_min != null)
-    return `Fire likely arrives in ${aboutMinutes(th.eta_lo_min)}–${aboutMinutes(th.eta_hi_min)} (90%).`;
-  if (th.eta_lo_min != null) return `Fire could arrive in ${aboutMinutes(th.eta_lo_min)} or later.`;
+    return now
+      ? `Fire likely arrives within ${aboutMinutes(th.eta_hi_min)} (90%).`
+      : `Fire likely arrives in ${aboutMinutes(th.eta_lo_min)}–${aboutMinutes(th.eta_hi_min)} (90%).`;
+  if (th.eta_lo_min != null)
+    return now ? "Fire could arrive any time." : `Fire could arrive in ${aboutMinutes(th.eta_lo_min)} or later.`;
   return `Fire could arrive in ${aboutMinutes(th.soonest_min ?? 60)}.`;
 }

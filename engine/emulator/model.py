@@ -7,6 +7,7 @@ scale, so each output sees ~160 cells around it, more than the 60 a fire can
 travel in the T+60 horizon. Two output logits per cell, for T+30 and T+60.
 """
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -91,8 +92,16 @@ class Emulator:
         return finish(self.predict(from_snapshot(snapshot)[None])[0], snapshot.state)
 
 
+def disabled() -> bool:
+    """EMULATOR=off (or 0, false, no) in the environment turns it off: the
+    engine runs Monte Carlo only, as without the ml extra. The engine's
+    worker processes inherit it, so screening is off too."""
+    return os.environ.get("EMULATOR", "").strip().lower() in ("off", "0", "false", "no")
+
+
 def load_emulator(path: Path = WEIGHTS) -> Emulator | None:
-    """The trained emulator, or None without MLX or weights."""
-    if nn is None or not path.exists():
+    """The trained emulator, or None when it's switched off (EMULATOR=off) or
+    there's no MLX or no weights."""
+    if disabled() or nn is None or not path.exists():
         return None
     return Emulator(path)
