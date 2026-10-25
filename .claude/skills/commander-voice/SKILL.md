@@ -1,9 +1,9 @@
 ---
 name: commander-voice
-description: Set up, try, or debug the incident commander (Claude answers, templated briefings, grounding guard), its voice (text-to-speech) and push-to-talk (speech-to-text). Use when asked to run or test the commander, add an API key, change the commander's model, measure its latency, turn on voice, or debug push-to-talk.
+description: Set up, try, or debug the incident commander (Claude answers, templated briefings, grounding guard) and push-to-talk (speech-to-text). Use when asked to run or test the commander, add an API key, change the commander's model, measure its latency, or debug push-to-talk.
 ---
 
-Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop and template fallback, `guard.py` grounding, `briefings.py` unprompted briefings, `voice.py` TTS, `listen.py` STT). Design: `PLAN.md` → Incident commander.
+Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop and template fallback, `guard.py` grounding, `briefings.py` unprompted briefings, `listen.py` STT). Design: `PLAN.md` → Incident commander.
 
 ## Answers (LLM)
 - Put `ANTHROPIC_API_KEY` in the root `.env`. `make engine` exports it. Without a key, the commander answers from templates, and briefings never need one.
@@ -12,9 +12,8 @@ Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop a
 - Measure before changing the model or effort: `cd engine && uv run python -m commander.eval.run --effort low --out report.md`. That's 20 scripted questions, so with a key it makes real API calls.
 - An answer with `grounded: false` never happens on purpose. The guard retries once, then falls back to templates. If answers keep falling back, check the engine log for `ungrounded numbers`.
 
-## Voice (text-to-speech)
-- Off by default. Use the voice menu in the console's Commander panel header: **this console** (Web Speech in that window; browsers only allow speech after a click, and choosing it counts) or **Mac speaker** (the engine runs macOS `say`).
-- Speech text goes through `voice.speakable()` ("Oroville via Highway 70"). Add new road or unit spellings there.
+## No text-to-speech
+In-app TTS (the console's Web Speech voice and macOS `say`) was removed in #138. The commander's output is the `commander_message` text (answers and briefings). If speech is wanted, feed those messages to an external TTS.
 
 ## Push-to-talk (speech-to-text)
 - Optional extra (it pulls in mlx-whisper and PyTorch): `cd engine && uv sync --extra voice`, then run the engine with `uv run --extra voice server.py`. A plain `make engine` won't have it, and the "Hold to talk" button stays disabled.
@@ -22,4 +21,4 @@ Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop a
 - **Microphone permission:** the first press makes macOS ask whether the app that launched the engine (Terminal, iTerm, or the Tauri app) may use the mic. If you said no, enable it in System Settings → Privacy & Security → Microphone. The UI shows "can't open the microphone".
 - Hold the Commander panel's **Talk** button, or hold Space, in the console. Releasing it transcribes (~0.1 s on Apple silicon), shows what was heard, and asks the commander.
 - Test without speaking: `say -o q.wav --file-format=WAVE --data-format=LEI16@16000 "How long until the fire reaches Pulga?"`, then feed the samples to `Listener.transcribe` (see `engine/tests/test_listen.py`).
-- Place names misheard? The prompt is built from `towns.json` towns and exit roads (`listen.vocabulary_prompt`). Keep it a natural sentence, because a bare list pushes Whisper into Title Case.
+- Place names misheard? The prompt is built from `towns.json` towns and exit roads (`listen.vocabulary_prompt`), spelled the way they're said (`listen.speakable`: "Oroville via Highway 70"). Keep it a natural sentence, because a bare list pushes Whisper into Title Case.
