@@ -6,10 +6,10 @@
     "south": 39.896295875448594,
     "west": -105.28559167697773,
     "north": 40.01770412455141,
-    "east": -105.07440832302228
+    "east": -105.00401387170379
   },
   "grid": {
-    "width": 192,
+    "width": 256,
     "height": 144,
     "cell_size_m": 93.75,
     "cell_size_mm": 1.7197916666666666
@@ -21,8 +21,22 @@
     "row0": "north"
   },
   "elevation_m": {
-    "min": 1569.0564819282406,
+    "min": 1545.579295300624,
     "max": 2325.3580191650494
+  },
+  "print": {
+    "offset_cells": [
+      0,
+      0
+    ],
+    "width": 192,
+    "height": 144,
+    "bounds": {
+      "south": 39.896295875448594,
+      "west": -105.28559167697773,
+      "north": 40.01770412455141,
+      "east": -105.07440832302228
+    }
   },
   "model": {
     "width_mm": 330.2,
@@ -30,11 +44,15 @@
     "base_mm": 6,
     "relief_mm": 35.0,
     "m_per_mm": 54.51241671714113,
-    "vertical_exaggeration": 2.522716788426331
+    "vertical_exaggeration": 2.522716788426331,
+    "elevation_m": {
+      "min": 1569.0564819282406,
+      "max": 2325.3580191650494
+    }
   },
   "frames": {
-    "board_mm": "x east, y north, origin at the south-west corner",
-    "map": "col = x_mm / width_mm * grid.width, row = (height_mm - y_mm) / height_mm * grid.height"
+    "board_mm": "x east, y north, origin at the print's south-west corner",
+    "map": "col = print.offset_cells[0] + x_mm / width_mm * print.width, row = print.offset_cells[1] + (height_mm - y_mm) / height_mm * print.height"
   },
   "markers": {
     "holder_file": "marker_holder.stl",
@@ -110,7 +128,60 @@
       }
     ]
   },
-  "tiles": [],
+  "tiles": [
+    {
+      "file": "tile_r0_c0.stl",
+      "row": 0,
+      "col": 0,
+      "origin_mm": [
+        0.0,
+        123.825
+      ],
+      "size_mm": [
+        165.1,
+        123.825
+      ]
+    },
+    {
+      "file": "tile_r0_c1.stl",
+      "row": 0,
+      "col": 1,
+      "origin_mm": [
+        165.1,
+        123.825
+      ],
+      "size_mm": [
+        165.1,
+        123.825
+      ]
+    },
+    {
+      "file": "tile_r1_c0.stl",
+      "row": 1,
+      "col": 0,
+      "origin_mm": [
+        0.0,
+        0.0
+      ],
+      "size_mm": [
+        165.1,
+        123.825
+      ]
+    },
+    {
+      "file": "tile_r1_c1.stl",
+      "row": 1,
+      "col": 1,
+      "origin_mm": [
+        165.1,
+        0.0
+      ],
+      "size_mm": [
+        165.1,
+        123.825
+      ]
+    }
+  ],
   "places": [
     {
       "name": "Superior",
@@ -222,7 +293,13 @@
       "arm_width_mm": 8.0
     },
     "sim": {
-      "grid_width": 192
+      "grid_width": 192,
+      "margin_km": {
+        "north": 0,
+        "east": 6,
+        "south": 0,
+        "west": 0
+      }
     },
     "places": [
       {

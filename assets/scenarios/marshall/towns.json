@@ -37,22 +37,16 @@
   ],
   "safe_zones": [
     {
-      "name": "Denver (US 36)",
-      "x": 188.394,
-      "y": 143.515,
+      "name": "Lafayette",
+      "x": 178.022,
+      "y": 36.463,
+      "road": "South Boulder Road"
+    },
+    {
+      "name": "Broomfield (US 36)",
+      "x": 175.382,
+      "y": 121.163,
       "road": "US 36"
-    },
-    {
-      "name": "Lafayette (South Boulder Rd)",
-      "x": 191.765,
-      "y": 36.693,
-      "road": "East South Boulder Road"
-    },
-    {
-      "name": "Lafayette (CO 42)",
-      "x": 140.443,
-      "y": 3.572,
-      "road": "CO 42"
     },
     {
       "name": "Boulder (US 36)",
