@@ -306,12 +306,14 @@ def fit_on_terrain(fit: PatternFit, board: np.ndarray, surface: Surface, camera:
 
 # --- The dot grid ---------------------------------------------------------------------
 
-def dot_centres(map_to_proj: np.ndarray, width: int, height: int) -> np.ndarray:
-    """(n, 2) pattern px of the grid's dots, through a flat map -> projector,
-    keeping those well inside the projector frame."""
+def dot_centres(map_to_proj: np.ndarray, window: tuple[int, int, int, int]) -> np.ndarray:
+    """(n, 2) pattern px of the grid's dots over the print (`window`: x0, y0,
+    width, height in map cells), through a flat map -> projector, keeping
+    those well inside the projector frame."""
     nx, ny = DOT_GRID
-    xs = np.linspace(DOT_MARGIN, 1 - DOT_MARGIN, nx) * width
-    ys = np.linspace(DOT_MARGIN, 1 - DOT_MARGIN, ny) * height
+    x0, y0, width, height = window
+    xs = x0 + np.linspace(DOT_MARGIN, 1 - DOT_MARGIN, nx) * width
+    ys = y0 + np.linspace(DOT_MARGIN, 1 - DOT_MARGIN, ny) * height
     grid = np.array([[x, y] for y in ys for x in xs])
     px = transform(map_to_proj, grid) * PATTERN_SIZE
     pad = 2 * DOT_RADIUS
@@ -439,9 +441,9 @@ def solve_lens(cam: np.ndarray, target: np.ndarray, board: np.ndarray, surface: 
                     break
         return best, Viewpoint(*x)
 
-    w, h = surface.width, surface.height
+    x0, y0, w, h = surface.x0, surface.y0, surface.width, surface.height
     starts = [guess] if guess is not None else []
-    starts += [Viewpoint(x, y, z) for x in (-0.5 * w, 0.5 * w, 1.5 * w) for y in (-0.5 * h, 0.5 * h, 1.5 * h)
+    starts += [Viewpoint(x0 + x, y0 + y, z) for x in (-0.5 * w, 0.5 * w, 1.5 * w) for y in (-0.5 * h, 0.5 * h, 1.5 * h)
                for z in (400.0, 900.0)]
     best_e, lens = min((search(s) for s in starts), key=lambda r: r[0])
     # Drop dots that don't fit (a blob from a reflection, a dot on a seam) and polish.
@@ -704,7 +706,7 @@ class Calibrator:
             log.info("projector ring fit: %d corners, %.1f px RMS; camera %s mm up", fit.points, fit.error_px,
                      "?" if camera is None else f"{camera.h:.0f}")
             # Then the dots, placed with the ring's flat fit.
-            centres = dot_centres(derive(fit.cam_to_proj, board), self.scenario.width, self.scenario.height)
+            centres = dot_centres(derive(fit.cam_to_proj, board), self.scenario.print_window)
             if len(centres) < MIN_DOTS:
                 return self._review(self._ring_candidate, "The dot grid doesn't fit on the board, so this uses the ring alone.")
             expected = transform(np.linalg.inv(fit.cam_to_proj), centres / PATTERN_SIZE)
@@ -760,8 +762,8 @@ class Calibrator:
             self._pin_projector(board)
             self._accept(board)
             return True
-        corners = np.array([[0, 0], [self.scenario.width, 0], [self.scenario.width, self.scenario.height],
-                            [0, self.scenario.height]], np.float64)
+        x0, y0, w, h = self.scenario.print_window
+        corners = np.array([[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]], np.float64)
         now = transform(derive(self.saved.cam_to_proj, board), corners)
         shift = np.abs(now - transform(self.saved.map_to_proj, corners)) * PATTERN_SIZE
         if shift.max() < FOLLOW_PX:

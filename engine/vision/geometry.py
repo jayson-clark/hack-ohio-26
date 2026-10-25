@@ -54,34 +54,38 @@ class Viewpoint:
 
 
 class Surface:
-    """The printed surface's height above the marker plane, in mm."""
+    """The printed surface's height above the marker plane, in mm. The print
+    covers the cells x0..x0 + width, y0..y0 + height of the map; the sim map
+    can reach past it, and there the camera and projector see bare table."""
 
     def __init__(self, scenario: Scenario) -> None:
         t = scenario.terrain
-        model, elev = t["model"], t["elevation_m"]
+        model = t["model"]
+        elev = model.get("elevation_m", t["elevation_m"])  # the print's lowest and highest points
         top = t["markers"]["marker_top_z_mm"]
         span = max(elev["max"] - elev["min"], 1e-6)
         # dem_to_assets.py: z = base + (elev - min) / span * relief, from the table.
         self.mm = (model["base_mm"] + (scenario.heightmap - elev["min"]) / span * model["relief_mm"] - top).astype(np.float64)
         self.floor = -top  # the bare table around the terrain
-        self.top = float(self.mm.max())
-        self.width, self.height = scenario.width, scenario.height
+        self.x0, self.y0, self.width, self.height = scenario.print_window
+        self.top = float(self.mm[self.y0:self.y0 + self.height, self.x0:self.x0 + self.width].max())
         self.cell_mm = t["grid"]["cell_size_mm"]
 
     def at(self, pts: np.ndarray) -> np.ndarray:
         """(n, 2) map coords -> (n,) mm, bilinear between cell centres."""
         pts = np.asarray(pts, np.float64).reshape(-1, 2)
         x, y = pts[:, 0], pts[:, 1]
-        fx = np.clip(x - 0.5, 0, self.width - 1)
-        fy = np.clip(y - 0.5, 0, self.height - 1)
-        x0 = np.minimum(fx.astype(int), self.width - 2)
-        y0 = np.minimum(fy.astype(int), self.height - 2)
+        # Clamped to the print's cells, so its edge doesn't blend into the margins.
+        fx = np.clip(x - 0.5, self.x0, self.x0 + self.width - 1)
+        fy = np.clip(y - 0.5, self.y0, self.y0 + self.height - 1)
+        x0 = np.minimum(fx.astype(int), self.x0 + self.width - 2)
+        y0 = np.minimum(fy.astype(int), self.y0 + self.height - 2)
         tx, ty = fx - x0, fy - y0
         m = self.mm
         top = m[y0, x0] * (1 - tx) + m[y0, x0 + 1] * tx
         bottom = m[y0 + 1, x0] * (1 - tx) + m[y0 + 1, x0 + 1] * tx
         h = top * (1 - ty) + bottom * ty
-        inside = (x >= 0) & (x <= self.width) & (y >= 0) & (y <= self.height)
+        inside = (x >= self.x0) & (x <= self.x0 + self.width) & (y >= self.y0) & (y <= self.y0 + self.height)
         return np.where(inside, h, self.floor)
 
 
@@ -134,11 +138,11 @@ def orthophoto_remap(
     out_size: tuple[int, int],
 ) -> np.ndarray:
     """A cv2.remap table that rectifies the camera frame to a top-down view of
-    the board: output pixels cover the whole map grid, each sampling the camera
+    the board: output pixels cover the printed terrain, each sampling the camera
     pixel that saw the ground under it.
 
     `out_size` is (width, height) in output pixels. The board (`surface.width` x
-    `surface.height` cells) is scaled to fill it, so one output pixel is a fixed
+    `surface.height` cells from `surface.x0, y0`) is scaled to fill it, so one output pixel is a fixed
     fraction of a cell and the result lines up with the map frame.
 
     With a camera viewpoint the line of sight through each ground point is
@@ -149,8 +153,8 @@ def orthophoto_remap(
     out_w, out_h = out_size
     sx, sy = surface.width / out_w, surface.height / out_h
     # Map-cell centre of each output pixel: pixel (i, j) covers [i, i+1) px.
-    xs = (np.arange(out_w, dtype=np.float64) + 0.5) * sx
-    ys = (np.arange(out_h, dtype=np.float64) + 0.5) * sy
+    xs = surface.x0 + (np.arange(out_w, dtype=np.float64) + 0.5) * sx
+    ys = surface.y0 + (np.arange(out_h, dtype=np.float64) + 0.5) * sy
     gx, gy = np.meshgrid(xs, ys)
     ground = np.column_stack([gx.ravel(), gy.ravel()])
     if view is None:
@@ -195,4 +199,5 @@ def projector_from_env(value: str | None, scenario: Scenario) -> Viewpoint | Non
         raise ValueError(f"PROJECTOR_MM={value!r}: expected three numbers, east,north,up in mm") from None
     t = scenario.terrain
     cell = t["grid"]["cell_size_mm"]
-    return Viewpoint(x / cell, (t["model"]["height_mm"] - y) / cell, z - t["markers"]["marker_top_z_mm"])
+    x0, y0, _, _ = scenario.print_window
+    return Viewpoint(x0 + x / cell, y0 + (t["model"]["height_mm"] - y) / cell, z - t["markers"]["marker_top_z_mm"])

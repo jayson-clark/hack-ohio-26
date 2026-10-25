@@ -1,5 +1,6 @@
 # Paradise, CA: the 2018 Camp Fire. Covers the ignition near Pulga, the
-# Feather River canyon, Concow, Magalia and Paradise.
+# Feather River canyon, Concow, Magalia and Paradise on the print, and Chico
+# and Oroville on the sim map around it.
 # Generate: uv run tools/dem_to_assets.py assets/scenarios/paradise/terrain.yaml
 # Unset keys fall back to DEFAULTS in tools/dem_to_assets.py.
 
@@ -22,7 +23,11 @@ tiles:
   bed_mm: [256, 256]
 
 sim:
-  grid_width: 256
+  grid_width: 256             # cells across the print: 93.75 m cells
+  # The sim map reaches past the print: west to Chico, south to Oroville (the
+  # Skyway and Hwy 70 evacuation destinations), and far enough north and east
+  # to hold the real Camp Fire's spread. 48 x 45 km, 512 x 480 cells.
+  margin_km: {north: 6, east: 6, south: 21, west: 18}
 
 # Approximate locations, for checking alignment on the preview.
 places:
@@ -31,3 +36,6 @@ places:
   - {name: Concow, lat: 39.7760, lon: -121.5130}
   - {name: Pulga, lat: 39.8007, lon: -121.4486}
   - {name: Camp Fire origin, lat: 39.8100, lon: -121.4370}
+  - {name: Chico, lat: 39.7285, lon: -121.8375}
+  - {name: Oroville, lat: 39.5138, lon: -121.5564}
+  - {name: Stirling City, lat: 39.9088, lon: -121.5280}

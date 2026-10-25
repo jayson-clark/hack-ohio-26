@@ -53,7 +53,7 @@ LEAD_BUCKETS = ((0, 15), (15, 30), (30, 60))  # sim minutes until the cell burne
 # Camp Fire origin, east of Concow, north of Magalia, and between Magalia and
 # Paradise (where a north-easterly pushes fire across the Skyway, so routing
 # decisions actually get tested).
-IGNITIONS = [(217.3, 54.5), (175.0, 70.0), (120.0, 40.0), (75.0, 85.0)]
+IGNITIONS = [(409.3, 118.5), (367.0, 134.0), (312.0, 104.0), (267.0, 149.0)]
 ALPHA = 0.1
 WARM_THETA = (0.2, 0.2)  # the online envelope's starting threshold per horizon (#12)
 ENVELOPE_LR = 0.1  # its step size; --envelope-lr overrides

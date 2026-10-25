@@ -3,14 +3,14 @@
   "generated_by": "tools/dem_to_assets.py",
   "source": "AWS Terrain Tiles (Terrarium), USGS 3DEP in the US",
   "bounds": {
-    "south": 39.69406116726479,
-    "west": -121.6754159172523,
-    "north": 39.855938832735205,
-    "east": -121.3945840827477
+    "south": 39.50520389088264,
+    "west": -121.88603979313073,
+    "north": 39.90989805455868,
+    "east": -121.32437612412156
   },
   "grid": {
-    "width": 256,
-    "height": 192,
+    "width": 512,
+    "height": 480,
     "cell_size_m": 93.75,
     "cell_size_mm": 1.28984375
   },
@@ -21,8 +21,22 @@
     "row0": "north"
   },
   "elevation_m": {
-    "min": 124.9186989021616,
-    "max": 1326.234228021034
+    "min": 26.614046832537486,
+    "max": 1591.9536170830409
+  },
+  "print": {
+    "offset_cells": [
+      192,
+      64
+    ],
+    "width": 256,
+    "height": 192,
+    "bounds": {
+      "south": 39.69406116726479,
+      "west": -121.6754159172523,
+      "north": 39.855938832735205,
+      "east": -121.3945840827477
+    }
   },
   "model": {
     "width_mm": 330.2,
@@ -30,11 +44,15 @@
     "base_mm": 6,
     "relief_mm": 35.0,
     "m_per_mm": 72.68322228952151,
-    "vertical_exaggeration": 2.117605839990376
+    "vertical_exaggeration": 2.117605839990376,
+    "elevation_m": {
+      "min": 124.9186989021616,
+      "max": 1326.234228021034
+    }
   },
   "frames": {
-    "board_mm": "x east, y north, origin at the south-west corner",
-    "map": "col = x_mm / width_mm * grid.width, row = (height_mm - y_mm) / height_mm * grid.height"
+    "board_mm": "x east, y north, origin at the print's south-west corner",
+    "map": "col = print.offset_cells[0] + x_mm / width_mm * print.width, row = print.offset_cells[1] + (height_mm - y_mm) / height_mm * print.height"
   },
   "markers": {
     "holder_file": "marker_holder.stl",
@@ -51,8 +69,8 @@
           266.05
         ],
         "center_map": [
-          -14.265,
-          -14.265
+          177.735,
+          49.735
         ],
         "holder_rotation_deg": 270,
         "holder_origin_mm": [
@@ -67,8 +85,8 @@
           266.05
         ],
         "center_map": [
-          270.265,
-          -14.265
+          462.265,
+          49.735
         ],
         "holder_rotation_deg": 180,
         "holder_origin_mm": [
@@ -83,8 +101,8 @@
           -18.4
         ],
         "center_map": [
-          270.265,
-          206.265
+          462.265,
+          270.265
         ],
         "holder_rotation_deg": 90,
         "holder_origin_mm": [
@@ -99,8 +117,8 @@
           -18.4
         ],
         "center_map": [
-          -14.265,
-          206.265
+          177.735,
+          270.265
         ],
         "holder_rotation_deg": 0,
         "holder_origin_mm": [
@@ -174,8 +192,8 @@
         100.27
       ],
       "map": [
-        48.78,
-        114.27
+        240.78,
+        178.27
       ]
     },
     {
@@ -187,8 +205,8 @@
         180.58
       ],
       "map": [
-        88.53,
-        52.0
+        280.53,
+        116.0
       ]
     },
     {
@@ -200,8 +218,8 @@
         125.35
       ],
       "map": [
-        148.05,
-        94.81
+        340.05,
+        158.81
       ]
     },
     {
@@ -213,8 +231,8 @@
         163.14
       ],
       "map": [
-        206.76,
-        65.52
+        398.76,
+        129.52
       ]
     },
     {
@@ -226,8 +244,47 @@
         177.37
       ],
       "map": [
-        217.33,
-        54.49
+        409.33,
+        118.49
+      ]
+    },
+    {
+      "name": "Chico",
+      "lat": 39.7285,
+      "lon": -121.8375,
+      "mm": [
+        -190.58,
+        52.69
+      ],
+      "map": [
+        44.25,
+        215.15
+      ]
+    },
+    {
+      "name": "Oroville",
+      "lat": 39.5138,
+      "lon": -121.5564,
+      "mm": [
+        139.94,
+        -275.77
+      ],
+      "map": [
+        300.49,
+        469.8
+      ]
+    },
+    {
+      "name": "Stirling City",
+      "lat": 39.9088,
+      "lon": -121.528,
+      "mm": [
+        173.33,
+        328.52
+      ],
+      "map": [
+        326.38,
+        1.3
       ]
     }
   ],
@@ -275,7 +332,13 @@
       "arm_width_mm": 8.0
     },
     "sim": {
-      "grid_width": 256
+      "grid_width": 256,
+      "margin_km": {
+        "north": 6,
+        "east": 6,
+        "south": 21,
+        "west": 18
+      }
     },
     "places": [
       {
@@ -302,6 +365,21 @@
         "name": "Camp Fire origin",
         "lat": 39.81,
         "lon": -121.437
+      },
+      {
+        "name": "Chico",
+        "lat": 39.7285,
+        "lon": -121.8375
+      },
+      {
+        "name": "Oroville",
+        "lat": 39.5138,
+        "lon": -121.5564
+      },
+      {
+        "name": "Stirling City",
+        "lat": 39.9088,
+        "lon": -121.528
       }
     ]
   }

@@ -24,7 +24,9 @@ export interface Board {
 }
 
 export function makeBoard(s: Scenario): Board {
-  const { width_mm: widthMm, height_mm: heightMm } = s.info.model;
+  // The whole sim map at the print's scale; the print itself may be only part of it.
+  const widthMm = s.width * s.info.grid.cell_size_mm;
+  const heightMm = s.height * s.info.grid.cell_size_mm;
   return {
     widthMm,
     heightMm,

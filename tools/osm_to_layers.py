@@ -57,6 +57,10 @@ EARTH_R = 6371008.8
 DEFAULT_CLASSES = "motorway,trunk,primary,secondary,tertiary,unclassified,residential"
 RANK = {c: i for i, c in enumerate(["motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential"])}
 PRUNE_CLASSES = {"residential", "unclassified"}
+# Minor roads only on the print (terrain.json `print.bounds`), where the towns
+# being evacuated are. Past it the sim map holds destinations like Chico, whose
+# street grid would quadruple the graph without changing a route.
+MINOR_CLASSES = {"residential", "unclassified"}
 # Suburban street grids are loops, not dead ends, so pruning barely shrinks
 # them: with residential streets, Superior and Louisville come to 4.9k nodes,
 # three times paradise. The towns' collector roads are enough to route on.
@@ -86,13 +90,13 @@ TOWNS = {
     ],
 }
 
-# Exits: where an evacuation route leaves the map toward safety. Each is the
-# in-graph node of the named road closest to the given map edge.
+# Where evacuations go. Each is the in-graph node of the named road closest
+# to the given map edge (where the road leaves the map toward safety), or to
+# the given lat/lon (a destination on the map).
 SAFE_ZONES = {
     "paradise": [
-        {"name": "Chico (Skyway)", "road": ["Skyway", "Skyway Road"], "edge": "west"},
-        {"name": "Oroville (Clark Rd)", "road": ["Clark Road"], "edge": "south"},
-        {"name": "Oroville (Hwy 70)", "road": ["CA 70"], "edge": "south"},
+        {"name": "Chico", "road": ["Skyway", "Skyway Road"], "lat": 39.7290, "lon": -121.8020},
+        {"name": "Oroville", "road": ["CA 70", "Oroville Dam Boulevard", "Montgomery Street"], "lat": 39.5138, "lon": -121.5564},
     ],
     "marshall": [
         {"name": "Denver (US 36)", "road": ["US 36"], "edge": "east"},
@@ -359,7 +363,11 @@ def main():
         write_stations(d, terrain, proj, args.scenario, args.refresh)
         return
     args.classes = args.classes or SCENARIO_CLASSES.get(args.scenario, DEFAULT_CLASSES)
-    ways = fetch_ways(terrain["bounds"], args.classes.split(","), args.refresh)
+    classes = args.classes.split(",")
+    inner = terrain.get("print", {}).get("bounds", terrain["bounds"])
+    ways = fetch_ways(terrain["bounds"], [c for c in classes if c not in MINOR_CLASSES], args.refresh)
+    if minor := [c for c in classes if c in MINOR_CLASSES]:
+        ways += fetch_ways(inner, minor, args.refresh)
     print(f"{len(ways)} ways")
 
     pos, adj = build_graph(ways, proj)
@@ -374,7 +382,11 @@ def main():
         if not on_road:
             print(f"warning: no road {z['road']} for safe zone {z['name']}", file=sys.stderr)
             continue
-        dist = {"west": lambda p: p[0], "east": lambda p: proj.w - p[0], "north": lambda p: p[1], "south": lambda p: proj.h - p[1]}[z["edge"]]
+        if "edge" in z:
+            dist = {"west": lambda p: p[0], "east": lambda p: proj.w - p[0], "north": lambda p: p[1], "south": lambda p: proj.h - p[1]}[z["edge"]]
+        else:
+            zx, zy = proj(z["lat"], z["lon"])
+            dist = lambda p: (p[0] - zx) ** 2 + (p[1] - zy) ** 2  # noqa: E731
         u = min(on_road, key=lambda u: dist(pos[u]))
         zones.append((z, u))
     keep = {u for _, u in zones}
