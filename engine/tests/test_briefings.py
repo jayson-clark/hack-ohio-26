@@ -5,7 +5,7 @@ from collections import Counter
 
 import numpy as np
 
-from commander.briefings import MIN_GAP_S, STALE_S, BriefingQueue, ForecastWatcher, threatened_text
+from commander.briefings import MIN_GAP_S, STALE_S, STALE_SIM_MIN, BriefingQueue, ForecastWatcher, threatened_text
 from forecast.runner import run_forecast
 from protocol import CommanderKind, Event, EventKind
 from server import Engine
@@ -40,14 +40,18 @@ def test_threat_is_announced_once_with_numbers_and_the_way_out():
 
 
 def test_hovering_near_the_line_does_not_chatter_and_safe_needs_two_calm_forecasts():
+    # Thresholds are on the 90% Wilson interval for k of 32 (#11): threatened once
+    # the low end reaches 50% (k >= 21), calm once the high end is under 50% (k <= 11).
     w = ForecastWatcher()
-    w.update(0, [row("Magalia", 20)], QUIET)  # 0.625: threatened
-    for k in (16, 15, 17, 14):  # between 0.4 and 0.6
-        assert w.update(1, [row("Magalia", k)], QUIET) == []
-    assert w.update(2, [row("Magalia", 5)], QUIET) == []  # one calm forecast isn't enough
-    [safe] = w.update(3, [row("Magalia", 4)], QUIET)
+    assert w.update(0, [row("Magalia", 20)], QUIET) == []  # 20/32 might still be luck
+    [e] = w.update(1, [row("Magalia", 22)], QUIET)
+    assert e.kind == EventKind.TOWN_THREATENED
+    for k in (16, 19, 13, 20):  # in between: no chatter
+        assert w.update(2, [row("Magalia", k)], QUIET) == []
+    assert w.update(3, [row("Magalia", 5)], QUIET) == []  # one calm forecast isn't enough
+    [safe] = w.update(4, [row("Magalia", 4)], QUIET)
     assert safe.kind == EventKind.TOWN_SAFE
-    assert w.update(4, [row("Magalia", 15)], QUIET) == []  # 0.47: not re-threatened yet
+    assert w.update(5, [row("Magalia", 18)], QUIET) == []  # not re-threatened until the low end clears 50%
 
 
 def test_fire_inside_a_town_counts_as_threatened():
@@ -78,21 +82,21 @@ def ev(kind, town, tick=1):
 def test_queue_orders_by_priority_and_rate_limits():
     q = BriefingQueue()
     q.offer([ev(EventKind.TOWN_SAFE, "A"), ev(EventKind.ROUTE_CHANGED, "B"), ev(EventKind.TOWN_THREATENED, "C")], 0.0)
-    first = q.next(0.0)
+    first = q.next(0.0, 1)
     assert first.kind == CommanderKind.BRIEFING and first.event == EventKind.TOWN_THREATENED and first.grounded
-    assert q.next(1.0) is None  # too soon
-    assert q.next(MIN_GAP_S).event == EventKind.ROUTE_CHANGED
-    assert q.next(2 * MIN_GAP_S).event == EventKind.TOWN_SAFE
+    assert q.next(1.0, 1) is None  # too soon
+    assert q.next(MIN_GAP_S, 1).event == EventKind.ROUTE_CHANGED
+    assert q.next(2 * MIN_GAP_S, 1).event == EventKind.TOWN_SAFE
 
 
 def test_queue_dedupes_and_drops_stale_news():
     q = BriefingQueue()
     q.offer([ev(EventKind.TOWN_THREATENED, "A")], 0.0)
-    assert q.next(0.0) is not None
+    assert q.next(0.0, 1) is not None
     q.offer([ev(EventKind.TOWN_THREATENED, "A")], MIN_GAP_S)  # same news again, soon after: dropped
-    assert q.next(MIN_GAP_S) is None
+    assert q.next(MIN_GAP_S, 1) is None
     q.offer([ev(EventKind.ROUTE_CHANGED, "B")], 100.0)
-    assert q.next(100.0 + STALE_S + 1) is None  # waited too long
+    assert q.next(100.0 + STALE_S + 1, 1) is None  # waited too long
 
 
 def test_no_safe_route_absorbs_the_road_cut_for_the_same_town():
@@ -120,6 +124,7 @@ def test_steady_paradise_fire_does_not_storm():
             assert sum(per_town.values()) <= 8, per_town
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())
@@ -129,5 +134,30 @@ def test_older_urgent_news_is_not_starved_by_newer_news():
     q = BriefingQueue()
     q.offer([ev(EventKind.NO_SAFE_ROUTE, "Pulga")], 0.0)
     q.offer([ev(EventKind.TOWN_THREATENED, "Concow")], 3.0)
-    assert q.next(3.0).event == EventKind.NO_SAFE_ROUTE
-    assert q.next(3.0 + MIN_GAP_S).event == EventKind.TOWN_THREATENED
+    assert q.next(3.0, 1).event == EventKind.NO_SAFE_ROUTE
+    assert q.next(3.0 + MIN_GAP_S, 1).event == EventKind.TOWN_THREATENED
+
+
+def test_news_expires_in_sim_time_when_the_sim_runs_fast():
+    # #82: at 4x, a briefing queued at T+260 surfaced after T+904. Now it's dropped.
+    q = BriefingQueue()
+    q.offer([ev(EventKind.NO_SAFE_ROUTE, "Pulga", tick=255)], 0.0)
+    q.offer([ev(EventKind.TOWN_THREATENED, "Magalia", tick=260)], 0.5)
+    assert q.next(0.5, 260).event == EventKind.NO_SAFE_ROUTE
+    # 8 s later the sim is 600 minutes on: Magalia's threat is history.
+    assert q.next(0.5 + MIN_GAP_S, 860) is None and q.pending == []
+
+
+def test_news_within_the_sim_window_is_still_said():
+    q = BriefingQueue()
+    q.offer([ev(EventKind.TOWN_THREATENED, "Concow", tick=100)], 0.0)
+    assert q.next(1.0, 100 + int(STALE_SIM_MIN)).event == EventKind.TOWN_THREATENED
+
+
+def test_paused_says_nothing_and_lets_nothing_expire():
+    q = BriefingQueue()
+    q.offer([ev(EventKind.TOWN_THREATENED, "Concow", tick=100)], 0.0)
+    assert q.next(5.0, 100, paused=True) is None
+    assert q.next(5.0 + STALE_S * 3, 100, paused=True) is None  # a long pause
+    msg = q.next(5.0 + STALE_S * 3 + 1, 100)  # resumed: still true, so said
+    assert msg is not None and msg.event == EventKind.TOWN_THREATENED

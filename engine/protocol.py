@@ -15,6 +15,10 @@ app/src/shared/binary.ts), followed by a payload:
   scaled to 0-255. `tick` is the sim tick the forecast started from. Sent
   whenever a forecast finishes (a few per second), and once, all zero, on
   reset.
+- PLAN_GRID: two width*height uint8 grids, P(burned by the plan's horizon)
+  as 0-255: first without the plan's orders, then with them, both under the
+  plan's wind. `tick` is the PlanResult.id it belongs to (not a sim tick).
+  Sent right after each PlanResult that has no error.
 - CAMERA_FRAME: one JPEG of the webcam with the vision overlay drawn on it
   (markers, map outline, placed tokens), for the console's camera view.
   width/height are the JPEG's size and `tick` counts feed frames. A few per
@@ -31,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 11
+PROTOCOL_VERSION = 23
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -40,6 +44,7 @@ class BinaryType(IntEnum):
     SIM_GRID = 1
     FORECAST_GRID = 2
     CAMERA_FRAME = 3
+    PLAN_GRID = 4
 
 
 # type: u8, 3 pad bytes, tick: u32, width: u16, height: u16 (little-endian)
@@ -85,11 +90,13 @@ class Hello(Model):
     type: Literal["hello"] = "hello"
     protocol_version: int = PROTOCOL_VERSION
     scenario: str
+    crew_radius: float  # cells: a crew's reach (sim.effects.CREW_RADIUS), for drawing it
     map_width: int
     map_height: int
     sim_minutes_per_tick: float
     forecast_horizons_min: list[float]  # order of the grids in a FORECAST_GRID frame
     speech_to_text: bool  # push-to-talk works (the engine has the voice extra installed)
+    stations: list["StationInfo"]  # where fire units come from (#104); air bases may be off the map
 
 
 class WindState(Model):
@@ -143,6 +150,57 @@ class Routes(Model):
     routes: list[RouteInfo]
 
 
+class EvacStatus(StrEnum):
+    WATCH = "watch"  # the order can wait
+    ORDER_SOON = "order_soon"  # the latest safe order time is under half an hour away
+    ORDER_NOW = "order_now"  # past it: order now and most simulations still get everyone out
+    LATE = "late"  # past it, and in most simulations the fire beats the last car
+    EVACUATING = "evacuating"  # ordered; people are leaving
+    CLEAR = "clear"  # everyone is out
+    TRAPPED = "trapped"  # no open way out
+
+
+class EvacExit(Model):
+    safe_zone: str
+    share: float  # of the town's vehicles, 0..1, in proportion to the bottleneck
+    bottleneck_vph: float  # vehicles an hour through its tightest road
+    drive_min: float  # sim minutes, free-flowing
+
+
+class TownEvac(Model):
+    town: str
+    status: EvacStatus
+    ordered_tick: int | None  # when the order went out, if it has
+    people: int  # still in town
+    vehicles: int
+    mobilize_min: float  # sim minutes from the order (or what's left of it) until cars move
+    clearance_min: float | None  # sim minutes to drain through the bottleneck; None with no way out
+    last_car_out_tick: int | None  # sim tick the last car leaves, if ordered now (or as ordered)
+    order_by_tick: int | None  # latest sim tick to order and still clear in time (unordered towns)
+    order_by_bound: bool  # order_by_tick is only a lower bound: clearing takes longer than the forecast sees
+    fire_tick: int | None  # sim tick the fire could be in town (10% of simulations by then)
+    reach: int  # simulations with fire in town within the forecast
+    n: int  # simulations
+    p_safe: float  # share of simulations where the last car gets out before the fire
+    p_safe_lo: float  # 90% Wilson interval
+    p_safe_hi: float
+    p_safe_bound: bool  # the last car leaves after the forecast ends, so p_safe is an upper bound
+    exits: list[EvacExit]
+    shares_with: list[str]  # ordered towns queueing on the same bottleneck
+
+
+class EvacClock(Model):
+    """When each town has to be ordered out (#121): fire arrival from a long
+    forecast against the time to empty the town through shared exits. Sent
+    when that forecast lands, on an order, and on connect."""
+
+    type: Literal["evac_clock"] = "evac_clock"
+    tick: int  # sim tick the numbers are for
+    forecast_tick: int | None  # sim tick the long forecast started from
+    horizon_min: float  # how far ahead it looks
+    towns: list[TownEvac]  # most urgent first
+
+
 class EventKind(StrEnum):
     ROAD_CUT = "road_cut"  # fire reached a road on a town's current route
     ROUTE_CHANGED = "route_changed"  # a town was rerouted to another way out
@@ -150,6 +208,11 @@ class EventKind(StrEnum):
     TOWN_THREATENED = "town_threatened"  # most simulations have fire in the town within 30 min
     TOWN_SAFE = "town_safe"  # a threatened town has dropped out of the fire's 30-min path
     FORECAST_SHIFT = "forecast_shift"  # the next hour's likely burn area moved a lot
+    ROUND_ENDED = "round_ended"  # with the final score
+    UNIT_ARRIVED = "unit_arrived"  # a dispatched crew, dozer or tanker reached its token
+    UNIT_BLOCKED = "unit_blocked"  # burning roads keep a ground unit from getting through
+    TANKERS_GROUNDED = "tankers_grounded"  # too windy to fly
+    EVACUATE_NOW = "evacuate_now"  # a town's latest safe order time has come (#121)
 
 
 class Event(Model):
@@ -170,6 +233,8 @@ class TownEffect(Model):
     town: str
     hits: int  # rollouts in which the placement changes whether fire reaches the town
     n: int  # rollouts run
+    lo: float  # 90% interval on hits / n (sampling uncertainty, #11), 0..1
+    hi: float
 
 
 class TownShare(Model):
@@ -177,17 +242,95 @@ class TownShare(Model):
     share: float  # mean drop in the fraction of the town that burns by T+60, 0..1
 
 
+class RecAction(StrEnum):
+    PLACE = "place"  # put a new token here
+    MOVE = "move"  # every token of the type is placed: move `move_token` here instead (#77)
+
+
 class Recommendation(Model):
     id: str  # pass back in accept_recommendation
     token_type: TokenType
-    x: float  # map coords
+    action: RecAction
+    x: float  # map coords: where to place it, or where to move it to
     y: float
+    move_token: str | None  # for a move, the token to pick up
+    from_x: float | None  # for a move, where that token is now
+    from_y: float | None
+    # Accept can do it: true for placing, and for moving a virtual token. A
+    # physical token has to be moved by hand, so its card is advice only.
+    auto: bool
     benefit: float  # mean person-equivalents spared per rollout (the ranking score)
-    acres_saved: float  # mean acres the placement keeps from burning by T+60
+    benefit_lo: float  # 90% interval on benefit; only placements with benefit_lo > 0 are sent (#11)
+    benefit_hi: float
+    confidence: str  # how firmly to state it: "high" or "moderate"
+    station: str | None  # which station's unit would go (#104)
+    eta_min: float | None  # and how long it takes to get there, sim minutes
+    # When fire likely reaches the crew's area (the early end, 10th percentile
+    # of the simulations), and the latest it can be sent and still dig in first
+    # (that minus eta_min; 0 or less means now). None if fire isn't expected
+    # there within the recommendation's two-hour look-ahead.
+    fire_arrival_min: float | None
+    act_by_min: float | None
+    acres_saved: float  # mean acres the placement keeps from burning over its look-ahead (2 h)
+    acres_saved_lo: float  # 90% interval on acres_saved (paired, #11)
+    acres_saved_hi: float
     saves: list[TownEffect]  # without it the fire reaches the town; with it, it doesn't
     worsens: list[TownEffect]  # the reverse: the placement deflects fire onto the town
     protects: list[TownShare]  # towns where less burns with it, biggest drop first
     text: str  # one sentence for a card or a briefing
+
+
+class StationInfo(Model):
+    name: str
+    x: float  # map coords; an air base can be off the map
+    y: float
+    kind: str  # "ground" (engines, crews, dozers by road) or "air" (tankers)
+
+
+class UnitStatus(StrEnum):
+    AVAILABLE = "available"
+    EN_ROUTE = "en_route"
+    WORKING = "working"
+    BLOCKED = "blocked"  # no open road gets there; retrying
+    GROUNDED = "grounded"  # tankers can't fly in this wind; retrying
+
+
+class UnitInfo(Model):
+    id: str  # e.g. "Jarbo Gap Station 36 crew"
+    station: str
+    token_type: TokenType
+    status: UnitStatus
+    token_id: str | None  # the token (order) it's assigned to
+    x: float  # where it is now, map coords
+    y: float
+    eta_min: float | None  # sim minutes until it arrives, while en route
+    path: list[list[float]]  # its route, origin to target, while en route
+
+
+class Units(Model):
+    """Every fire unit (#104). Sent when one changes status, and a few times
+    a second while any is en route, so the map can draw them driving in."""
+
+    type: Literal["units"] = "units"
+    tick: int
+    units: list[UnitInfo]
+
+
+class ForecastEnvelope(Model):
+    """The calibrated burn envelope (#12): per forecast horizon, the
+    probability cutoff and margin that the online conformal update has
+    settled on, so that at most `target_miss` of newly burning ground falls
+    outside it in the long run. The UI draws {P >= threshold} grown by
+    margin_cells. Also the running miss rates, to show the promise is kept."""
+
+    type: Literal["forecast_envelope"] = "forecast_envelope"
+    horizons_min: list[float]  # same order as the forecast grids
+    threshold: list[float]
+    margin_cells: list[int]
+    target_miss: float  # e.g. 0.1
+    miss_recent: list[float | None]  # mean miss over the last ~20 scored forecasts
+    miss_overall: list[float | None]  # since the scenario loaded
+    scored: list[int]
 
 
 class Recommendations(Model):
@@ -218,6 +361,35 @@ class VisionStatus(Model):
     # A camera->map homography has been solved (all four corners seen at
     # once). It is kept while corners are covered, so tokens still track.
     board_found: bool
+
+
+class CalibrationPhase(StrEnum):
+    NONE = "none"  # never calibrated: the projector letterboxes the map
+    PATTERN = "pattern"  # the projector shows the pattern while the camera looks for it
+    REVIEW = "review"  # the projector shows the map and a test grid through map_to_proj: save or retry
+    CALIBRATED = "calibrated"
+
+
+class Calibration(Model):
+    """Projector calibration (PLAN.md, Calibration; engine/vision/projector.py).
+    Sent on connect, on every calibration_step, while the pattern is being
+    found, and when the engine follows a moved board."""
+
+    type: Literal["calibration"] = "calibration"
+    phase: CalibrationPhase
+    # Row-major 3x3 homography from map coords (cells) to the projector window,
+    # normalised: (0, 0) top-left, (1, 1) bottom-right, y down. What the
+    # projector applies now (in review, the fit being reviewed). None: letterbox.
+    map_to_proj: list[float] | None
+    # PNG data URL of the pattern (black, then the ring), only in the pattern phase. The
+    # projector stretches it to fill its whole window.
+    pattern: str | None
+    corners_found: int  # pattern corners the camera sees in the latest frame
+    corners_total: int
+    frames: int  # good frames collected, of frames_needed
+    frames_needed: int
+    error_px: float | None  # RMS fit residual, in pattern px (1920 wide)
+    message: str | None  # why the last step didn't go ahead
 
 
 class RoundPhase(StrEnum):
@@ -278,7 +450,7 @@ class CommanderKind(StrEnum):
 
 
 class CommanderMessage(Model):
-    """Something the incident commander says. Short enough to speak aloud."""
+    """Something the incident commander says: an answer or a briefing, about two sentences."""
 
     type: Literal["commander_message"] = "commander_message"
     kind: CommanderKind
@@ -298,21 +470,92 @@ class Transcript(Model):
     error: str | None  # why there's no text: not installed, no mic, didn't catch that
 
 
-class CommanderSpeech(Model):
-    """Text for the console to speak (voice mode "console"). An answer
-    streams as several of these with the same `utterance`, one per sentence;
-    a briefing is one. Already rewritten for speech ("Highway 70")."""
 
-    type: Literal["commander_speech"] = "commander_speech"
-    utterance: str  # sentences with the same id belong to one answer or briefing
-    kind: CommanderKind
-    text: str
-    urgent: bool  # a briefing worth a radio tone first (threatened town, no way out)
+class KofN(Model):
+    """How many of the forecast's simulations something happened in, with a
+    90% interval on the true chance (sampling uncertainty, #11)."""
+
+    k: int
+    n: int
+    lo: float  # 0..1
+    hi: float
+
+
+class TownThreat(Model):
+    town: str
+    population: int
+    structures: int
+    fire_inside: bool  # some of the town is burning or burned now
+    within_30: KofN | None  # fire reaches the town within 30 min; None before any forecast
+    within_60: KofN | None
+    median_min: float | None  # median minutes until fire, if at least half the simulations reach it
+    soonest_min: float | None  # 10th-percentile minutes until fire ("could be as soon as"), if that many reach it
+    # Calibrated 90% range for when fire reaches the town (#13): the long
+    # forecast's 5-95% arrival, corrected online so it holds about 90% of the
+    # time. eta_hi_min is None when too few simulations reach the town to bound it.
+    eta_lo_min: float | None
+    eta_hi_min: float | None
+    route_status: RouteStatus | None  # None when the scenario has no roads
+    exit: str | None  # the safe zone the route leads to
+    drive_min: float | None
+
+
+class Situation(Model):
+    """The operator's town board: how soon the fire could reach each town.
+    Sent after each Monte Carlo forecast (never from the emulator), on reset,
+    and on connect."""
+
+    type: Literal["situation"] = "situation"
+    tick: int
+    forecast_tick: int | None  # sim tick the forecast behind it started from
+    towns: list[TownThreat]
+
+
+class PlanOrderResult(Model):
+    token_type: TokenType
+    x: float
+    y: float
+    station: str | None  # the free unit that would go, when dispatch is on (#104)
+    eta_min: float | None  # sim minutes until it could act; None when no free unit can get there
+    counted: bool  # false when no unit can get there, so it adds nothing to the plan
+
+
+class PlanTown(Model):
+    town: str
+    base: KofN  # fire reaches the town by the horizon, without the plan
+    plan: KofN  # and with it
+    saves: int  # simulations where the plan keeps fire out that otherwise got in
+    worsens: int  # the reverse
+    base_median_min: float | None
+    plan_median_min: float | None
+
+
+class PlanResult(Model):
+    """The answer to an evaluate_plan: the plan against doing nothing, on
+    paired simulations under the same assumed wind. Broadcast; a console
+    keeps only the id it asked for."""
+
+    type: Literal["plan_result"] = "plan_result"
+    id: int  # the EvaluatePlan.id this answers
+    tick: int  # sim tick the plan was run from
+    n: int  # paired simulations
+    horizon_min: float
+    wind: WindState  # the wind it assumed
+    orders: list[PlanOrderResult]
+    acres_base: float  # mean acres burned by the horizon without the plan
+    acres_plan: float
+    acres_saved: float  # paired mean difference, with a 90% interval
+    acres_saved_lo: float
+    acres_saved_hi: float
+    people_base: float  # mean residents whose part of town burns, without the plan
+    people_plan: float
+    towns: list[PlanTown]
+    error: str | None  # set (and everything else empty) when the plan couldn't run
 
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          CommanderSpeech, Transcript],
+          Transcript, Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope],
     Field(discriminator="type"),
 ]
 
@@ -353,6 +596,15 @@ class Reset(Model):
     type: Literal["reset"] = "reset"
 
 
+class LoadScenario(Model):
+    """Switch to another scenario under assets/scenarios/. The engine rebuilds
+    the fire, layers, routing and game from it, returns to the sandbox, and
+    re-sends hello (the map size can change, so the UI must re-read terrain)."""
+
+    type: Literal["load_scenario"] = "load_scenario"
+    scenario: str = Field(min_length=1, max_length=64)
+
+
 class SetWind(Model):
     type: Literal["set_wind"] = "set_wind"
     speed_ms: float = Field(ge=0, le=40)
@@ -387,18 +639,6 @@ class CommanderQuery(Model):
     text: str = Field(min_length=1, max_length=500)
 
 
-class VoiceMode(StrEnum):
-    OFF = "off"
-    CONSOLE = "console"  # the console window speaks commander_speech (Web Speech API)
-    MAC = "mac"  # the engine speaks with macOS `say` (fallback if the webview's voices are poor)
-
-
-class SetVoice(Model):
-    """How the commander speaks. Off by default; the console sends its saved choice on connect."""
-
-    type: Literal["set_voice"] = "set_voice"
-    mode: VoiceMode
-
 
 class PttStart(Model):
     """Push-to-talk pressed: the engine starts recording and the commander stops talking."""
@@ -419,6 +659,14 @@ class AcceptRecommendation(Model):
     id: str
 
 
+class OrderEvacuation(Model):
+    """Order a town out (or take the order back)."""
+
+    type: Literal["order_evacuation"] = "order_evacuation"
+    town: str
+    ordered: bool
+
+
 class StartRound(Model):
     """Reset the map and start a timed, limited round, igniting at the
     scenario's ignition point if it has one."""
@@ -432,14 +680,47 @@ class EndRound(Model):
     type: Literal["end_round"] = "end_round"
 
 
+class CalibrationAction(StrEnum):
+    START = "start"  # show the pattern and find it (also: retry)
+    SAVE = "save"  # keep the fit under review
+    CHECK = "check"  # show the test grid through the saved calibration
+    CANCEL = "cancel"  # back to the saved calibration (or none)
+    CLEAR = "clear"  # forget the calibration: letterbox again
+
+
+class CalibrationStep(Model):
+    type: Literal["calibration_step"] = "calibration_step"
+    action: CalibrationAction
+
+
+class PlanOrder(Model):
+    token_type: TokenType
+    x: float
+    y: float
+
+
+class EvaluatePlan(Model):
+    """Try a set of orders, and optionally a different wind, from the fire as
+    it is now, without changing anything. Answered by a plan_result (and a
+    PLAN_GRID frame). A newer plan replaces one still running."""
+
+    type: Literal["evaluate_plan"] = "evaluate_plan"
+    id: int  # chosen by the console, echoed back
+    orders: list[PlanOrder]
+    wind: WindState | None  # None assumes the current wind
+    horizon_min: float = 120
+
+
 ClientMessage = Annotated[
     Union[
-        VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, SetWind, AcceptRecommendation,
+        VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, LoadScenario, SetWind, AcceptRecommendation,
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
-        SetVoice,
+        OrderEvacuation,
         PttStart,
         PttStop,
+        CalibrationStep,
+        EvaluatePlan,
     ],
     Field(discriminator="type"),
 ]
@@ -452,3 +733,6 @@ class Protocol(Model):
 
     engine: EngineMessage
     client: ClientMessage
+
+
+Hello.model_rebuild()  # StationInfo is defined after Hello

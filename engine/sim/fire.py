@@ -4,6 +4,9 @@ Each tick, every burning cell tries to ignite each of its 8 fuel neighbours:
 
     p_burn = p_h · (1 + p_veg) · (1 + p_den) · p_wind · p_slope · (1 − suppression)
 
+where partial suppression (< 1) is weakened against intense, wind-driven
+spread (HOLD_P), so a crew holds flanks and backing fire but not the head.
+
 and a cell that catches burns for BURN_TICKS ticks before turning to char.
 Everything is whole-array NumPy (one shifted slice per neighbour direction),
 and the same kernel advances a batch of grids, so the forecaster's rollouts
@@ -41,6 +44,12 @@ SIM_MINUTES_PER_TICK = 1.0
 # barely moves; at 15 m/s the head runs about 0.9. The paper's slope term
 # a = 0.078/deg made Paradise's canyon walls (90th percentile 24 deg)
 # effectively impassable downhill, so it's softened too.
+# The Camp Fire replay (eval/campfire.py, #15) would fit its perimeters better
+# with C2 0.3-0.4 (a narrower tongue: the replay burns ~1.7x the real area at
+# 0.22). But C2 also starves backing and flank spread at every wind, so at 3-8
+# m/s fires came out under half the size, many burned out on their own, and
+# instant attack contained them again. One extreme-wind event isn't enough
+# evidence for that, so C2 stays at 0.22.
 P_H = 0.08
 C1 = 0.14
 C2 = 0.22
@@ -51,6 +60,35 @@ BURN_TICKS = 8
 DIAGONAL = 0.6
 # Roads are a partial fuel break (the pavement doesn't burn, the verges do).
 ROAD_FUEL = 0.4
+# Partial suppression (a crew's line, a wet patch) holds slow fire, not a
+# wind-driven head. Its strength is scaled by 1 / (1 + (p / HOLD_P)^2), where p
+# is the strongest single-neighbour spread chance into the cell this tick:
+# about 0.007 for backing fire and 0.04 for a flank at 8 m/s (held almost
+# fully), 0.08 for calm fire (0.8 of full), 0.25 for an 8 m/s head (0.3) and
+# 0.65 at 15 m/s (0.05). Full suppression (fuel removed by a firebreak, the
+# tick a water drop lands) still stops anything. Without this, crews dropped on
+# a new ignition held its head as well as its flanks and contained every start.
+HOLD_P = 0.15
+# Spotting (#15): in strong wind, burning cells throw embers downwind that can
+# light new fires ahead of the front. Without it the fire can't go faster than
+# one cell per tick, and the real Camp Fire covered ~1.4 cells/min in its
+# second hour by spotting (NIST TN 2135 logs spot fires up to 6.3 km ahead).
+# Each burning cell throws an ember with chance SPOT_RATE * (v - SPOT_MIN_WIND)
+# / 10 per tick. The ember flies an exponential distance with mean SPOT_MEAN *
+# v / 10 cells (capped at SPOT_MAX) within SPOT_SPREAD_DEG of downwind, and
+# lights a fuel cell with chance SPOT_IGNITE * fuel * (1 - suppression).
+# Calibrated against the Camp Fire with eval/campfire.py (#15). With spotting,
+# the replay reaches 87% of the cells NIST saw burning in the first 12 h and is
+# late at none of the best-timed 75% (without it: 79%, 15 min late). The fit
+# is flat for SPOT_RATE between 0.002 and 0.01; the low end keeps strong-wind
+# games from snowballing. Below 9 m/s there is none, so calm and moderate days
+# play exactly as before.
+SPOT_MIN_WIND = 9.0  # m/s
+SPOT_RATE = 0.003
+SPOT_MEAN = 12.0  # cells at 10 m/s
+SPOT_MAX = 70.0  # cells (~6.6 km)
+SPOT_SPREAD_DEG = 20.0
+SPOT_IGNITE = 0.5
 
 # (dy, dx) from the cell being ignited to the burning neighbour.
 NEIGHBOURS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
@@ -91,6 +129,10 @@ class FireSnapshot:
     burn_left: np.ndarray  # int16 (H, W), ticks left for burning cells
     suppression: np.ndarray  # float32 (H, W) in [0, 1]
     layers: FireLayers
+    # Suppression from now on (a sim.effects.SuppressionSchedule), if the
+    # engine knows the tokens: crews still digging in, drops drying out (#56).
+    # Forecasts use it in place of freezing `suppression`. None for a bare FireSim.
+    schedule: object | None = None
 
 
 def wind_factors(wind: Wind) -> np.ndarray:
@@ -179,11 +221,13 @@ def advance(
     *,
     group: int = 1,
     wind_rows: np.ndarray | None = None,
-) -> tuple[np.ndarray, int, int] | None:
+) -> tuple[np.ndarray, int, int, tuple | None] | None:
     """One tick, in place, on a batch: state/burn_left are (N, H, W).
 
-    Returns (ignited, y0, x0): the (N, h, w) mask of cells that caught this
-    tick and the top-left of the crop it covers. None if nothing is burning.
+    Returns (ignited, y0, x0, spots): the (N, h, w) mask of cells that caught
+    from a neighbour this tick and the top-left of the crop it covers, plus
+    the (rows, ys, xs) indices of cells lit by embers anywhere on the map (or
+    None). None if nothing is burning.
 
     `group` > 1 splits the batch into that many equal blocks that share their
     random draws: row i of every block sees the same uniforms. That is how
@@ -206,15 +250,24 @@ def advance(
     st = state[:, y0:y1, x0:x1]
     bl = burn_left[:, y0:y1, x0:x1]
     sup = suppression[..., y0:y1, x0:x1]
+    if sup.ndim == 3 and sup.shape[0] != state.shape[0]:
+        # One grid per group (variant): rows are variant-major, so repeat each
+        # grid over its block of rollouts. Only the crop, so it stays cheap.
+        sup = np.repeat(sup, state.shape[0] // sup.shape[0], axis=0)
     b = np.zeros((state.shape[0], h + 2, w + 2), np.float32)
     b[:, 1:-1, 1:-1] = burning[:, y0:y1, x0:x1]
 
     pw = wind_factors(wind)[:, None, None, None] if wind_rows is None else wind_rows[:, :, None, None]
     no_ignite = np.ones((state.shape[0], h, w), np.float32)
+    strongest = np.zeros((state.shape[0], h, w), np.float32)
     for d, (dy, dx) in enumerate(NEIGHBOURS):
-        p = np.minimum(layers.spread[d, y0:y1, x0:x1] * pw[d], 1.0)
-        no_ignite *= 1.0 - p * b[:, 1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
-    p_ignite = (1.0 - no_ignite) * (1.0 - sup)
+        p = np.minimum(layers.spread[d, y0:y1, x0:x1] * pw[d], 1.0) * b[:, 1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
+        no_ignite *= 1.0 - p
+        np.maximum(strongest, p, out=strongest)
+    # Partial suppression weakens against intense (head) fire; see HOLD_P.
+    hold = 1.0 / (1.0 + (strongest / HOLD_P) ** 2)
+    eff = np.where(sup >= 1.0, sup, sup * hold)
+    p_ignite = (1.0 - no_ignite) * (1.0 - eff)
 
     u = rng.random((st.shape[0] // group, h, w), dtype=np.float32)
     if group > 1:
@@ -230,7 +283,50 @@ def advance(
     bl[out] = 0
     st[ignite] = BURNING
     bl[ignite] = BURN_TICKS
-    return ignite, y0, x0
+    spots = _spot(state, burn_left, layers, wind, suppression, rng, lit, y0, x0, group)
+    return ignite, y0, x0, spots
+
+
+def _spot(state, burn_left, layers, wind, suppression, rng, lit, y0, x0, group):
+    """Embers from the cells burning at the start of this tick (`lit`, a crop
+    at y0, x0) light fuel cells downwind; see SPOT_RATE. Returns the lit
+    (rows, ys, xs), or None. Each source cell's draws are shared across
+    groups, so paired what-ifs keep common random numbers."""
+    v = wind.speed_ms
+    rate = SPOT_RATE * (v - SPOT_MIN_WIND) / 10.0
+    if rate <= 0 or not lit.any():
+        return None
+    n, h, w = lit.shape
+    u = rng.random((4, n // group, h, w), dtype=np.float32)
+    if group > 1:
+        u = np.tile(u, (1, group, 1, 1))
+    src = lit & (u[0] < rate)
+    if not src.any():
+        return None
+    rows, sy, sx = np.nonzero(src)
+    f = math.radians(wind.from_deg)
+    to = math.atan2(math.cos(f), -math.sin(f))  # downwind, in map coords (x east, y south)
+    dist = np.minimum(-np.log(np.maximum(u[1][src], 1e-6)) * SPOT_MEAN * v / 10.0, SPOT_MAX)
+    ang = to + (u[2][src] * 2 - 1) * math.radians(SPOT_SPREAD_DEG)
+    H, W = state.shape[1:]
+    ty = np.floor(sy + y0 + 0.5 + dist * np.sin(ang)).astype(np.int64)
+    tx = np.floor(sx + x0 + 0.5 + dist * np.cos(ang)).astype(np.int64)
+    ok = (ty >= 0) & (ty < H) & (tx >= 0) & (tx < W)
+    rows, ty, tx, draw = rows[ok], ty[ok], tx[ok], u[3][src][ok]
+    ok = state[rows, ty, tx] == FUEL
+    rows, ty, tx, draw = rows[ok], ty[ok], tx[ok], draw[ok]
+    fuel = layers.spread[:, ty, tx].max(axis=0) / P_H  # fuel x slope, ~1 for forest
+    if suppression.ndim == 2:
+        s = suppression[ty, tx]
+    else:  # one grid per row, or per group of rows
+        s = suppression[rows // (n // suppression.shape[0]), ty, tx]
+    ok = draw < SPOT_IGNITE * np.minimum(fuel, 1.5) * (1.0 - s)
+    if not ok.any():
+        return None
+    rows, ty, tx = rows[ok], ty[ok], tx[ok]
+    state[rows, ty, tx] = BURNING
+    burn_left[rows, ty, tx] = BURN_TICKS
+    return rows, ty, tx
 
 
 class FireSim:

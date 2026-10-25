@@ -6,25 +6,40 @@
 // it to remove it.
 
 import { useMemo, useRef } from "react";
-import type { Token } from "../shared/protocol";
+import { UNIT_STATUS, unitFor } from "../shared/dispatch";
+import { useEngine } from "../shared/engine";
+import type { Token, UnitInfo } from "../shared/protocol";
+import { formatSimMinutes } from "../shared/round";
 import { HALO_RADIUS, TOKEN_RADIUS, TOKEN_STYLE } from "../shared/tokens";
 import { createMover, place, removeToken, type MapSize, type PlaceType } from "../shared/virtualTokens";
 
 interface Props {
   map: MapSize;
   tokens: Token[];
-  placeType: PlaceType;
+  placeType: PlaceType | null;
   showGlyphs?: boolean;
   onSelect?: (id: string | null) => void;
   onHover?: (p: { x: number; y: number } | null) => void;
+  /** Screen -> map, for a calibrated projector: a CSS matrix3d has no usable getScreenCTM. */
+  toMap?: (clientX: number, clientY: number) => { x: number; y: number };
 }
 
-export default function MapOverlay({ map, tokens, placeType, showGlyphs = false, onSelect, onHover }: Props) {
+export default function MapOverlay({
+  map,
+  tokens,
+  placeType,
+  showGlyphs = false,
+  onSelect,
+  onHover,
+  toMap: screenToMap,
+}: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef<string | null>(null);
   const move = useMemo(() => createMover(map), [map]);
+  const { units } = useEngine();
 
   function toMap(e: React.PointerEvent | React.MouseEvent) {
+    if (screenToMap) return screenToMap(e.clientX, e.clientY);
     const svg = svgRef.current!;
     const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM()!.inverse());
     return { x: pt.x, y: pt.y };
@@ -33,7 +48,7 @@ export default function MapOverlay({ map, tokens, placeType, showGlyphs = false,
   function onBackgroundDown(e: React.PointerEvent) {
     if (e.button !== 0) return;
     const { x, y } = toMap(e);
-    place(placeType, x, y, map);
+    if (placeType) place(placeType, x, y, map);
     onSelect?.(null);
   }
 
@@ -91,10 +106,33 @@ export default function MapOverlay({ map, tokens, placeType, showGlyphs = false,
               >
                 {TOKEN_STYLE[t.token_type].letter}
               </text>
+              <OrderTag unit={unitFor(t, units)} />
             </>
           )}
         </g>
       ))}
     </svg>
+  );
+}
+
+/** A small tag beside an order token (#109) while its unit isn't on scene:
+ * the arrival time, or why it can't come. Console only: on the projector the
+ * table would need the calibration transform, which this overlay doesn't have. */
+function OrderTag({ unit }: { unit: UnitInfo | undefined }) {
+  if (!unit || unit.status === "working" || unit.status === "available") return null;
+  const text =
+    unit.status === "en_route"
+      ? unit.eta_min != null
+        ? formatSimMinutes(unit.eta_min)
+        : "en route"
+      : UNIT_STATUS[unit.status].label.toLowerCase();
+  const w = text.length * 2.3 + 3;
+  return (
+    <g transform={`translate(${HALO_RADIUS + 3} ${-HALO_RADIUS})`} className="pointer-events-none select-none">
+      <rect width={w} height={5} rx={1.5} fill="#0b0c0e" opacity={0.85} />
+      <text x={1.5} y={2.6} dominantBaseline="central" fontSize={3.6} fontWeight={600} fill={UNIT_STATUS[unit.status].color}>
+        {text}
+      </text>
+    </g>
   );
 }

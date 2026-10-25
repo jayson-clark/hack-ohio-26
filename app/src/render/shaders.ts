@@ -11,6 +11,11 @@ varying vec2 vUv;
 varying vec3 vWorldPos;
 #ifdef DRAPED
 varying vec3 vNormal;
+#else
+// Projector calibration: map cells -> projector window (0..1, y down), or
+// uCalibrated = 0 to use the camera (letterboxed map).
+uniform mat3 uMapToProj;
+uniform float uCalibrated;
 #endif
 
 void main() {
@@ -19,8 +24,17 @@ void main() {
   vWorldPos = wp.xyz;
 #ifdef DRAPED
   vNormal = normalize(mat3(modelMatrix) * normal);
-#endif
   gl_Position = projectionMatrix * viewMatrix * wp;
+#else
+  if (uCalibrated > 0.5) {
+    // The flat view's world is (x, -y) in map cells. Keeping the homography's
+    // w as clip w makes the GPU interpolate perspective-correctly.
+    vec3 p = uMapToProj * vec3(wp.x, -wp.y, 1.0);
+    gl_Position = vec4(2.0 * p.x - p.z, p.z - 2.0 * p.y, 0.0, p.z);
+  } else {
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+#endif
 }
 `;
 
@@ -36,6 +50,7 @@ uniform sampler2D uHeight; // elevation normalized to 0..1
 uniform sampler2D uLabels; // static overlay: towns and names
 uniform sampler2D uRoutes; // evacuation routes, redrawn per routes message
 uniform float uShowRoutes;
+uniform float uShowForecast;
 uniform sampler2D uFire;   // r = burning, g = burned (linear filtered masks),
                            // b, a = forecast P(burned) at the first two horizons
 uniform vec2 uGrid;        // map size in cells
@@ -50,6 +65,7 @@ uniform vec4 uTokens[MAX_TOKENS]; // x, y (cells), type index, selected
 uniform int uTokenCount;
 uniform vec3 uTokenColors[4];
 uniform float uHalo;
+uniform float uCrewReach; // cells: a crew's reach (hello.crew_radius)
 uniform float uRing;
 
 #ifdef DRAPED
@@ -132,14 +148,33 @@ vec3 terrain(vec2 uv, vec2 cell) {
   return col;
 }
 
+// 1 on the line where v crosses level, about px pixels wide, fading at the
+// edges. fwidth keeps the width constant on screen whatever the zoom. Where v
+// is flat fwidth is 0, and smoothstep with equal edges is undefined (it lit
+// the whole map), so the width has a floor.
+float isoline(float v, float level, float px) {
+  return 1.0 - smoothstep(0.0, max(fwidth(v) * px, 1e-4), abs(v - level));
+}
+
 vec3 fire(vec3 col, vec2 uv, vec2 cell) {
   vec4 f = texture2D(uFire, uv);
   float t = uTime;
 
-  // Forecast ghost on unburned ground: further horizon in yellow, nearer in orange on top.
+  // Forecast on unburned ground (PLAN.md: 50% and 90% contours at T+30 and
+  // T+60). A faint fill shows the spread of likely fire; the lines say how
+  // likely. Further horizon in yellow, nearer in orange on top; 90% is the
+  // solid line, 50% the thinner, fainter one.
   float unburned = 1.0 - clamp(f.r + f.g, 0.0, 1.0);
-  col = mix(col, vec3(0.98, 0.82, 0.31), f.a * 0.3 * unburned);
-  col = mix(col, vec3(1.0, 0.47, 0.16), f.b * 0.55 * unburned);
+  if (uShowForecast > 0.5) {
+    vec3 far = vec3(0.98, 0.82, 0.31);
+    vec3 near = vec3(1.0, 0.47, 0.16);
+    col = mix(col, far, f.a * 0.16 * unburned);
+    col = mix(col, near, f.b * 0.3 * unburned);
+    col = mix(col, far, isoline(f.a, 0.5, 1.0) * 0.55 * unburned);
+    col = mix(col, far, isoline(f.a, 0.9, 1.8) * 0.9 * unburned);
+    col = mix(col, near, isoline(f.b, 0.5, 1.0) * 0.6 * unburned);
+    col = mix(col, near, isoline(f.b, 0.9, 1.8) * unburned);
+  }
 
   // Burned ground: dark char with a few glowing embers.
   float burned = smoothstep(0.3, 0.6, f.g + (noise(cell * 0.3) - 0.5) * 0.3);
@@ -165,6 +200,19 @@ vec3 tokens(vec3 col, vec2 cell) {
     float d = distance(cell, tk.xy);
     float aa = max(fwidth(d), 1e-4);
     vec3 tc = uTokenColors[int(tk.z)];
+    // A crew's reach (#98), so it's visible what it holds. Its full-strength
+    // core (60%) sits under the white halo, so mark the outer edge instead: a
+    // faint tint fading out like its suppression, and a dashed ring at the
+    // full radius, dashed like the recommendation rings that use the same
+    // radius. Type 0 is crew (TOKEN_TYPES).
+    if (tk.z < 0.5) {
+      float core = 0.6 * uCrewReach;
+      float reach = clamp((uCrewReach - d) / (uCrewReach - core), 0.0, 1.0);
+      col = mix(col, tc, 0.18 * reach);
+      vec2 rel = cell - tk.xy;
+      float dash = step(0.0, sin(atan(rel.y, rel.x) * 18.0));
+      col = mix(col, tc, (1.0 - smoothstep(0.3, 0.3 + aa * 1.5, abs(d - uCrewReach))) * dash * 0.9);
+    }
     // Colored ring for the type, white disc under the marker.
     col = mix(col, tc, 1.0 - smoothstep(uRing - aa, uRing + aa, d));
     col = mix(col, vec3(1.0), 1.0 - smoothstep(uHalo - aa, uHalo + aa, d));

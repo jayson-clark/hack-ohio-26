@@ -31,6 +31,7 @@ def with_engine(fn, ticks: int = 30):
             return await fn(e, CommanderTools(e))
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     return asyncio.run(go())
@@ -83,6 +84,8 @@ def test_placement_by_name_and_unknown_place():
         out = await tools.call("evaluate_placement", {"place": "concow", "x": None, "y": None})
         json.dumps(out)
         assert out["placement"]["at"] == "Concow" and isinstance(out["helps"], bool)
+        # A crew has to drive there first (#104), and the answer says from where and how long.
+        assert out["placement"]["from_station"] and out["placement"]["minutes_to_arrive"] > 0
         bad = await tools.call("evaluate_placement", {"place": "Atlantis", "x": None, "y": None})
         assert "unknown place" in bad["error"] and "Paradise" in bad["error"]
 
@@ -116,6 +119,7 @@ def test_no_fire_means_no_whatif():
             assert "nothing is burning" in out["error"]
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())
@@ -130,6 +134,7 @@ def test_bad_arguments_become_errors(args):
             assert "error" in out
         finally:
             e.forecaster.shutdown()
+            e.long_forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())

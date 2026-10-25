@@ -37,6 +37,7 @@ class Case:
     fire: int
     question: str
     tools: tuple[str, ...]  # any of these counts as the right tool
+    in_round: bool = False  # a round is running (#68), started when the fire was lit
 
 
 CASES = [
@@ -60,6 +61,8 @@ CASES = [
     Case(OLD, "Can buses still get out of Concow?", ("get_routes",)),
     Case(NONE, "What's the situation?", ("get_situation",)),
     Case(NONE, "What if the wind shifts west?", ("forecast_whatif",)),
+    Case(OLD, "How are we doing?", ("get_situation",), in_round=True),
+    Case(YOUNG, "How many crews do I have left?", ("get_situation",), in_round=True),
 ]
 
 
@@ -84,7 +87,7 @@ class Result:
 
 
 async def run_case(case: Case, model: str | None, effort: str | None) -> Result:
-    e = await scripted_engine(case.fire)
+    e = await scripted_engine(case.fire, in_round=case.in_round)
     try:
         cmd = Commander(e.tools, model=model, effort=effort)
         t0 = time.perf_counter()
@@ -120,7 +123,7 @@ def report(results: list[Result], model: str, effort: str) -> str:
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for i, r in enumerate(results, 1):
-        fire = f"{r.case.fire} min" if r.case.fire else "none"
+        fire = (f"{r.case.fire} min" if r.case.fire else "none") + (", round" if r.case.in_round else "")
         mark = "✅" if r.passed else "❌ " + ", ".join(
             w for w, ok in (("tool", r.right_tool), ("grounded", r.grounded), ("length", 0 < r.sentences <= 2)) if not ok)
         first = f"{r.first_s:.2f}" if r.first_s is not None else "–"
@@ -136,7 +139,7 @@ async def main(model: str | None, effort: str | None, out: str | None, only: int
         r = await run_case(case, model, effort)
         print(f"[{i}/{len(cases)}] {'pass' if r.passed else 'FAIL'} {r.source} {r.total_s:.2f}s  {case.question}")
         results.append(r)
-    name = model or Commander.__init__.__defaults__ and agent_mod.os.environ.get("COMMANDER_MODEL") or agent_mod.DEFAULT_MODEL
+    name = model or agent_mod.os.environ.get("COMMANDER_MODEL") or agent_mod.DEFAULT_MODEL
     text = report(results, name if has_credentials() else "rules only (no API key)", effort or agent_mod.EFFORT)
     if out:
         with open(out, "w") as f:
@@ -148,7 +151,7 @@ async def main(model: str | None, effort: str | None, out: str | None, only: int
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--model", help="defaults to COMMANDER_MODEL, then claude-opus-5-5")
+    p.add_argument("--model", help="defaults to COMMANDER_MODEL, then claude-haiku-5-5")
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--out", help="write the markdown report here instead of printing it")
     p.add_argument("--only", type=int, help="run just the first N cases")

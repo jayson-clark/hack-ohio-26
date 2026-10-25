@@ -71,6 +71,18 @@ def test_bad_number_after_a_spoken_sentence_keeps_only_what_was_said(engine):  #
     assert ans.text == said[0] and ans.grounded and len(client.requests) == 2  # no retry once speech started
 
 
+def test_bad_number_with_no_listener_retries_the_whole_answer(engine):  # noqa: F811
+    # The server sends only the finished answer, so nothing was out yet (#153).
+    client = FakeClient(
+        tool_msg("get_situation", {}),
+        text_msg("Pulga is threatened in 32 of 32 simulations. Chico burns in 7777 minutes."),
+        text_msg("Pulga is threatened in 32 of 32 simulations."),
+    )
+    ans = asyncio.run(Commander(CommanderTools(engine), client=client).answer("Status?"))
+    assert ans.source == "llm" and ans.grounded and ans.text == "Pulga is threatened in 32 of 32 simulations."
+    assert len(client.requests) == 3
+
+
 def test_still_ungrounded_after_retry_falls_back_to_rules(engine):  # noqa: F811
     client = FakeClient(
         tool_msg("get_situation", {}),

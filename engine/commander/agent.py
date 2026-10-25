@@ -27,30 +27,53 @@ from commander.tools import COMPASS, TOOL_SPECS, CommanderTools
 
 log = logging.getLogger("commander")
 
-DEFAULT_MODEL = "claude-opus-5-5"
-# Short spoken answers: low effort keeps latency down. Thinking can't be
-# turned off on this model, so effort is the latency lever.
+# Haiku: about $0.10 / $0.50 per million input / output tokens, so a typical
+# question (two short requests, ~6K tokens in, a few hundred out) costs about
+# a tenth of a cent. The answers are two sentences built from tool results,
+# which doesn't need a bigger model. Set COMMANDER_MODEL to change it, and
+# check the change with commander/eval/run.py.
+DEFAULT_MODEL = "claude-haiku-5-5"
+# Low effort: less thinking, so fewer output tokens and lower latency. Thinking
+# stays adaptive rather than off; on simple questions it skips thinking anyway.
 EFFORT = os.environ.get("COMMANDER_EFFORT") or "low"
-MAX_TOKENS = 4000
-MAX_TOOL_ROUNDS = 4
-ANSWER_TIMEOUT_S = 6.0
+# Room for a little thinking, a tool call or two, and a two-sentence answer.
+# Thinking counts toward this, so don't cut it much further.
+MAX_TOKENS = 1500
+MAX_TOOL_ROUNDS = 3
+# A what-if runs a forecast while the live engine is busy with its own, and
+# the first request of a session misses the prompt cache, so 6 s cut answers
+# off mid-sentence (#153). The answer is text now, not speech, so wait longer.
+ANSWER_TIMEOUT_S = 10.0
 HISTORY_TURNS = 3  # previous Q&A pairs kept for follow-ups
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
-SYSTEM = """You are the incident commander for a wildfire on a projected terrain table: the Camp Fire country \
-around Paradise, California. Crew bosses ask you questions out loud, and your answer is spoken back to them.
+
+def has_server_fallback(model: str) -> bool:
+    """Whether to ask for server-side refusal fallbacks. Haiku has none (the
+    parameter would do nothing), so a Haiku refusal falls back to templates."""
+    return not model.startswith("claude-haiku")
+
+SYSTEM = """You are the incident commander for a wildfire in {setting}. Operators ask you questions in the \
+console, typed or by push-to-talk, and read your answer there.
 
 How to answer:
-- Before stating any number, call a tool. Every figure you say must come from a tool result in this \
-conversation. Never estimate, extrapolate, or invent one.
+- Before stating any number, call a tool. Every figure you say must come from a tool result you got \
+while answering the current question. Never estimate, extrapolate, or invent one.
+- Your earlier answers were checked against tool results that are no longer shown, and the fire has moved \
+on since. Answer only the current question: don't revisit, correct or apologize for an earlier answer, and \
+if you need one of its numbers again, call the tool again.
 - Answer in at most two short sentences, plain spoken English: no lists, no markdown, no map coordinates.
 - Say probabilities the way the tools give them: "in 24 of 32 simulations". Don't convert them to \
 percentages unless the tool gave a percentage.
+- Counts come with "likely_percent" (the range the true chance is likely in, given only that many \
+simulations) and "confidence". When confidence is "moderate" or "low", say the range ("likely 60 to 85 \
+percent") or hedge ("probably"); never sound more certain than that.
 - If a tool returns an error, or the data doesn't answer the question, say so briefly instead of guessing.
 - For "what if the wind..." questions, use forecast_whatif and compare with the current forecast.
 - For "where should crews go" questions, use get_situation (it includes the current recommendations) or \
 evaluate_placement for a specific spot.
-- For evacuation questions, use get_routes."""
+- For evacuation questions, including when a town has to be ordered out, use get_routes.
+- For "how are we doing", time left, score or resources, use get_situation (its "round" part)."""
 
 def has_credentials() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
@@ -60,7 +83,23 @@ TOOLS = [{**t, "strict": True} for t in TOOL_SPECS]
 # Requests render tools, then system, then messages. Both of the first two are
 # identical on every call, so a breakpoint at the end of the system prompt
 # caches them together. Nothing volatile (time, tick, state) goes in either.
-SYSTEM_BLOCKS = [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}]
+def system_blocks(setting: str) -> list[dict]:
+    """The system prompt for one scenario, behind a cache breakpoint. It
+    changes only when the scenario does, so the prompt cache still holds
+    between questions (one miss per scenario switch, #157)."""
+    return [{"type": "text", "text": SYSTEM.format(setting=setting), "cache_control": {"type": "ephemeral"}}]
+
+
+def scenario_setting(engine) -> str:
+    """Where the fire is, for the prompt: game.json's "setting" if the
+    scenario has one, else its towns. Never another scenario's place."""
+    setting = engine.game.config.get("setting") if getattr(engine, "game", None) else None
+    if setting:
+        return setting
+    towns = [t.name for t in getattr(engine, "towns", [])]
+    if towns:
+        return "the country around " + (", ".join(towns[:-1]) + " and " + towns[-1] if len(towns) > 1 else towns[0])
+    return f"the {engine.scenario.name} scenario"
 
 
 class Answer:
@@ -102,14 +141,18 @@ class Commander:
         """Answer a question with the LLM if it can, else from rules. Never raises.
 
         `on_sentence` gets each sentence as soon as it's known to be grounded
-        (for text-to-speech). Whatever it receives is exactly the start of the
+        (the CLI uses it to time the first sentence). Whatever it receives is exactly the start of the
         final answer's text.
         """
+        # Sentences someone has already received. Without a listener (the
+        # server sends only the finished answer) nothing is out yet, so a
+        # cut-off or ungrounded answer can be retried or replaced by rules
+        # instead of being kept half done (#153).
         said: list[str] = []
 
         def emit(sentence: str) -> None:
-            said.append(sentence)
             if on_sentence is not None:
+                said.append(sentence)
                 on_sentence(sentence)
 
         result = None
@@ -177,15 +220,15 @@ class Commander:
 
     async def _turn(self, messages: list[dict], gate: SentenceGate):
         """One streamed request. Returns the final message, or None on refusal."""
+        fallback = {"betas": [FALLBACK_BETA], "fallbacks": "default"} if has_server_fallback(self.model) else {}
         async with self.client.beta.messages.stream(
             model=self.model,
             max_tokens=MAX_TOKENS,
-            system=SYSTEM_BLOCKS,
+            system=system_blocks(scenario_setting(self.tools.e)),
             tools=TOOLS,
             messages=messages,
             output_config={"effort": self.effort},
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
+            **fallback,
         ) as stream:
             async for text in stream.text_stream:
                 gate.feed(text)
@@ -235,6 +278,23 @@ def _reach_phrase(row: dict, key: str = "fire_reaches_within_60_min") -> str:
     return f"{r['simulations']} of {r['of']}"
 
 
+def _round_line(r: dict) -> str:
+    if "minutes_elapsed" not in r:
+        return "No round is running, so there's no clock or score yet."
+    names = {"crew": ("crew", "crews"), "water": ("water drop", "water drops"),
+             "firebreak": ("firebreak", "firebreaks"), "bus": ("bus", "buses")}
+    left = [f"{x['left']} {names.get(x['type'], (x['type'], x['type'] + 's'))[x['left'] != 1]}"
+            for x in r["resources"] if x["left"] is not None]
+    score = (f"{r['people_evacuated']:,} of {r['people_total']:,} people are out and "
+             f"{r['structures_lost']:,} of {r['structures_total']:,} structures lost")
+    if r["phase"] == "ended":
+        return f"The round is over because {r['ended_because']}: {score}, with {r['acres_burned']:,} acres burned."
+    text = f"{r['minutes_left']} minutes left: {score}."
+    if left:
+        text += f" You have {', '.join(left[:-1]) + ' and ' + left[-1] if len(left) > 1 else left[0]} left."
+    return text
+
+
 def _town_line(t: dict) -> str:
     r30, r60 = t["fire_reaches_within_30_min"], t["fire_reaches_within_60_min"]
     if t.get("fire_inside_town_now"):
@@ -244,6 +304,10 @@ def _town_line(t: dict) -> str:
     text = f"Fire reaches {t['town']} within 30 minutes in {_reach_phrase(t, 'fire_reaches_within_30_min')} simulations"
     if r30["simulations"] == 0:
         text = f"Fire reaches {t['town']} within the hour in {_reach_phrase(t)} simulations"
+    shown = r30 if r30["simulations"] else r60
+    if shown.get("confidence") in ("moderate", "low") and "likely_percent" in shown:
+        lo, hi = shown["likely_percent"]
+        text += f" (likely {lo} to {hi} percent)"
     if t.get("median_minutes_until_fire") is not None:
         text += f", about {t['median_minutes_until_fire']} minutes out"
     return text + "."
@@ -256,6 +320,13 @@ async def rule_based_answer(tools: CommanderTools, question: str) -> Answer:
     q = question.lower()
     town_names = [t.name for t in tools.e.towns]
     place = _named(q, [v[2] for v in tools.places.values()])
+
+    # Round questions first: "how many crews do I have left" is about the round, not placement.
+    if any(w in q for w in ("how are we doing", "score", "time left", "how long is left", "how much time",
+                            "minutes left", "resources", "left to", "crews left", "do we have left",
+                            "do i have left", "round")):
+        out = await tools.call("get_situation", {})
+        return Answer(_round_line(out["round"]), ["get_situation"], [out], "rules")
 
     if "wind" in q:
         direction, speed = _wind_direction(q), _wind_speed(q)

@@ -20,11 +20,18 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from protocol import CommanderKind, CommanderMessage, Event, EventKind
+from protocol import CommanderKind, CommanderMessage, EndReason, EvacStatus, Event, EventKind, Score
+from routing.clearance import TownClock
+from sim.fire import SIM_MINUTES_PER_TICK
+from uq.mc import wilson
 
-THREAT_ON = 0.6  # share of simulations with fire in the town within 30 min
-THREAT_OFF = 0.4
-SAFE_CONFIRMATIONS = 2  # forecasts in a row below THREAT_OFF before "safe"
+# A town is threatened once the *lower* end of the 90% interval on "fire
+# reaches it within 30 min" is at least 50%: more likely than not, even
+# allowing for having only N simulations (#11). It's safe again once the
+# *upper* end is under 50% for SAFE_CONFIRMATIONS forecasts in a row. The gap
+# between the two is the hysteresis.
+THREAT_LEVEL = 0.5
+SAFE_CONFIRMATIONS = 2
 SHIFT_IOU = 0.6  # next-hour burn envelope overlap below this counts as a shift
 SHIFT_MIN_TICKS = 30  # at most one shift event per this many ticks
 SHIFT_TOWARD = 0.25  # a town's 60-min reach share has to grow this much to be named
@@ -36,10 +43,42 @@ PRIORITY = {
     EventKind.ROUTE_CHANGED: 1,
     EventKind.FORECAST_SHIFT: 2,
     EventKind.TOWN_SAFE: 3,
+    EventKind.ROUND_ENDED: 0,
+    EventKind.UNIT_BLOCKED: 1,
+    EventKind.TANKERS_GROUNDED: 2,
+    EventKind.UNIT_ARRIVED: 3,
+    EventKind.EVACUATE_NOW: 0,
 }
 MIN_GAP_S = 8.0  # wall seconds between spoken briefings
 DEDUPE_S = 45.0  # don't repeat the same kind of news about the same town
-STALE_S = 20.0  # drop news that waited this long
+STALE_S = 20.0  # drop news that waited this long in wall time...
+# ...or this long in sim time. The sim can run up to 8x (#71), where 8 s of
+# wall time is over an hour of fire: "within 30 minutes" is meaningless by then.
+STALE_SIM_MIN = 15.0
+
+
+_END = {
+    EndReason.TIME: "time ran out",
+    EndReason.CONTAINED: "the fire is out",
+    EndReason.STOPPED: "it was stopped",
+}
+
+
+def round_summary(score: Score) -> str:
+    """'The round is over: time ran out. 1,240 of 52,000 people evacuated, ...'"""
+    why = _END.get(score.end_reason, "it ended")
+    return (
+        f"The round is over: {why}. {score.people_evacuated:,} of {score.people_total:,} people evacuated, "
+        f"{score.structures_lost:,} of {score.structures_total:,} structures lost, "
+        f"and {round(score.acres_burned):,} acres burned."
+    )
+
+
+def _interval(reach: dict | None) -> tuple[float, float]:
+    """90% Wilson interval on a reach count; (0, 0) when there's no forecast."""
+    if not reach or not reach["of"]:
+        return 0.0, 0.0
+    return wilson(reach["simulations"], reach["of"])
 
 
 def _share(reach: dict | None) -> float:
@@ -57,6 +96,25 @@ def threatened_text(row: dict) -> str:
         text += ". Its way out is cut"
     elif evac and evac["exit"]:
         text += f". Evacuate toward {evac['exit']}"
+    return text + "."
+
+
+def spoken_minutes(minutes: float) -> str:
+    """'45 minutes', or '7.6 hours' from 90 minutes up."""
+    return f"{round(minutes)} minutes" if minutes < 90 else f"{minutes / 60:.1f} hours"
+
+
+def evacuate_text(c: TownClock, tick: int) -> str:
+    """'Order Paradise out now: its 26,800 people need about 7.9 hours to get out, and the fire
+    could be there in 2.9 hours.' Every number is from the evacuation clock (#121)."""
+    need = f"its {c.people:,} people need about {spoken_minutes(c.mobilize_min + c.clearance_min)} to get out"
+    if c.status == EvacStatus.LATE:
+        most = "at most " if c.p_safe_bound else ""
+        return (f"{c.town} is past its safe order time: {need}, and the last car beats the fire in only "
+                f"{most}{c.k_safe} of {c.n} simulations. Order it out now.")
+    text = f"Order {c.town} out now: {need}"
+    if c.fire_tick is not None:
+        text += f", and the fire could be there in {spoken_minutes((c.fire_tick - tick) * SIM_MINUTES_PER_TICK)}"
     return text + "."
 
 
@@ -81,15 +139,15 @@ class ForecastWatcher:
         events = []
         for row in towns:
             name = row["town"]
-            p30 = _share(row.get("fire_reaches_within_30_min"))
+            lo, hi = _interval(row.get("fire_reaches_within_30_min"))
             hot = row.get("fire_inside_town_now", False)
             if name not in self.threatened:
-                if p30 >= THREAT_ON or hot:
+                if lo >= THREAT_LEVEL or hot:
                     self.threatened.add(name)
                     self._calm.pop(name, None)
-                    text = f"Fire is inside {name}." if hot and p30 < THREAT_ON else threatened_text(row)
+                    text = f"Fire is inside {name}." if hot and lo < THREAT_LEVEL else threatened_text(row)
                     events.append(Event(kind=EventKind.TOWN_THREATENED, tick=tick, town=name, text=text))
-            elif p30 < THREAT_OFF and not hot:
+            elif hi < THREAT_LEVEL and not hot:
                 self._calm[name] = self._calm.get(name, 0) + 1
                 if self._calm[name] >= SAFE_CONFIRMATIONS:
                     self.threatened.discard(name)
@@ -136,6 +194,10 @@ class BriefingQueue:
 
     def offer(self, events: list[Event], now: float) -> None:
         for e in events:
+            if e.kind == EventKind.ROUND_ENDED:
+                # Nothing else about the fire matters once the round is over.
+                self.pending = [_Pending(e, now)]
+                continue
             key = (e.kind, e.town)
             if now - self._said.get(key, -DEDUPE_S) < DEDUPE_S:
                 continue
@@ -149,9 +211,21 @@ class BriefingQueue:
             self.pending = [p for p in self.pending if (p.event.kind, p.event.town) != key]
             self.pending.append(_Pending(e, now))
 
-    def next(self, now: float) -> CommanderMessage | None:
-        """The briefing to say now, if any."""
-        self.pending = [p for p in self.pending if now - p.since < STALE_S]
+    def next(self, now: float, tick: int, paused: bool = False) -> CommanderMessage | None:
+        """The briefing to say now, if any. `now` is wall time, `tick` the sim tick.
+
+        News expires after STALE_S of wall time or STALE_SIM_MIN of sim time,
+        whichever comes first, so a fast sim doesn't announce history. While
+        paused nothing is said and nothing expires: the sim isn't moving, so
+        the news is still true when play resumes."""
+        if paused:
+            for p in self.pending:
+                p.since = now
+            return None
+        self.pending = [
+            p for p in self.pending
+            if now - p.since < STALE_S and (tick - p.event.tick) * SIM_MINUTES_PER_TICK <= STALE_SIM_MIN
+        ]
         if not self.pending or now - self._last_spoken < MIN_GAP_S:
             return None
         # Oldest first within a priority, so urgent news can't be starved by newer news.

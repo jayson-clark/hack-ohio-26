@@ -1,0 +1,75 @@
+{
+  "generated_by": "tools/osm_to_layers.py --stations-only",
+  "source": "OpenStreetMap contributors (ODbL), via the Overpass API; air bases typed in (approximate)",
+  "stations": [
+    {
+      "name": "Butte County Fire Station 38",
+      "x": 153.83,
+      "y": 97.05,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Jarbo Gap Station 36",
+      "x": 163.65,
+      "y": 138.57,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Paradise Fire Department #82",
+      "x": 74.22,
+      "y": 127.09,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Paradise Fire Station #81",
+      "x": 46.31,
+      "y": 121.14,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Paradise Station 35",
+      "x": 77.54,
+      "y": 83.43,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Upper Ridge Station 33",
+      "x": 75.92,
+      "y": 43.22,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Chico Air Attack Base",
+      "x": -166.8,
+      "y": 71.8,
+      "kind": "air",
+      "units": {
+        "water": 2
+      }
+    }
+  ]
+}

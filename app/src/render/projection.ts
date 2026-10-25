@@ -4,11 +4,11 @@
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
-import type { Recommendation, RouteInfo, Token } from "../shared/protocol";
+import type { Recommendation, RouteInfo, StationInfo, Token, UnitInfo } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { HALO_RADIUS, TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
 import { drawLabels } from "./labels";
-import { createRoutesCanvas, drawRoutes } from "./routes";
+import { createRoutesCanvas, drawRoutes, setRecReach } from "./routes";
 import { MAX_TOKENS, fragmentShader, vertexShader } from "./shaders";
 
 export interface Layers {
@@ -17,9 +17,17 @@ export interface Layers {
   labels: boolean;
   grid: boolean;
   routes: boolean;
+  forecast: boolean;
 }
 
-export const DEFAULT_LAYERS: Layers = { tint: true, contours: true, labels: true, grid: false, routes: true };
+export const DEFAULT_LAYERS: Layers = {
+  tint: true,
+  contours: true,
+  labels: true,
+  grid: false,
+  routes: true,
+  forecast: true,
+};
 
 // sim_grid cell states, in PLAN.md order. Switch to the generated enum once
 // the sim defines it in protocol.py.
@@ -33,7 +41,7 @@ function rgb(hex: string): THREE.Vector3 {
 }
 
 /** Separable 5-tap box blur, in place (edges clamp). */
-function blur(a: Float32Array, tmp: Float32Array, w: number, h: number) {
+export function blur(a: Float32Array, tmp: Float32Array, w: number, h: number) {
   const R = 2;
   const norm = 1 / (2 * R + 1);
   for (let y = 0; y < h; y++) {
@@ -55,12 +63,16 @@ function blur(a: Float32Array, tmp: Float32Array, w: number, h: number) {
 export interface Projection {
   material: THREE.ShaderMaterial;
   setTokens(tokens: Token[], selectedId: string | null): void;
+  setCrewReach(cells: number): void;
   setLayers(layers: Layers): void;
   setFire(frame: BinaryFrame | null): void;
   setForecast(forecast: ForecastGrids | null): void;
   setRoutes(routes: RouteInfo[]): void;
   setRecommendations(recs: Recommendation[]): void;
+  setDispatch(stations: StationInfo[], units: UnitInfo[]): void;
   setThreatened(towns: string[]): void;
+  /** Projector calibration (row-major map -> projector), or null to letterbox. Flat views only. */
+  setMapToProj(h: number[] | null): void;
   update(timeSec: number): void;
   dispose(): void;
 }
@@ -88,6 +100,8 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
   const routesCanvas = createRoutesCanvas(s);
   let lastRoutes: RouteInfo[] = [];
   let lastRecs: Recommendation[] = [];
+  let lastStations: StationInfo[] = [];
+  let lastUnits: UnitInfo[] = [];
   let lastThreatened: string[] = [];
   const routesTex = new THREE.CanvasTexture(routesCanvas);
   routesTex.flipY = false;
@@ -103,6 +117,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
   const burning = new Float32Array(width * height);
   const burned = new Float32Array(width * height);
   const scratch = new Float32Array(width * height);
+  const forecastBuf = new Float32Array(width * height);
 
   const tokenData = Array.from({ length: MAX_TOKENS }, () => new THREE.Vector4());
 
@@ -115,6 +130,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       uLabels: { value: labelsTex },
       uRoutes: { value: routesTex },
       uShowRoutes: { value: 1 },
+      uShowForecast: { value: 1 },
       uFire: { value: fireTex },
       uGrid: { value: new THREE.Vector2(width, height) },
       uCellM: { value: info.grid.cell_size_m },
@@ -127,7 +143,10 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       uTokenCount: { value: 0 },
       uTokenColors: { value: TOKEN_TYPES.map((t) => rgb(TOKEN_STYLE[t].color)) },
       uHalo: { value: HALO_RADIUS },
+      uCrewReach: { value: 14 },
       uRing: { value: HALO_RADIUS + 1.6 },
+      uMapToProj: { value: new THREE.Matrix3() },
+      uCalibrated: { value: 0 },
       uProjector: { value: new THREE.Vector3(0, 1500, 0) },
       uAmbient: { value: 0.07 },
       uTiles: {
@@ -143,6 +162,13 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
   return {
     material,
 
+    setCrewReach(cells) {
+      u.uCrewReach.value = cells;
+      setRecReach(cells);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
+      routesTex.needsUpdate = true;
+    },
+
     setTokens(tokens, selectedId) {
       const n = Math.min(tokens.length, MAX_TOKENS);
       for (let i = 0; i < n; i++) {
@@ -155,6 +181,7 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     setLayers(l) {
       (u.uLayers.value as THREE.Vector4).set(+l.tint, +l.contours, +l.labels, +l.grid);
       u.uShowRoutes.value = +l.routes;
+      u.uShowForecast.value = +l.forecast;
     },
 
     setFire(frame) {
@@ -183,7 +210,11 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       const ok = forecast && forecast.width === width && forecast.height === height;
       for (let h = 0; h < 2; h++) {
         const grid = ok ? forecast.horizons[h] : undefined;
-        for (let i = 0; i < width * height; i++) fireData[i * 4 + 2 + h] = grid ? grid[i] : 0;
+        // Smoothed like the fire masks: the shader draws the 50% and 90%
+        // contours from these, and the raw cell grid gives stair-stepped lines.
+        for (let i = 0; i < width * height; i++) forecastBuf[i] = grid ? grid[i] : 0;
+        if (grid) blur(forecastBuf, scratch, width, height);
+        for (let i = 0; i < width * height; i++) fireData[i * 4 + 2 + h] = forecastBuf[i];
       }
       fireTex.needsUpdate = true;
     },
@@ -191,20 +222,32 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     // Routes and recommendation markers share one canvas, so each redraws both.
     setRoutes(routes) {
       lastRoutes = routes;
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
       routesTex.needsUpdate = true;
     },
 
     setRecommendations(recs) {
       lastRecs = recs;
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
+      routesTex.needsUpdate = true;
+    },
+
+    setDispatch(stations, units) {
+      lastStations = stations;
+      lastUnits = units;
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
       routesTex.needsUpdate = true;
     },
 
     setThreatened(towns) {
       lastThreatened = towns;
-      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened);
+      drawRoutes(routesCanvas, s, lastRoutes, lastRecs, lastThreatened, lastStations, lastUnits);
       routesTex.needsUpdate = true;
+    },
+
+    setMapToProj(h) {
+      if (h) (u.uMapToProj.value as THREE.Matrix3).set(h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
+      u.uCalibrated.value = h ? 1 : 0;
     },
 
     update(timeSec) {

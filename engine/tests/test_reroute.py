@@ -107,6 +107,7 @@ def test_engine_replans_when_fire_reaches_a_shown_route():
             assert eid not in new.edges
         finally:
             engine.forecaster.shutdown()
+            engine.long_forecaster.shutdown()
 
     asyncio.run(run())
 

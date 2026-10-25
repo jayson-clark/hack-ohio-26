@@ -1,0 +1,14 @@
+{
+ "source": "Origin only: the westernmost point of the WFIGS final perimeter",
+ "t0_local": "2021-12-30T11:00:00",
+ "observations": [
+  {
+   "t_min": 0.0,
+   "x": 48.53,
+   "y": 86.18,
+   "type": "V",
+   "residual": false,
+   "source": "origin"
+  }
+ ]
+}

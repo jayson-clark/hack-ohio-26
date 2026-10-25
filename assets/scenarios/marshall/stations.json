@@ -1,0 +1,155 @@
+{
+  "generated_by": "tools/osm_to_layers.py --stations-only",
+  "source": "OpenStreetMap contributors (ODbL), via the Overpass API; air bases typed in (approximate)",
+  "stations": [
+    {
+      "name": "Boulder Fire / Rescue Department Station 2",
+      "x": 19.36,
+      "y": 20.57,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Boulder Fire / Rescue Department Station 3",
+      "x": 28.54,
+      "y": 4.21,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Boulder Fire / Rescue Department Station 4",
+      "x": 35.43,
+      "y": 44.26,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Boulder Fire / Rescue Department Station 7",
+      "x": 55.15,
+      "y": 7.69,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Lafayette Fire Department",
+      "x": 174.26,
+      "y": 19.14,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Lafayette Fire Department Station 2",
+      "x": 183.77,
+      "y": 54.17,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Louisville Fire Department Station #1",
+      "x": 139.8,
+      "y": 41.9,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Louisville Fire Department Station #2",
+      "x": 114.72,
+      "y": 50.07,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Louisville Fire Department Station #3",
+      "x": 159.41,
+      "y": 64.71,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Mountain View Fire Rescue Station 2",
+      "x": 102.49,
+      "y": 21.35,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Mountain View Fire Rescue Station 5",
+      "x": 113.36,
+      "y": 106.27,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "North Metro Fire / Rescue Station 65",
+      "x": 160.78,
+      "y": 123.2,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "North Metro Fire Rescue Station 67",
+      "x": 143.64,
+      "y": 80.45,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "North Metro Fire Station 61",
+      "x": 182.7,
+      "y": 113.4,
+      "kind": "ground",
+      "units": {
+        "crew": 1,
+        "firebreak": 1
+      }
+    },
+    {
+      "name": "Jeffco Airtanker Base",
+      "x": 153.1,
+      "y": 129.17,
+      "kind": "air",
+      "units": {
+        "water": 2
+      }
+    }
+  ]
+}

@@ -1,6 +1,8 @@
-# Firewatch: Projection-Mapped Wildfire Command Table
+# Fireline: Wildfire Forecasting and Response Software
 
-A 3D-printed terrain model sits on a table under an overhead projector and webcam. The projector paints a live, spreading wildfire onto the terrain, along with topo colors, wind, roads, and towns. Players place physical tokens (fire crews, water drops, firebreaks, evacuation buses) on the map. The camera tracks them, the simulation reacts in real time, and an AI incident commander forecasts the fire, plans evacuations, and recommends where to deploy resources. Everything is projected back onto the terrain.
+Fireline is decision-support software for people forecasting and responding to a wildfire. It forecasts where the fire will go, plans evacuation routes around roads that are about to burn, dispatches crews and tankers from real stations, recommends where to put them, and gives written briefings and answers through an AI incident commander. **The command console is the product.**
+
+**The physical table is a demo extra, not the product.** A 3D-printed terrain model sits under an overhead projector and webcam, and the projector paints the live fire, topo colors, roads and towns onto it. It stands in for the real world seen from above, the way drone or aerial footage shows an incident. The camera looking down at the table plays the part of a drone looking down at the fire. A real operator wouldn't stand at a table placing tokens during an incident; they'd use the software. So the table is a showpiece for the demo, and features are judged by whether they help an operator who only has the software.
 
 ---
 
@@ -8,7 +10,7 @@ A 3D-printed terrain model sits on a table under an overhead projector and webca
 
 1. [Stack](#stack)
 2. [Architecture](#architecture)
-3. [The Two Windows](#the-two-windows)
+3. [The Windows](#the-windows)
 4. [Core Systems](#core-systems)
 5. [Phases](#phases)
 6. [Pre-Event Prep](#pre-event-prep)
@@ -26,9 +28,9 @@ A 3D-printed terrain model sits on a table under an overhead projector and webca
 | Desktop shell | **Tauri** (Rust, kept thin) | Launch the engine, manage windows and monitors, fullscreen projector window |
 | UI | **React + Vite + Tailwind + shadcn/ui** | Command console and projector view |
 | Projector rendering | **WebGL** via Three.js (one projection shader; 3D only for the virtual table) | Shaders for fire, terrain, forecast ghost, routes |
-| Engine | **Python**: OpenCV, NumPy, networkx, pyserial | Vision, simulation, forecasting, routing, LLM commander, wind knob |
+| Engine | **Python**: OpenCV, NumPy, networkx | Vision, simulation, forecasting, routing, LLM commander |
 | Transport | **WebSocket** | Binary grids and JSON messages between engine and UI |
-| Commander | Claude API (tool use) + speech-to-text + TTS | Spoken briefings and what-if questions |
+| Commander | Claude API (tool use) + push-to-talk speech-to-text | Briefings and what-if questions (text; no in-app TTS, #138) |
 
 ### Why Tauri + React
 
@@ -55,13 +57,14 @@ The React app must also run unchanged in a plain browser (`vite dev` plus two Ch
 │  Rust (thin): launch engine, window/monitor mgmt,     │
 │               fullscreen projector window             │
 │                                                       │
-│  React window 1: COMMAND CONSOLE  (laptop screen)     │
-│  React window 2: PROJECTOR VIEW   (projector, no UI)  │
+│  React window 1: OPERATOR CONSOLE (the product)       │
+│  React window 2: EXERCISE CONTROL (plays the world)   │
+│  React window 3: PROJECTOR VIEW   (projector, no UI)  │
 └──────────────────────────┬────────────────────────────┘
                            │ WebSocket (JSON + binary frames)
 ┌──────────────────────────┴────────────────────────────┐
 │  Python engine: vision · sim · forecaster · router ·  │
-│                 LLM commander · wind knob (pyserial)  │
+│                 LLM commander                         │
 └───────────────────────────────────────────────────────┘
 ```
 
@@ -70,7 +73,7 @@ Inside the engine:
 ```
  Webcam ──► Vision (thread) ──► tokens[] in map coords ──┐
                                                          ▼
- Wind knob / console dial ─────────────────────► Sim tick (~10 Hz, NumPy)
+ Wind (exercise control) ──────────────────────► Sim tick (~10 Hz, NumPy)
                                                          │ state snapshot
                        ┌─────────────────────────────────┼─────────────────┐
                        ▼                                 ▼                 ▼
@@ -83,6 +86,7 @@ Inside the engine:
 
 ### Principles
 
+- **Software first.** The console has to stand on its own as the operator's tool. Table-specific code (camera, calibration, projection) stays in `vision/` and the projector view, and no engine or console feature should depend on the table.
 - **The Python engine holds all state.** Both windows are views of it, so restarting the UI never loses the fire.
 - **One canonical coordinate frame: the map grid** (Paradise is 256×192; the size comes from the scenario's `terrain.json`, and the grid is not square). Every module speaks map coordinates. Only vision (camera→map) and the projector shader (map→projector) know about homographies.
 - **The forecaster runs in its own process,** so rollouts never stall the sim or the render.
@@ -95,19 +99,20 @@ Define the schemas once as Pydantic models in `engine/protocol.py`, then generat
 **Binary frames** (engine → UI), with a 12-byte little-endian header (`type: u8`, 3 pad bytes, `tick: u32`, `width: u16`, `height: u16`). The header is mirrored by hand in `app/src/shared/binary.ts`:
 - `sim_grid`: `uint8` cell states (0 unburnable, 1 fuel, 2 burning, 3 burned), 256×192 is 48 KB, every tick (10 Hz)
 - `forecast_grid`: `uint8` burn probability (0–255), one `width×height` grid per horizon stacked in the order of `Hello.forecast_horizons_min` (T+30, T+60), in one frame. The header's tick is the sim tick the forecast started from. Sent each time a forecast lands, and all-zero on reset
+- `plan_grid`: two `uint8` grids, P(burned by the plan's horizon) without and then with a plan's orders, both under its assumed wind. The header's tick is the `plan_result` id it belongs to. Sent right after each successful `plan_result`
 - `camera_frame`: JPEG of the webcam with the vision overlay drawn in (960 px wide, 6 fps, only while `CAMERA` is set). The header's width/height are the JPEG's and its tick counts feed frames. It's broadcast to every window; the projector ignores it
 
 **JSON messages:**
 - engine → UI: `tokens`, `routes`, `recommendations`, `score`, `events` (town threatened, road cut, ...), `commander_message`, `calibration`, `scenario_state`
 - UI → engine: `set_wind`, `ignite`, `reset`, `load_scenario`, `virtual_token_add/move/remove`, `calibration_step`, `commander_query`, `accept_recommendation`
 
-Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `set_running`, `set_speed`, `step_once` (pause, speed and single steps; `scenario_state` carries `paused` and `speed`), `vision_status` (camera state, fps, corner markers seen, board locked), and the `sim_grid`, `forecast_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
+Implemented so far: `hello` (protocol version, scenario name, map size, sim-minutes per tick, forecast horizons), `scenario_state` (tick, wind, burning and burned cell counts), `tokens`, `virtual_token_add/move/remove`, `ignite {x, y}`, `reset`, `set_wind {speed_ms, from_deg}`, `start_round`, `end_round`, `score`, `set_running`, `set_speed`, `step_once` (pause, speed and single steps; `scenario_state` carries `paused` and `speed`), `vision_status` (camera state, fps, corner markers seen, board locked), `situation` (the console's town board: per town, how many simulations reach it within 30 and 60 min with 90% intervals, median and 10th-percentile minutes until fire, route status; sent after each Monte Carlo forecast and replan, on reset and on connect), `evaluate_plan {id, orders, wind, horizon_min}` and its `plan_result` (#123), `evac_clock` and `order_evacuation {town, ordered}` (#121), `calibration_step` and `calibration` (the projector calibration wizard and its map→projector matrix), and the `sim_grid`, `forecast_grid`, `plan_grid` and `camera_frame` binary frames. Add the rest as each phase needs them.
 
 **Wind convention** everywhere (protocol, sim, commander tools): `speed_ms` in m/s and `from_deg` meteorological, the direction the wind blows *from*, degrees clockwise from north (map up, −y). 270 is a west wind that pushes fire east.
 
 **Token path.** Real vision and virtual table mode both report full per-source snapshots to `TokenTracker` (`engine/vision/tokens.py`); the rest of the engine only reads `tracker.tokens`. Virtual tokens come from `engine/vision/virtual.py`. Camera tokens come from `engine/vision/camera.py`, a thread that reads frames, detects markers, solves `H_cam→map` from the corner markers and debounces (`engine/vision/tracking.py`). The main loop only picks up its latest snapshot each tick. It's off unless `CAMERA` is set in `.env` (see the `vision-camera` skill).
 
-**Windows.** One React bundle; `?view=console` or `?view=projector` picks the view. In Tauri the console is the `main` window from `tauri.conf.json`, and the projector is created on demand by `app/src/platform/tauri.ts` on the chosen monitor, then made fullscreen. Closing the console quits the app. In a browser, the projector is a popup (press F to fullscreen). Both windows render with `app/src/render/` (see [The Two Windows](#the-two-windows)).
+**Windows.** One React bundle; `?view=console` (the default), `?view=control` or `?view=projector` picks the view. In Tauri the console is the `main` window from `tauri.conf.json`; exercise control opens from the console's header, and the projector from exercise control on the chosen monitor (fullscreen). Both are created by `app/src/platform/tauri.ts`. Closing the console quits the app. In a browser they're popups (press F to fullscreen the projector). Every window renders with `app/src/render/` (see [The Windows](#the-windows)).
 
 ### Repo layout
 
@@ -126,7 +131,8 @@ engine/                 Python
   sim/                  fire CA, suppression, layers
   forecast/             batched rollouts, crew recommendations
   routing/              road graph, evac routing
-  commander/            LLM tools, speech-to-text/TTS
+  commander/            LLM tools, briefings, push-to-talk speech-to-text
+  uq/                   uncertainty: sampling intervals (mc.py); conformal calibration to come
   protocol.py           Pydantic message models
   gen_schema.py         protocol JSON schema for `make types`
   tests/                pytest
@@ -143,30 +149,42 @@ tools/
 
 ---
 
-## The Two Windows
+## The Windows
+
+The operator console is the product. Exercise control and the projector exist for development, training exercises and the demo.
+
+### Operator console (`app/src/console/`)
+
+For an incident manager or planning chief. It answers three questions: what's happening, what needs a decision, and what each option would do. It never plays the world: no igniting, no setting the wind, no clock controls.
+
+**Design (#130).** A light, map-first operations UI, deliberately unlike the projector's glowing art. The incident map fills the window, with pan and zoom, and draws with its own quiet shader (`render/carto.ts`: light hillshade, faint contours, the burned area in warm gray, active fire in red-orange with a crisp perimeter, the forecast as two translucent bands). Towns, routes, stations, units, orders, recommendations and labels are vector overlays (`console/map/layers.tsx`), so they stay sharp at any zoom. Around it: a top bar (incident, status, clock, modes), the mode's sidebar on the left, an inspector on the right for whatever is selected (a town's fire arrival and evacuation clock, a recommendation's effect with ranges, an order's unit), and the commander docked in the map's corner. Tokens live in `index.css`: neutral surfaces, one blue accent for actions, status colors only for status. `console/model.ts` joins the town board with the evacuation clock so every view agrees on a town's risk.
+
+Three modes over the one incident map:
+
+- **Monitor:** a **decision queue**, most urgent first: towns to evacuate (with the soonest and likely time fire arrives, and the way out), towns with no safe way out, crew recommendations with the station and ETA, units that can't get through. Each card has its action (dispatch, send a bus, try in plan, show on map). A **town board** lists every town with time until fire (10th percentile to median), the share of simulations reaching it within the hour with its interval, and route status. **Units and orders** shows free units per type and every standing order with its unit's status. Order tools on the map send a crew, dozer line, air drop or bus where you click.
+- **Plan** (#123): try orders and an assumed wind without changing anything. Clicks add draft orders; each is assigned the free unit dispatch would send, and only acts once that unit could get there. The plan runs against doing nothing on paired simulations (`forecast/plan.py`, `rollout_paired` with the plan as one suppression schedule), so the difference is the plan, not luck. The map shades where the plan keeps fire out (green) or pushes it in (red); the panel shows acres and residents affected with intervals, and per-town reach. It re-runs a moment after each edit; the engine skips a plan that a newer one replaced. "Dispatch" sends the orders for real.
+- **Review:** outcome so far (people evacuated, structures, acres, per town) and the event log. The after-action comparison against doing nothing is #124.
+
+The commander (briefings, typed questions, push-to-talk) sits beside every mode. Voice is off by default: operators mostly want it on screen.
+
+### Exercise control (`app/src/control/`)
+
+Plays the real world. In a real incident this is the fire itself plus drone footage and weather stations. It holds ignite and reset, wind, pause/speed/step, the scenario picker, exercises (timed, limited rounds), the 3D virtual table with token placement, the camera feed, and projector controls. **Autopilot** accepts the top crew recommendation a few seconds after each one arrives, so a recorded demo plays out without clicking every card.
 
 ### Projector view
 
 Pure WebGL, no UI chrome, fullscreen on the projector monitor.
 
-**One projection shader** (`app/src/render/shaders.ts`) computes what the projector emits, per pixel in map coordinates: topo tint, hillshade, contours, labels, fire and token halos. The projector draws it on a flat quad. The console's virtual table drapes the *same* shader over the terrain mesh, so what you see in 3D is what the real projector would throw onto the print. The UI loads terrain straight from `assets/scenarios/<name>/` (`terrain.json` + `heightmap.npy`), picked by `VITE_SCENARIO` or `?scenario=`.
+**One projection shader** (`app/src/render/shaders.ts`) computes what the projector emits, per pixel in map coordinates: topo tint, hillshade, contours, labels, fire and token halos. The projector draws it on a flat quad. Exercise control's virtual table drapes the *same* shader over the terrain mesh, so what you see in 3D is what the real projector would throw onto the print, and the console's incident map is the same flat projection. The UI loads terrain straight from `assets/scenarios/<name>/` (`terrain.json` + `heightmap.npy`), picked by `VITE_SCENARIO` or `?scenario=`.
 
 - The sim grid is uploaded as a texture each tick. A fragment shader maps cell states to visuals: topo base, flickering flame on burning cells, char on burned ones.
 - Overlay layers include the forecast ghost (probability contours), glowing evacuation routes, pulsing recommendation markers, wind particles, town labels, and the token halos.
 - **The calibration homography is a 3×3 matrix applied in the vertex shader.** Python never warps images.
 - Embers, wind streaks, and route pulses are animated in shaders.
 
-### Command console
+### Later: a field app
 
-Looks polished and native, on the laptop screen.
-
-- **Virtual table:** a 3D view of the print on the table (true mm dimensions, tile seams, corner marker holders), with the projection draped over it and token pucks you can place, drag and remove. Camera presets and fly-to for places. Works with no hardware.
-- **Projection view:** the flat projector output, for checking exactly what gets projected
-- **Camera feed** with detected markers overlaid (for debugging, and to show judges the vision working)
-- **Calibration wizard:** a step-by-step flow with a recalibrate button
-- **Scenario controls:** ignite, reset, scenario picker, wind dial (synced with the physical knob)
-- **Commander panel:** transcript, push-to-talk, recommendation cards with an "accept" button
-- **Scoreboard:** people evacuated, structures saved, acres burned, resources left
+A second product for the people carrying out orders (fire crews, police and sheriff units, bus drivers): each sees their own assignment, route and ETA, what changed, and when to pull out. The console's orders and units are already per-unit, so it would read the same engine state. Not started; noted so engine work keeps orders addressable per unit.
 
 ---
 
@@ -174,10 +192,13 @@ Looks polished and native, on the laptop screen.
 
 ### Calibration
 
-1. The projector shows a ChArUco pattern at known projector-pixel positions. The camera detects it, giving `H_cam→proj`.
+1. The projector goes black until the camera sees all four corner markers (projected light washes them out), then shows a dim white ring with a dot by its top-left corner, stretched over its whole window. The camera finds the ring's 8 corners in each frame minus the black one, over a few frames, giving `H_cam→proj`. Big plain shapes rather than a marker grid, because a projector blooms its whites into small markers' bits; the ring's outer edges bloom outward and its inner edges inward, so the fit cancels most of it. The ring stays in the middle of the frame so it lands on the board, not the floor.
 2. ArUco markers on holders pinned to the four board corners, just outside the terrain, are detected, giving `H_cam→map`.
-3. Combine them: `H_map→proj = H_cam→proj · H_map→cam`, which the projector shader uses.
-4. Save to `calibration.json`. The console has a hotkey and button to recalibrate in seconds when someone bumps the table.
+3. Combine them: `H_map→proj = H_cam→proj · H_map→cam`, which the projector's vertex shader applies (`uMapToProj`, keeping the homography's w as clip w so texturing stays perspective-correct). Projector coords are normalised to the projector window (0..1, y down), so the matrix doesn't depend on its resolution.
+4. The console wizard (Projector panel, Shift+C) reviews the fit on the table with a test grid and corner crosses, then saves to `calibration.json` at the repo root (gitignored, per rig).
+5. `H_cam→proj` is saved too. Camera and projector share a mount, so a bumped table only moves the board in the camera view: the engine re-derives `H_map→proj` from the saved `H_cam→proj` and the corner markers, with no recalibration. Recalibrate if the camera moves relative to the projector.
+
+Code: `engine/vision/projector.py` (engine), `app/src/control/CalibrationPanel.tsx` and `app/src/render/ProjectionView.tsx` (UI).
 
 **Height parallax.** Projected points land offset by roughly `h × d / H` (feature height × distance from the projector's center axis ÷ projector height). With a projector about 150 cm up, a 4 cm hill 30 cm off-axis shifts about 0.8 cm. That's acceptable with low relief. The full fix (rendering the terrain mesh from a calibrated projector pose) is in Phase 7.
 
@@ -196,6 +217,8 @@ Looks polished and native, on the laptop screen.
 | Water drop | Instant knockdown in a radius, with a cooldown |
 | Evac bus | Moves along the computed route and picks up residents from a town |
 
+**Dispatch (#104).** A crew, firebreak or water token is an order, not a teleport. The fastest free unit of that type is sent: an engine crew or dozer from a real fire station (`stations.json`, from OSM) driving the road graph at 50 km/h, skipping burning roads, then hiking the last stretch; or a tanker flying from the Chico air base, grounded above 13 m/s wind. Every order pays a 3-minute turnout. The token only acts on the fire once its unit arrives (`engine/sim/dispatch.py`, travel times in `engine/routing/units.py`). Moving a token re-routes its unit, removing it frees the unit, and a unit whose road burns re-routes or reports blocked. Buses are not dispatched. Units go out as a `units` message and the projector draws each one's route and ETA. Forecasts credit en-route units from their arrival tick, and recommendations and the commander's what-ifs start a crew digging in only when one could get there, with the station named ("a crew from Jarbo Gap, about 17 minutes out").
+
 ### Fire model
 
 Based on **Alexandridis et al. (2008)**, a cellular automaton validated against a real fire on Spetses island, with Rothermel-inspired wind and slope terms.
@@ -207,10 +230,37 @@ p_wind  = exp(c1·V) · exp(c2·V·(cos θ − 1))   # θ = angle between wind a
 p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhill slower
 ```
 
+**Crews hold flanks, not the head.** Partial suppression (a crew's line, a wet patch) is scaled by `1 / (1 + (p / HOLD_P)²)`, where `p` is the strongest single-neighbour spread chance into the cell. So it holds backing fire, flanks and calm fire, but barely slows a wind-driven head. Full suppression (a firebreak, the tick a water drop lands) still stops anything. Measured with `eval.early_attack` (three crews ordered onto each eval ignition, acres burned after 3 h):
+
+| Wind | No crews | Instant crews (old exploit) | Crews dispatched from stations |
+|---|---|---|---|
+| 3 m/s | 5,343 ac | 331 ac, 92% out | 3,281 ac |
+| 8 m/s | 6,336 ac | 2,449 ac, 58% out (was 100%) | 5,845 ac |
+| 13 m/s | 20,839 ac (14,044 before spotting) | 17,624 ac, 17% out (was 100%) | 19,435 ac |
+
+The top recommendation's realized benefit fell from 985 to 708 (steady wind). It still beats a random front spot 19 of 32 times, and its prediction stays calibrated (689 predicted).
+
+**Ember spotting.** In wind over `SPOT_MIN_WIND` (9 m/s), burning cells throw embers downwind (`_spot` in `engine/sim/fire.py`). Each ember flies an exponential distance (mean 12 cells, about 1.1 km, at 10 m/s, capped at 6.6 km) and lights fuel where it lands, less so under suppression. That lets a wind-driven fire outrun the one-cell-per-tick limit, as the Camp Fire did. Calm and moderate days are unchanged, and ember draws are shared across paired what-ifs.
+
+**Checked against the real Camp Fire (#15).** `eval.campfire` replays the 2018 fire from its NIST origin near Pulga, with a 19 m/s ENE wind easing to 6 m/s by the afternoon. It scores the replay against real data in `assets/scenarios/paradise/real/`:
+- 2,105 NIST TN 2135 observations ("fire was here by time t");
+- NIFC and NASA FEDS perimeters at 7.1 h and 11.5 h.
+
+| First 12 h | Without spotting | With spotting |
+|---|---|---|
+| NIST-observed cells reached in time (±30 min) | 80% | **87%** |
+| Lateness at the 75th-percentile observation | 15 min | **0 min** |
+| IoU with the 7.1 h / 11.5 h perimeters | 0.54 / 0.63 | 0.55 / 0.64 |
+| Burned area vs the perimeters | 1.73x / 1.53x | 1.71x / 1.51x |
+
+The known gap: the replay burns about 1.5–1.7x the real area, because flanks spread too wide. A higher `C2` (0.3–0.4) fits the perimeters better (IoU 0.67/0.79, area 1.27x/1.12x). But it also starves backing and flank spread at every wind: at 3–8 m/s fires came out under half the size, and instant attack contained them again. One extreme-wind event isn't enough evidence for that, so `C2` stays at 0.22 until a second fire (Marshall, #107) agrees.
+
+**Marshall Fire** (`cd engine && uv run python -m eval.marshall`, #107): a second real fire, grass into suburb under a steady 15–20 m/s westerly, scored against the NASA FEDS perimeter at 2.5 h and the WFIGS final perimeter. It has no timed per-house observations. It agrees with the Camp Fire: every top result of the search has `C2` 0.4, which matches the 2.5 h area (0.9–1.0x, IoU ~0.39), where 0.22 burns 4–5x too much. At every setting, though, the sim keeps running east through Louisville to the map edge where the real fire stopped, so the final perimeter is a fuel and structure question (suburbs burn like grass here), not a wind one. The open question is how to narrow strong-wind fires without starving moderate ones, for example a floor on backing and flank spread. Under the measured wind (`--measured`: NCAR Mesa Lab's 5-min record in the foothills, 11–19 m/s from about 245° through the afternoon, gusts to 40 m/s, #141) the verdict holds: 0.22 burns 1.9–4x the real 2.5 h area at any speed scale, while 0.3 at 0.8x the station's speed (IoU 0.46, area 1.09x) and 0.4 at 1x (IoU 0.41, area 0.85x) fit. NOAA's airport record downwind (KBJC) saw only 5–9 m/s from shifting directions, so the foothill station is the one that represents the fire's wind. Suburban fuel is per scenario (#144): Boulder County's irrigated suburbs burn at residential 0.25 and commercial 0.3, while Paradise's forested lots keep 0.9 (its replay needs 0.6 or more). Under the measured wind that takes the best Marshall final perimeter from IoU 0.19 at 2.7x the area to IoU 0.38 at 0.84x (C2 0.4), and from 5.2x to 4.4x at today's 0.22. What's left is shape: the sim misses the real fire's north-west and south flanks, the flank spread that a backing/flank floor would add.
+
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
 - **Vectorized:** 8 shifted-array operations per tick (one per neighbor direction), restricted to the bounding box of the burning cells. A step on Paradise takes well under 1 ms.
-- Wind comes from the physical knob (Arduino potentiometer → pyserial) or the console dial.
+- Wind is set from exercise control (`set_wind`). There is no physical wind knob.
 - **Time scale:** one tick is one sim-minute (`SIM_MINUTES_PER_TICK` in `engine/sim/fire.py`), so 10 Hz is 10 sim-minutes per second and T+60 is 60 ticks. A fire can move at most one 94 m cell per tick (≈5.6 km/h), about the Camp Fire's run through Paradise.
 - **Constants are tuned for the table, not the paper:** `p_h` is lower (cells burn for 8 ticks, so neighbors get 8 tries), the wind terms are about 3× Alexandridis' so the wind visibly steers the fire, and the slope term is softened because Paradise's real canyon walls made the paper's value impassable downhill. Slope uses the real heightmap in metres, not the print's exaggerated relief. See the `tune-fire` skill.
 - **Fuel:** uniform until a fuel map exists. `fuel.png` (grayscale, black = unburnable) and `roads.json` (roads are a partial fuel break) are loaded if present.
@@ -220,10 +270,47 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 
 - **Batched stochastic rollouts:** stack N copies of the state into an array of shape `(N, H, W)` and advance them all with one vectorized step.
 - Record the first time each cell burns in each rollout, giving `P(burn by t)` for each horizon.
-- `forecast.rollout(snapshot, n, ticks, wind=..., extra_suppression=...)` returns that first-burn time as `(n, H, W)` float32, with optional wind and crew what-ifs; `forecast.burn_probability` turns it into `P(burn by horizon)`. The live forecast (32 rollouts to T+60) runs in a worker process, one at a time, and lands on `Engine.latest_forecast` for routing and the commander. Suppression is frozen at its current level for the whole rollout.
+- `forecast.rollout(snapshot, n, ticks, wind=..., extra_suppression=...)` returns that first-burn time as `(n, H, W)` float32, with optional wind and crew what-ifs; `forecast.burn_probability` turns it into `P(burn by horizon)`. The live forecast (32 rollouts to T+60) runs in a worker process, one at a time, and lands on `Engine.latest_forecast` for routing and the commander. Suppression follows the tokens' schedule (`TokenEffects.schedule`, carried on the snapshot): crews keep digging in and wet ground dries out over the forecast, exactly as the live sim would if the tokens stay put (#56). Paired what-ifs can be `TimedLayer`s that start at an arrival tick.
 - **Paired what-ifs:** `forecast.rollout_paired(snapshot, n, ticks, variants)` runs a baseline plus K suppression variants (e.g. a crew at each candidate spot) in one batch, as `(K+1, n, H, W)`. Rollout i of every variant shares its random draws (`advance(..., group=K+1)`), so the difference between a variant and the baseline is the intervention's effect, not luck. Recommendations rely on this.
 - **Wind spread (optional):** `WindSpread(speed_frac, dir_deg)` gives each rollout its own wind (`advance(..., wind_rows=...)`). It's off for the live forecast (`forecast.runner.WIND_SPREAD = None`), and when it's on, `Forecast.wind_spread` records it.
 - The projector shows a translucent ghost with 50% and 90% contours at T+30 and T+60 sim-minutes.
+- **Calibrated burn envelope (#12, `engine/uq/conformal.py`).** The console draws the forecast's outline as an envelope that promises at most 10% of the ground that newly burns by T+30 / T+60 falls outside it. The raw contours can't promise that: they assume the wind and tokens hold, and miss 11–31% (`eval.run`, the 50% line).
+  - **How it holds:** each envelope shown is remembered and scored when its horizon passes, as burned area outside / burned area. An online conformal update (adaptive conformal inference, conformal risk control) moves one knob per horizon: the probability cutoff, then a margin of extra cells once the cutoff hits 1/N. The long-run miss stays near 10% even under shifts, after a short catch-up.
+  - **Measured:** step 0.1, `eval.run`, 4 episodes per schedule, missed share over the whole run:
+
+    | Wind | T+30 | T+60 |
+    |---|---|---|
+    | Steady | 9.3% | 8.8% |
+    | Shift | 10.5% | 12.0% |
+    | Gusty | 11.3% | 11.7% |
+
+    In gusty wind no fixed cutoff gets under 14%, while the envelope ends at a cutoff near 1/32 plus a 3-cell margin.
+  - **Per scenario:** the knob learns per scenario. A scenario switch restarts from `ENVELOPE_WARM`, because a new map is a new distribution and conformal promises only transfer within one. A map reset keeps what was learned.
+  - **Real units:** misses are counted in area, so the promise keeps its meaning across resolutions.
+  - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates.
+- **Calibrated time-to-impact ranges (#13, `ArrivalCalibrator` in `engine/uq/conformal.py`).** Each threatened town shows "fire likely arrives in 25–40 min (90%)".
+  - **The range:** the long forecast's 5–95% arrival, widened or narrowed by an online conformal correction (CQR) per lead-time bucket (<30, 30–120, >120 min).
+  - **Calibration units:** towns catch fire too rarely to calibrate on, so the units are town-sized disks (radius 8 cells) dropped on unburned ground. Each is scored, like a town, by the first time fire touches it. Single cells held their own 90% but transferred badly to towns.
+  - **Censoring:** a disk the forecast never sees burn scores as the smallest miss it could be, which can only make the ranges too narrow.
+  - **Measured** (`eval.arrival`, Paradise, 4 episodes per schedule, 4 h forecasts), calibrated coverage of real town arrivals:
+
+    | Wind | Calibrated | Raw |
+    |---|---|---|
+    | Steady | **89%** | 93% |
+    | Wind shift | **56%** | 47% |
+    | Gusty | **75%** | 34% |
+
+  - **Known limit: an unforecast wind shift.** Every range issued before it is wrong at once, and the correction only learns afterwards.
+    - Per-rollout wind spread (±20%, ±20°) lifted the shift case to 68%, but gave half as many towns a range and dropped steady to 79%. Wider spread left almost no town bounded. The long forecast stays without spread.
+    - The real fix is a wind forecast (e.g. HRRR), not more statistics.
+  - **Where it shows:** `TownThreat.eta_lo_min` / `eta_hi_min` (null when too few simulations reach the town to bound it), the threat cards and inspector, and the commander's town table.
+  - **Per scenario:** the calibrator learns per scenario. A reset clears in-flight forecasts and keeps what was learned. It covers the simulator's own uncertainty plus shifts in wind and tokens, not the model's error against real fires; that's what the replays (#15, #107) check.
+- **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
+  - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
+  - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
+  - **Screening:** recommendations take 48 front spots, keep the emulator's best 8 for the paired Monte Carlo, and only Monte Carlo numbers are shown. It helps most after a wind shift. Over two measurements of 32 cases each, the top recommendation's realized benefit went from 159/163 to 173/181 after a shift, and it beat a random spot 19 and 23 times out of 32 (15 and 17 without screening). In steady wind it was within noise: 708 → 780, then 702 → 690.
+  - **Not used for decisions:** routing, alerts and the commander never use it.
+  - **How it was trained:** about 5,750 random fires on paradise and valley, labelled by 64-rollout forecasts of the current fire model (ember spotting included, #118). It's retrained whenever the fire model changes; see the `fire-emulator` skill.
 
 ### Evacuation routing
 
@@ -233,11 +320,25 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 - **Data:** `roads.json` and `towns.json` per scenario, from OpenStreetMap via `tools/osm_to_layers.py` (see the `generate-road-layers` skill). Towns carry approximate population and structure counts; `safe_zones` are the map-edge exits (Paradise: Skyway toward Chico, Clark Rd and Hwy 70 toward Oroville). The scenario layout above lists `roads.geojson`; it's `roads.json` in map coords instead.
 - **Approximation** (`engine/routing/evac.py`): per-edge P(burn by t) is precomputed at 5-sim-minute bins in one vectorized pass over the forecast's `first_burn`, then a label-setting Dijkstra carries the bus's free-flow arrival time along each label's path and reads the bin at each edge's midpoint. Edges at P ≥ 0.9 by arrival are impassable. Not an exact time-dependent shortest path, but a replan of every town is tens of milliseconds.
 
+### Evacuation order clock (#121)
+
+Fire tools (WFDSS/FSPro, Technosylva) forecast the fire, alerting tools (Genasys Protect, formerly Zonehaven) send the order, and Watch Duty shows it to the public. None of them tells a commander *when* each town's order has to go out, given how long that town takes to empty. Trigger-boundary research (k-PERIL, WUI-NITY) compares available against required evacuation time, but only for offline planning. The clock (`engine/routing/clearance.py`) makes that comparison live, for every town:
+
+- **Available time:** when the fire first enters the town's disk, per rollout of a *long* forecast: 32 rollouts to T+600 (`forecast.runner.LongForecaster`, two worker processes, 2–4 s). It's separate from the live T+60 ghost because Paradise takes about 8 hours to empty.
+- **Required time:** 20 min to mobilise, then the time to drain the town's vehicles (1.6 people each) through the tightest road on its exits. Road capacity comes from the OSM class (primary 1,800 vehicles/h, secondary 1,100, tertiary 900, minor 600). Evacuees keep to the biggest roads within 15 min of the shortest drive, and use every exit within 20 min of the best, split by capacity. Each road is shared fairly between the ordered towns on it: a town with L_i vehicles on it is through after Σ_j min(L_j, L_i) / capacity. So ordering Magalia slows Paradise on Skyway, which is how Paradise gridlocked in 2018.
+- **Output per town:** a status (watch, order soon, order now, late, evacuating, all out, trapped), the latest safe order time (10th-percentile arrival minus required time, so 90% of simulations have the last car out first), and P(last car out before the fire) with its Wilson interval. An `evacuate_now` briefing goes out once when a town's order comes due.
+- **Orders:** the clock drives the evacuation cards in the console's decision queue: "Order X to evacuate" when the order comes due (order soon, now, or late), with the shared exit roads and P(last car out first), then "X is evacuating" with a Cancel. Before the long forecast lands, a town gets a card from the hour-ahead forecast instead. Both the cards and the town inspector send `order_evacuation`. Once mobilised, an ordered town empties at its share of the bottleneck, and those people count in the score.
+- **Checked against the real Camp Fire** (`eval.evac_clock`, using NIST observed arrival as truth). For all 4 towns the real fire reached, the clock said to order at its first forecast. Its order-by time was 5–48 min earlier than the real deadline (conservative, never late). Yankee Hill stayed on watch. The one false alarm, Butte Creek Canyon, comes from the replay's known flank over-burn. The required times say no order after ignition could have emptied Paradise or Magalia before the fire arrived.
+- **Not modelled:** an exit burning while cars are still on it (the router avoids likely-to-burn roads, and a cut recomputes the clock), smoke slowing traffic, contraflow, and per-zone orders within a big town (Paradise had 14 zones). The long forecast assumes the wind holds.
+
 ### Crew recommendations
 
 - Sample candidate cells along the predicted fire front.
 - For each candidate, run a few rollouts with a crew placed there, then rank by population and structures saved.
 - Project the top 3 as pulsing markers labeled, for example, "Saves Pinecrest in 87% of simulations."
+- **Uncertainty** (`engine/uq/mc.py`): every "k of N" carries a 90% Wilson interval, and each recommendation's benefit a paired t interval. A recommendation is shown only if the *low* end of its benefit is above zero, and the top two are re-run head to head when their intervals overlap. Town threat briefings use the interval's bounds instead of the raw share. This is sampling uncertainty only; whether the forecast's assumptions hold is for conformal calibration (#12, #13).
+- **Look-ahead and act-by time.** Each crew is scored over the next **2 hours** (`REC_HORIZON_TICKS`). Half the candidate spots come from where the evacuation clock's long forecast expects fire in 60–120 min (`Engine.lookahead`). Each card says when to act: the fire's likely arrival at the crew's area (10th percentile across simulations) minus the crew's travel time, which is "send within N min" or "send now". On Paradise the first recommendation for a threatened town now comes about 2 hours before the fire, up from 37–53 min. At 13 m/s, crews dig in a median 98 min ahead (16 min before), and none arrive late (4 of 10 before). Cards show the town-save range ("likely 31–68%") and an acres range ("300–900 acres", 90%).
+- **Caveat:** the intervals are sampling uncertainty under a held wind. After a wind shift, the 2-hour predicted benefit overstates the realized benefit about 3.4x (849 vs 252 in `eval.run --schedules shift`; about 2x at 1 h). In steady wind it's calibrated (1,641 vs 1,549). Conformal calibration (#12/#13) is the planned correction.
 
 ### Incident commander (LLM)
 
@@ -251,12 +352,12 @@ The LLM gets **tools**, not a raw state dump, so its answers come from real simu
 | `get_routes()` | Current evacuation routes and their risk |
 
 - Triggered by events (town threatened, road cut) for proactive briefings, and by push-to-talk questions.
-- Answers are kept to about two sentences so they work spoken aloud.
+- Answers are kept to about two sentences. In-app text-to-speech was removed (#138); the text messages are what an external TTS would read if speech is wanted.
 - Uses a fast model for low latency.
 
 ### Game layer
 
-- **Scenarios:** a fictional training valley, and Paradise, CA (Camp Fire).
+- **Scenarios:** two real fires: Paradise, CA (2018 Camp Fire) and Marshall, CO (2021 Marshall Fire, Superior and Louisville).
 - **Limited resources:** for example 3 crews, 2 water drops (with cooldown), and 1 firebreak, which forces tradeoffs.
 - **Scoring:** people evacuated, structures saved, acres burned.
 - **Scenario timer** and an end-of-round summary.
@@ -266,7 +367,7 @@ As built (`engine/sim/game.py`):
 
 - **Sandbox vs round.** Outside a round nothing is limited or timed, so virtual table mode stays free play. `start_round` resets the map, ignites at the scenario's ignition point and turns the limits on; the round ends on time, when nothing is burning, or on `end_round`, and then the fire freezes so the summary matches the map. `reset` returns to the sandbox.
 - **Limits** count tokens on the table per type (3 crews, 2 water, 1 firebreak, 2 buses). The first ones placed take effect; any over the limit do nothing and are listed in `score.inactive_tokens` so the UI can grey them out.
-- **Scoring:** acres burned from burning and burned cells; structures lost as each town's structures times the share of its burnable disk that has caught; people evacuated while an in-limit bus sits inside a town whose route isn't cut (a stand-in until buses drive their routes).
+- **Scoring:** acres burned from burning and burned cells; structures lost as each town's structures times the share of its burnable disk that has caught; people evacuated by evacuation orders (at the clock's outflow, #121) and while an in-limit bus sits inside a town whose route isn't cut (a stand-in until buses drive their routes).
 - **Per-scenario settings** (round length, limits, ignition, bus rate) live in an optional `assets/scenarios/<name>/game.json`. Paradise: 600 sim-minutes, ignition at the Camp Fire origin, 40 people per minute per bus.
 
 ---
@@ -296,7 +397,6 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 - ArUco token tracking with debouncing and smoothing
 - White halos under tracked tokens
 - All four token types wired into the sim
-- Physical wind knob
 
 **Exit:** a real crew token on the table makes the projected fire around it die.
 
@@ -317,10 +417,10 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 ### Phase 5: Incident commander
 - Crew placement recommendations, projected and shown as cards in the console
 - LLM commander with the simulation tools
-- Push-to-talk speech-to-text in, TTS briefings out
+- Push-to-talk speech-to-text in, briefings out as text
 - Proactive event-driven briefings
 
-**Exit:** a judge asks "What if the wind shifts west?" and hears a spoken answer backed by a real forecast.
+**Exit:** a judge asks "What if the wind shifts west?" (typed or by push-to-talk) and gets an answer backed by a real forecast.
 
 ### Phase 6: Game and polish
 - Scenarios, limited resources, cooldowns, timer, scoring, end summary
@@ -348,7 +448,7 @@ The 3D prints start the day before the competition, so everything that affects t
 - **Keep the relief low** (about 3–4 cm max) to limit projection parallax.
 - **Build registration into the prints:**
   - alignment pins between tiles
-  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. One L-shaped holder STL (print 4) pins into the board's outer walls with the same filament pins, so they never move
+  - corner holders for the calibration ArUco markers, kept off the terrain so they don't break immersion. L-shaped holders pin into the board's outer walls with the same filament pins, so they never move. The marker is printed into each holder's top in black on white (`marker_holders.3mf`, two colours on the AMS), so there's no paper to glue on crooked
 - **Matte white or light-gray PLA,** which is essential for projection.
 - **Tokens:** print them with flat tops, then laminate and attach the ArUco markers.
 - **Toolchain:** Rust, Node, and Python environments installed and building on every laptop.
@@ -363,7 +463,7 @@ Virtual table mode means nobody is blocked waiting for hardware.
 | Owner | Areas | Phases |
 |---|---|---|
 | App | Tauri shell, console UI, projector shaders, polish | 0, 1 (render), 6 |
-| Vision | Calibration, token tracking, wind knob, 3D projection | 2, 7 |
+| Vision | Calibration, token tracking, 3D projection | 2, 7 |
 | Sim | Fire CA, terrain layers, suppression, rollouts | 1, 3, 4 (forecaster) |
 | AI | Routing, recommendations, commander, voice | 4 (routing), 5 |
 
@@ -375,7 +475,6 @@ Virtual table mode means nobody is blocked waiting for hardware.
 - 1080p webcam mounted next to the projector
 - Terrain tiles in matte white or light-gray PLA
 - Printed tokens with laminated ArUco markers
-- Arduino and potentiometer for the wind knob
 - Black cloth or pop-up canopy to block ambient light
 - Speaker and microphone for the commander
 
@@ -397,10 +496,11 @@ Virtual table mode means nobody is blocked waiting for hardware.
 
 ## Demo Script
 
-1. A judge walks up to the attract mode: topo-lit terrain, glowing towns, drifting wind.
-2. A lightning strike ignites a ridge.
-3. The fire races uphill. The commander announces: *"Pinecrest threatened in 12 minutes."* An evacuation route lights up.
-4. The judge places crews and a firebreak. The fire bends around them in real time.
-5. The judge turns the wind knob. The forecast ghost swings, routes reroute, and the commander re-briefs.
-6. The judge asks, "What if the wind shifts west?" The commander answers from a real forecast.
-7. Round ends with a score summary. Close with the Camp Fire replay against the real perimeter.
+Judging is virtual, so the demo is a recorded video. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record with exercise control on a second screen (or off-camera) and Autopilot on where clicking every card would drag.
+
+1. Open on the table under the projector, a fire starting at the Camp Fire origin: "this is what a drone sees."
+2. Cut to the operator console, Monitor. The decision queue fills: Concow likely to see fire in about 40 minutes, evacuate via Highway 70; crew recommendations with stations and ETAs. The town board shows every town's time until fire, with ranges.
+3. Dispatch a recommendation. The unit drives in from its station on the map; the forecast credits it from its arrival.
+4. Plan mode: "what if the wind swings west?" Dial it in, add a dozer line, and watch the map shade what the plan saves against doing nothing, with intervals. Dispatch the plan.
+5. The wind really shifts (exercise control). Routes reroute, a road is cut, the queue re-sorts, and the commander briefs it. Ask the commander a question out loud.
+6. Review: the outcome town by town (and, with #124, what the decisions bought against doing nothing). Close with the Camp Fire replay against the real perimeter.

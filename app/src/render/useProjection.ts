@@ -27,7 +27,11 @@ export function useProjectionSync(
   useEffect(() => ref.current?.setRoutes(routes), [ref, routes, generation]);
   // Read straight from the store rather than threaded through every view's
   // props: every projection shows the same recommendations.
-  const { recommendations, events } = useEngine();
+  const { recommendations, events, hello, units } = useEngine();
+  const stations = hello?.stations;
+  useEffect(() => ref.current?.setDispatch(stations ?? [], units), [ref, stations, units, generation]);
+  const crewReach = hello?.crew_radius ?? 14;
+  useEffect(() => ref.current?.setCrewReach(crewReach), [ref, crewReach, generation]);
   useEffect(() => ref.current?.setRecommendations(recommendations), [ref, recommendations, generation]);
   // The store's events outlive a reset, so a map with nothing burning has no
   // threatened towns whatever the log says. Joined to a string so the canvas

@@ -3,7 +3,8 @@
 
 import type { MonitorInfo, Platform } from "./types";
 
-const PROJECTOR_NAME = "firewatch-projector";
+const PROJECTOR_NAME = "fireline-projector";
+const CONTROL_NAME = "fireline-control";
 let projector: Window | null = null;
 
 export const browserPlatform: Platform = {
@@ -29,5 +30,9 @@ export const browserPlatform: Platform = {
   async closeProjector() {
     projector?.close();
     projector = null;
+  },
+
+  async openControl() {
+    window.open("/?view=control", CONTROL_NAME, "popup,width=1400,height=900")?.focus();
   },
 };

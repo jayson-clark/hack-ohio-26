@@ -1,6 +1,6 @@
 ---
 name: vision-camera
-description: Turn on the webcam for token tracking, pick the right camera index, test vision without the table, or debug ArUco marker detection (tokens not appearing, wrong positions, "Show all four corners"). Use when touching engine/vision/ or the console's Camera tab.
+description: Turn on the webcam for token tracking, pick the right camera index, test vision without the table, or debug ArUco marker detection (tokens not appearing, wrong positions, "Show all four corners"). Use when touching engine/vision/ or exercise control's Camera view.
 ---
 
 Pipeline (all in `engine/vision/`, on its own thread): `camera.py` capture → `markers.py` detect (DICT_4X4_50) → `calibration.py` `H_cam→map` from the 4 corner markers → `tracking.py` debounce/smooth → `TokenTracker` as source `vision`. Design: PLAN.md, Calibration and Token tracking.
@@ -9,7 +9,7 @@ Pipeline (all in `engine/vision/`, on its own thread): `camera.py` capture → `
 
 **Printing markers:** `uv run tools/make_markers.py` regenerates `assets/markers/markers.pdf` (page 1 corners, page 2 tokens; `--token-mm` sets the token piece size, default 20). Regenerate after changing IDs or the corner size in `terrain.yaml`. Print at 100% / Actual size and check the 100 mm bar with a ruler. Each piece includes a 1-cell white margin; cut on the dashed line. Keep it vector: a rasterised sheet printed with corner borders eaten away and never decoded.
 
-**Turn it on:** set `CAMERA=` in the root `.env`, restart the engine, open the console's **Camera** tab.
+**Turn it on:** set `CAMERA=` in the root `.env`, restart the engine, open exercise control (`?view=control`, or "Exercise control" in the console header) and pick the **Camera** view.
 - `CAMERA=0` / `1` / …: AVFoundation index. The built-in camera, a USB webcam and an iPhone (Continuity Camera) all get indices, and the order isn't stable. Check one with `cd engine && uv run python -m vision.camera 1`. It prints the markers it sees and writes `camera-1.jpg` with the overlay.
 - `CAMERA=path/to/board.png` (or a video): looped as if it were a camera, so you can work with no hardware. Relative paths are from the repo root.
 - Empty: vision off, virtual table only (the default).
@@ -23,5 +23,7 @@ Pipeline (all in `engine/vision/`, on its own thread): `camera.py` capture → `
 - A marker is outlined but no token appears: it has to sit inside the map grid and be seen for `APPEAR_FRAMES` frames in a row. Unknown IDs are drawn grey with `?`.
 - Positions slightly off on tall hills: parallax, because the homography is for the plane of the corner markers. Expected; see PLAN.md, Height parallax.
 - Washed out under projector light: rely on the white halos. Lower ambient light before you lower detection thresholds.
+
+Projector calibration (map → projector, the projected ring): see the calibrate-projector skill.
 
 Tests: `cd engine && uv run pytest tests/test_vision.py`.

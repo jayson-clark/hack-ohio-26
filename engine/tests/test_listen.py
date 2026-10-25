@@ -109,3 +109,12 @@ def test_real_transcription_gets_place_names_right(tmp_path):
     listener = Listener(vocabulary_prompt(["Paradise", "Magalia", "Concow", "Pulga"], ["the Skyway"]))
     text = listener.transcribe(audio)
     assert "Pulga" in text and "Concow" in text, text
+
+
+def test_speakable_reads_names_and_units():
+    """The STT vocabulary prompt uses spoken forms of road and exit names."""
+    from commander.listen import speakable
+
+    assert speakable("Evacuate toward Oroville (Hwy 70).") == "Evacuate toward Oroville via Highway 70."
+    assert speakable("Go to Chico (Skyway) or Oroville (Clark Rd).") == "Go to Chico via Skyway or Oroville via Clark Road."
+    assert speakable("Wind at 12 m/s, about 15% less burns.") == "Wind at 12 meters per second, about 15 percent less burns."

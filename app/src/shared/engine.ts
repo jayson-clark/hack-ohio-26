@@ -3,21 +3,28 @@
 
 import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
-import { interrupt, speak } from "./speech";
 import type {
+  Calibration,
+  CalibrationAction,
   ClientMessage,
   CommanderMessage,
   EngineMessage,
+  EvacClock,
+  ForecastEnvelope,
   Event,
   Hello,
+  PlanOrder,
+  PlanResult,
   Recommendation,
   RouteInfo,
+  UnitInfo,
   ScenarioState,
   Score,
+  Situation,
   Token,
   Transcript,
   VisionStatus,
-  VoiceMode,
+  WindState,
 } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
@@ -39,6 +46,14 @@ export interface ForecastGrids {
   horizons: Uint8Array[];
 }
 
+/** A plan's answer (#123) and its PLAN_GRID: P(burned by the horizon) without and with the plan, 0-255. */
+export interface PlanState {
+  /** The id of the newest evaluate_plan this window sent, or 0 before any. */
+  pending: number;
+  result: PlanResult | null;
+  grids: { id: number; width: number; height: number; base: Uint8Array; plan: Uint8Array } | null;
+}
+
 export interface EngineState {
   status: "connecting" | "open" | "closed";
   hello: Hello | null;
@@ -50,20 +65,30 @@ export interface EngineState {
   forecast: ForecastGrids | null;
   /** Every town's evacuation route, replanned after each forecast. */
   routes: RouteInfo[];
+  /** When each town has to be ordered out (#121), most urgent first. */
+  evacClock: EvacClock | null;
+  /** The calibrated burn envelope's cutoffs and running miss rates (#12). */
+  envelope: ForecastEnvelope | null;
+  /** Fire units (#104): where each is, and its route and ETA while en route. */
+  units: UnitInfo[];
   /** Recent events, oldest first. Cleared on reconnect. */
   events: Event[];
   /** Crew placement recommendations, best first (cards and markers: #45). */
   recommendations: Recommendation[];
   /** Camera and marker detection health (camera "off" in virtual table mode). */
   vision: VisionStatus | null;
+  /** Projector calibration: the wizard's phase and the map -> projector matrix. */
+  calibration: Calibration | null;
   /** Latest camera_frame (a JPEG with the vision overlay), while a camera is on. */
   cameraFrame: BinaryFrame | null;
+  /** The town board (#122): how soon fire could reach each town, after each forecast. */
+  situation: Situation | null;
+  /** This window's plan what-if (#123). */
+  plan: PlanState;
   /** Round phase, resource limits and score (scoreboard: #47). */
   score: Score | null;
   /** What the commander has said (briefings and answers), oldest first. For #29. */
   transcript: CommanderMessage[];
-  /** How the commander speaks (off by default); remembered per browser. */
-  voiceMode: VoiceMode;
   /** Push-to-talk: held down now, and what it heard last time (cleared when pressed again). */
   listening: boolean;
   heard: Transcript | null;
@@ -77,13 +102,18 @@ let state: EngineState = {
   simGrid: null,
   forecast: null,
   routes: [],
+  evacClock: null,
+  envelope: null,
+  units: [],
   events: [],
   recommendations: [],
   vision: null,
+  calibration: null,
   cameraFrame: null,
+  situation: null,
+  plan: { pending: 0, result: null, grids: null },
   score: null,
   transcript: [],
-  voiceMode: loadVoiceMode(),
   listening: false,
   heard: null,
 };
@@ -99,7 +129,27 @@ function setState(patch: Partial<EngineState>) {
 function handleMessage(msg: EngineMessage) {
   switch (msg.type) {
     case "hello":
-      setState({ hello: msg });
+      // A different scenario (load_scenario, #57) means everything tied to the
+      // old map is stale: grids are a different size and the towns differ.
+      if (state.hello && state.hello.scenario !== msg.scenario) {
+        setState({
+          hello: msg,
+          simGrid: null,
+          forecast: null,
+          routes: [],
+          evacClock: null,
+          envelope: null,
+          units: [],
+          events: [],
+          recommendations: [],
+          transcript: [],
+          score: null,
+          situation: null,
+          plan: { pending: 0, result: null, grids: null },
+        });
+      } else {
+        setState({ hello: msg });
+      }
       break;
     case "scenario_state":
       setState({ scenario: msg });
@@ -107,17 +157,23 @@ function handleMessage(msg: EngineMessage) {
     case "tokens":
       setState({ tokens: msg.tokens });
       break;
+    case "units":
+      setState({ units: msg.units });
+      break;
     case "routes":
       setState({ routes: msg.routes });
+      break;
+    case "evac_clock":
+      setState({ evacClock: msg });
+      break;
+    case "forecast_envelope":
+      setState({ envelope: msg });
       break;
     case "recommendations":
       setState({ recommendations: msg.recommendations });
       break;
     case "transcript":
       setState({ heard: msg });
-      break;
-    case "commander_speech":
-      if (state.voiceMode === "console") speak(msg);
       break;
     case "commander_message":
       setState({ transcript: [...state.transcript, msg].slice(-MAX_TRANSCRIPT) });
@@ -130,6 +186,16 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "score":
       setState({ score: msg });
+      break;
+    case "calibration":
+      setState({ calibration: msg });
+      break;
+    case "situation":
+      setState({ situation: msg });
+      break;
+    case "plan_result":
+      // Plans are broadcast to every window; keep only the one this window asked for.
+      if (msg.id === state.plan.pending) setState({ plan: { ...state.plan, result: msg } });
       break;
   }
 }
@@ -151,6 +217,21 @@ function handleBinary(buf: ArrayBuffer) {
     case BinaryType.CameraFrame:
       setState({ cameraFrame: frame });
       break;
+    case BinaryType.PlanGrid: {
+      // The header's tick is the plan id it belongs to.
+      if (frame.tick !== state.plan.pending) break;
+      const { width, height, payload } = frame;
+      const cells = width * height;
+      const grids = {
+        id: frame.tick,
+        width,
+        height,
+        base: payload.slice(0, cells),
+        plan: payload.slice(cells, 2 * cells),
+      };
+      setState({ plan: { ...state.plan, grids } });
+      break;
+    }
   }
 }
 
@@ -162,7 +243,6 @@ function connect() {
 
   socket.onopen = () => {
     setState({ status: "open", events: [] });
-    send({ type: "set_voice", mode: state.voiceMode });
   };
   socket.onclose = () => {
     ws = null;
@@ -182,33 +262,9 @@ export function send(msg: ClientMessage) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
-const VOICE_KEY = "firewatch.voiceMode";
-
-function loadVoiceMode(): VoiceMode {
-  try {
-    const v = localStorage.getItem(VOICE_KEY);
-    if (v === "console" || v === "mac") return v;
-  } catch {
-    // storage can be blocked; voice just starts off
-  }
-  return "off";
-}
-
-/** Turn the commander's voice off, on in this console, or on through the Mac's `say`. */
-export function setVoiceMode(mode: VoiceMode) {
-  try {
-    localStorage.setItem(VOICE_KEY, mode);
-  } catch {
-    // not remembered, but still applied
-  }
-  setState({ voiceMode: mode });
-  send({ type: "set_voice", mode });
-}
-
-/** Push-to-talk down: the commander stops talking and the engine starts recording. */
+/** Push-to-talk down: the engine starts recording. */
 export function pttStart() {
   if (state.listening) return;
-  interrupt();
   setState({ listening: true, heard: null });
   send({ type: "ptt_start" });
 }
@@ -224,6 +280,33 @@ export function pttStop() {
 export function askCommander(text: string) {
   const q = text.trim();
   if (q) send({ type: "commander_query", text: q.slice(0, 500) });
+}
+
+/** Drive the projector calibration wizard (start, save, check, cancel, clear). */
+export function calibrationStep(action: CalibrationAction) {
+  send({ type: "calibration_step", action });
+}
+
+/** Order a town out (or take the order back). */
+export function orderEvacuation(town: string, ordered: boolean) {
+  send({ type: "order_evacuation", town, ordered });
+}
+
+// Plan ids only need to be unique per window and session; start somewhere
+// random so two consoles rarely pick the same one.
+let planSeq = Math.floor(Math.random() * 1e6);
+
+/** Run a set of orders (and an assumed wind) against doing nothing (#123). The
+ * answer lands in `plan`; an older answer still on its way is ignored. */
+export function evaluatePlan(orders: PlanOrder[], wind: WindState | null, horizonMin: number) {
+  const id = ++planSeq;
+  setState({ plan: { ...state.plan, pending: id } });
+  send({ type: "evaluate_plan", id, orders, wind, horizon_min: horizonMin });
+}
+
+/** Forget the plan's answer (the plan was cleared or dispatched). */
+export function clearPlan() {
+  setState({ plan: { pending: 0, result: null, grids: null } });
 }
 
 /** Place a recommended crew where the engine suggested it. */
