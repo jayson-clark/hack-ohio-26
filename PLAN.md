@@ -244,7 +244,7 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 
 The top recommendation's realized benefit fell from 985 to 708 (steady wind). It still beats a random front spot 19 of 32 times, and its prediction stays calibrated (689 predicted).
 
-At `C2` 0.3 (#170), most comparisons are ties: in 15–20 of about 30 cases per wind schedule neither spot changes the outcome, because narrower fires reach towns less often. Where they differ, the top recommendation wins 31 of 36 (steady 12 of 13, shift 9 of 10, gusty 10 of 13). `eval.run` now reports ties separately.
+At `C2` 0.3 (#170), most comparisons are ties: in 15–20 of about 30 cases per wind schedule neither spot changes the outcome, because narrower fires reach towns less often. Where they differ, the top recommendation wins 31 of 36 (steady 12 of 13, shift 9 of 10, gusty 10 of 13). `eval.run` now reports ties separately. On the extended map (#200, #212) it's 29 of 34 (steady 10 of 11, shift 7 of 9, gusty 12 of 14), with 14–23 ties per schedule.
 
 **Ember spotting.** In wind over `SPOT_MIN_WIND` (9 m/s), burning cells throw embers downwind (`_spot` in `engine/sim/fire.py`). Each ember flies an exponential distance (mean 12 cells, about 1.1 km, at 10 m/s, capped at 6.6 km) and lights fuel where it lands, less so under suppression. That lets a wind-driven fire outrun the one-cell-per-tick limit, as the Camp Fire did. Calm and moderate days are unchanged, and ember draws are shared across paired what-ifs.
 
@@ -259,7 +259,9 @@ At `C2` 0.3 (#170), most comparisons are ties: in 15–20 of about 30 cases per 
 | IoU with the 7.1 h / 11.5 h perimeters | 0.54 / 0.63 | 0.55 / 0.64 |
 | Burned area vs the perimeters | 1.73x / 1.53x | 1.71x / 1.51x |
 
-That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x the real area because the flanks spread too wide. `C2` is now 0.3 (see "Choosing C2" below), which brings the perimeters to IoU 0.66/0.78 at 1.32x/1.16x the area.
+That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x the real area because the flanks spread too wide. `C2` is now 0.3 (see "Choosing C2" below), which brought the perimeters to IoU 0.66/0.78 at 1.32x/1.16x the area, but only inside the old 256x192 map.
+
+**On the extended map (#200), the fit is worse, and that's the honest number.** The old map's edges were hiding an over-prediction: inside the old box the sim had already burned everything burnable by 7 h, so its score was capped. With the truth files rebuilt on the 512x480 grid (`tools/campfire_to_assets.py`: 2,221 NIST observations, 9 perimeters) and the valley floor's irrigated farmland made nearly unburnable (#212), the replay overlaps the real perimeters at IoU 0.35/0.46, burning 2.55x/2.0x the real area. The best of a 432-setting search (`C2` x spotting x the replay wind) reaches 0.39/0.53 at 2.1–2.2x, with `C2` 0.3 and 0.4 tied, so `C2` stays 0.3. What's left isn't in those knobs: the sim keeps burning foothill grass and oak west and south-west under the 19 m/s north-easterly, and about 20% of the observed points are never reached, so it's shape as well as size. Fuel moisture (afternoon humidity recovery) or a wind that dies faster off the ridge are the likely missing pieces. It's a known limit. The evacuation clock still flags all 4 towns the real fire reached at its first forecast, before the real deadline.
 
 **Marshall Fire** (`cd engine && uv run python -m eval.marshall`, #107): a second real fire, grass into suburb under a steady 15–20 m/s westerly, scored against the NASA FEDS perimeter at 2.5 h and the WFIGS final perimeter. It has no timed per-house observations. It agrees with the Camp Fire: every top result of the search has `C2` 0.4, which matches the 2.5 h area (0.9–1.0x, IoU ~0.39), where 0.22 burns 4–5x too much. At every setting, though, the sim keeps running east through Louisville to the map edge where the real fire stopped, so the final perimeter is a fuel and structure question (suburbs burn like grass here), not a wind one. Under the measured wind (`--measured`: NCAR Mesa Lab's 5-min record in the foothills, 11–19 m/s from about 245° through the afternoon, gusts to 40 m/s, #141) the verdict holds: 0.22 burns 1.9–4x the real 2.5 h area at any speed scale, while 0.3 at 0.8x the station's speed (IoU 0.46, area 1.09x) and 0.4 at 1x (IoU 0.41, area 0.85x) fit. NOAA's airport record downwind (KBJC) saw only 5–9 m/s from shifting directions, so the foothill station is the one that represents the fire's wind. Suburban fuel is per scenario (#144): Boulder County's irrigated suburbs burn at residential 0.25 and commercial 0.3, while Paradise's forested lots keep 0.9 (its replay needs 0.6 or more). Under the measured wind that takes the best Marshall final perimeter from IoU 0.19 at 2.7x the area to IoU 0.38 at 0.84x (C2 0.4), and from 5.2x to 4.4x at 0.22. What's left is shape: the sim misses the real fire's north-west and south flanks.
 
@@ -269,6 +271,8 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
 |---|---|---|---|
 | 0.22 | 0.55 / 0.63 (1.73x / 1.53x) | 0.38 (1.81x) | 5,095 / 6,287 / 21,864 (12%) |
 | **0.3** | **0.66 / 0.78 (1.32x / 1.16x)** | **0.45 (1.01x)** | **2,579 / 2,646 / 11,057 (25%)** |
+
+That table was scored inside the old 256x192 maps. On the extended maps the Camp Fire column is 0.32/0.38 (0.22), 0.39/0.53 (0.3) and 0.39/0.53 (0.4), all at about 2x the area (see above), and Marshall at 0.3 is unchanged (2.5 h IoU 0.45 at 1.01x).
 | 0.4 | 0.68 / 0.80 (1.14x / 1.01x) | 0.41 (0.50x) | 883 / 831 / 4,925 (62%) |
 
 `C2` is 0.3: close to 0.4 on the Camp Fire, the best Marshall fit, and fires on a moderate day still grow. At 0.4 most fires at 3–8 m/s burn out by themselves, which real timber fires don't. The floor (0.3, 0.5 or 0.7 of calm spread) made both replays worse at every `C2`: Camp IoU fell to 0.38–0.54 and Marshall's 2.5 h area rose to 1.4–3.6x, because it widens the flanks of strong-wind fires too. So there's no floor.
@@ -296,9 +300,11 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
 
     | Wind | T+30 | T+60 |
     |---|---|---|
-    | Steady | 10.9% | 11.0% |
-    | Shift | 11.7% | 13.0% |
-    | Gusty | 12.3% | 12.1% |
+    | Steady | 10.9% | 10.9% |
+    | Shift | 11.7% | 12.6% |
+    | Gusty | 12.4% | 12.2% |
+
+    That's on the extended Paradise map with the valley fuel fix (#200, #212), simulator only; on the old map it was 10.9/11.0%, 11.7/13.0% and 12.3/12.1%.
 
     In gusty wind and after shifts the envelope ends at a cutoff near 1/32 plus a 1–5-cell margin; in steady wind near 0.11 with no margin.
   - **What is guaranteed:** online ACI gives a finite-sample bound on the running average, for any sequence of data, but nothing per forecast. Each update moves θ by `lr × (miss − α)`, so the sum telescopes: average miss ≤ α + (θ_0 − θ_min) / (lr × T), as long as the widest envelope (cutoff 1/32 plus `MAX_MARGIN`) itself misses at most α. With the T+30 warm start that's 10% + 3.7/T, so the measured 11–13% at T ≈ 90 is within it. Split conformal's per-prediction guarantee would need exchangeable data, which wind shifts and player actions rule out.
@@ -314,11 +320,11 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
 
     | Wind | Calibrated | Raw |
     |---|---|---|
-    | Steady | **98%** | 95% |
-    | Wind shift | **70%** | 35% |
-    | Gusty | **72%** | 42% |
+    | Steady | **95%** | 89% |
+    | Wind shift | **67%** | 31% |
+    | Gusty | **65%** | 32% |
 
-    That's at `C2` 0.3 (#170), with 40–55 town ranges per schedule. At 0.22 it was 89%, 56% and 75%. The same ACI bound holds for the disks' miss rate per bucket (no clipping, so it holds unconditionally); town coverage is the empirical check that towns behave like disks.
+    That's on the extended Paradise map with the valley fuel fix (#200, #212), with 39–56 town ranges per schedule. On the old map at `C2` 0.3 it was 98%, 70% and 72%; at 0.22, 89%, 56% and 75%. The same ACI bound holds for the disks' miss rate per bucket (no clipping, so it holds unconditionally); town coverage is the empirical check that towns behave like disks.
 
   - **Known limit: an unforecast wind shift.** Every range issued before it is wrong at once, and the correction only learns afterwards.
     - Per-rollout wind spread (±20%, ±20°) lifted the shift case to 68%, but gave half as many towns a range and dropped steady to 79%. Wider spread left almost no town bounded. The long forecast stays without spread.
