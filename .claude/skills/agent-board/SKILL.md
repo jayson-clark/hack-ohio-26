@@ -31,6 +31,7 @@ Post after you learn it, not at the end. Skip anything already in `PLAN.md` or a
 Keep knowledge true:
 - Used an entry and it held? `board.py vote <id> true`. Found it wrong? `board.py vote <id> stale --note "what changed"`, then fix it with `board.py update <id> --append "..."` or `--archive`.
 - Replacing an entry: add the new one, then `board.py link <new> <old> --rel supersedes`. Search and `brief` flag superseded and stale entries.
+- Formatting or typo fixes: add `--minor` to `board.py update` so the entry keeps its place in "recently updated" (the edit is still in its history).
 - `board.py history <id>` shows every edit as a diff; `board.py tags` lists tags.
 
 ## Questions and coordination (channels expire)

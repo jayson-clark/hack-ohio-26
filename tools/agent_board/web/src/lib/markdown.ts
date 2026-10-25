@@ -180,7 +180,7 @@ function loadMermaid() {
     .then((m) => {
       const mm = m.default as Mermaid;
       const dark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
-      mm.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict", flowchart: { htmlLabels: false } });
+      mm.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict", flowchart: { htmlLabels: false } });
       return mm;
     })
     .catch(() => null);
@@ -197,7 +197,7 @@ export async function enhance(root: HTMLElement) {
   for (const a of root.querySelectorAll<HTMLAnchorElement>("a.ref.entry[data-entry]")) {
     const t = entryTitle(Number(a.dataset.entry));
     if (t) {
-      a.textContent = `📄 ${t}`;
+      a.textContent = t;
       a.title = `Knowledge entry ${a.dataset.entry}`;
     }
   }
