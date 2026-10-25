@@ -12,7 +12,7 @@
 // (?view=control), which stands in for the real incident.
 
 import { useEffect, useRef, useState } from "react";
-import { getPlatform } from "../platform";
+import { getPlatform, isTauri } from "../platform";
 import { useEngine } from "../shared/engine";
 import type { Recommendation, TokenType } from "../shared/protocol";
 import { formatSimMinutes } from "../shared/round";
@@ -138,8 +138,13 @@ export default function Console() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="relative z-20 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-panel px-4">
-        <div className="flex items-center gap-2.5">
+      {/* In Tauri the macOS title bar is drawn over this header: leave room for
+          the traffic lights, and let the empty parts drag the window. */}
+      <header
+        data-tauri-drag-region
+        className={`relative z-20 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-panel pr-4 ${isTauri ? "pl-[84px]" : "pl-4"}`}
+      >
+        <div data-tauri-drag-region className="flex items-center gap-2.5">
           <FlameMark size={26} />
           <span className="text-[15px] font-semibold tracking-tight text-ink">Fireline</span>
         </div>
@@ -183,7 +188,7 @@ export default function Console() {
           ))}
         </nav>
 
-        <div className="flex-1" />
+        <div data-tauri-drag-region className="h-full flex-1" />
         <Button
           size="sm"
           variant="ghost"

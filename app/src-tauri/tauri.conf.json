@@ -16,7 +16,10 @@
         "title": "Fireline Console",
         "url": "/?view=console",
         "width": 1520,
-        "height": 920
+        "height": 920,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 18, "y": 22 }
       }
     ],
     "security": {
