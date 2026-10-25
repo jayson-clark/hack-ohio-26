@@ -10,13 +10,13 @@ export type EngineMessage =
   | VisionStatus
   | Score
   | CommanderMessage
-  | Transcript
   | Units
   | EvacClock
   | Situation
   | PlanResult
   | Calibration
-  | ForecastEnvelope;
+  | ForecastEnvelope
+  | Drafts;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -31,7 +31,8 @@ export type EventKind =
   | "unit_arrived"
   | "unit_blocked"
   | "tankers_grounded"
-  | "evacuate_now";
+  | "evacuate_now"
+  | "draft_sent";
 export type RecAction = "place" | "move";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
@@ -56,8 +57,8 @@ export type ClientMessage =
   | StepOnce
   | CommanderQuery
   | OrderEvacuation
-  | PttStart
-  | PttStop
+  | DraftAction
+  | RequestBriefing
   | CalibrationStep
   | EvaluatePlan;
 export type CalibrationAction = "start" | "save" | "check" | "cancel" | "clear";
@@ -78,7 +79,6 @@ export interface Hello {
   map_height: number;
   sim_minutes_per_tick: number;
   forecast_horizons_min: number[];
-  speech_to_text: boolean;
   stations: StationInfo[];
 }
 export interface StationInfo {
@@ -256,14 +256,6 @@ export interface CommanderMessage {
   event: EventKind | null;
 }
 /**
- * What push-to-talk heard. A non-empty text is also asked of the commander.
- */
-export interface Transcript {
-  type: "transcript";
-  text: string;
-  error: string | null;
-}
-/**
  * Every fire unit (#104). Sent when one changes status, and a few times
  * a second while any is en route, so the map can draw them driving in.
  */
@@ -282,6 +274,7 @@ export interface UnitInfo {
   y: number;
   eta_min: number | null;
   path: number[][];
+  line: number[][];
 }
 /**
  * When each town has to be ordered out (#121): fire arrival from a long
@@ -432,6 +425,27 @@ export interface ForecastEnvelope {
   miss_overall: (number | null)[];
   scored: number[];
 }
+export interface Drafts {
+  type: "drafts";
+  tick: number;
+  drafts: Draft[];
+}
+/**
+ * A drafted dispatch order, evacuation alert or briefing (#132). Nothing
+ * is delivered anywhere: the operator approves, edits or dismisses it.
+ */
+export interface Draft {
+  id: string;
+  kind: "unit_order" | "evac_alert" | "briefing";
+  subject: string;
+  status: "draft" | "sent" | "dismissed";
+  text: string;
+  text_es: string | null;
+  source: "template" | "llm" | "operator";
+  grounded: boolean;
+  tick: number;
+  sent_tick: number | null;
+}
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
   token_type: TokenType;
@@ -517,7 +531,7 @@ export interface StepOnce {
   type: "step_once";
 }
 /**
- * A question for the incident commander, typed or transcribed. A new
+ * A question for the incident commander, typed in the console. A new
  * question cancels one still being answered.
  */
 export interface CommanderQuery {
@@ -533,16 +547,19 @@ export interface OrderEvacuation {
   ordered: boolean;
 }
 /**
- * Push-to-talk pressed: the engine starts recording and the commander stops talking.
+ * Send, dismiss or edit a draft (#132). `text` is the edited text.
  */
-export interface PttStart {
-  type: "ptt_start";
+export interface DraftAction {
+  type: "draft_action";
+  id: string;
+  action: "send" | "dismiss" | "edit";
+  text: string | null;
 }
 /**
- * Push-to-talk released: the engine transcribes and asks the commander.
+ * Draft a situation briefing now (#132).
  */
-export interface PttStop {
-  type: "ptt_stop";
+export interface RequestBriefing {
+  type: "request_briefing";
 }
 export interface CalibrationStep {
   type: "calibration_step";

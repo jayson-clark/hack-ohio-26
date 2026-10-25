@@ -55,11 +55,14 @@ function Title({ r }: { r: Route }) {
       h = "Tags";
       break;
     case "e":
-      h = <span className="ellipsis">{entry ? entry.title : `Entry #${r.arg}`}</span>;
-      desc = (
-        <a href="#/knowledge" className="muted">
-          ← Knowledge
-        </a>
+      h = (
+        <>
+          <a href="#/knowledge" style={{ color: "var(--muted)", fontWeight: 500 }}>
+            Knowledge
+          </a>
+          <span style={{ color: "var(--faint)" }}>/</span>
+          <span className="ellipsis">{entry ? `#${entry.id}` : `#${r.arg}`}</span>
+        </>
       );
       break;
     case "c":

@@ -44,15 +44,16 @@ SIM_MINUTES_PER_TICK = 1.0
 # barely moves; at 15 m/s the head runs about 0.9. The paper's slope term
 # a = 0.078/deg made Paradise's canyon walls (90th percentile 24 deg)
 # effectively impassable downhill, so it's softened too.
-# The Camp Fire replay (eval/campfire.py, #15) would fit its perimeters better
-# with C2 0.3-0.4 (a narrower tongue: the replay burns ~1.7x the real area at
-# 0.22). But C2 also starves backing and flank spread at every wind, so at 3-8
-# m/s fires came out under half the size, many burned out on their own, and
-# instant attack contained them again. One extreme-wind event isn't enough
-# evidence for that, so C2 stays at 0.22.
+# C2 is 0.3, up from 0.22: both real fires (the Camp Fire replay, #15, and
+# Marshall, #107) fit better with a narrower head (Camp IoU 0.66/0.78 at
+# 1.3x/1.2x the area, Marshall 2.5 h IoU 0.45 at 1.0x). 0.4 fits slightly
+# better still but starves fires at ordinary winds (8 m/s: 831 ac in 3 h vs
+# 2,646 at 0.3, and most burn out by themselves). A floor on flank and backing
+# spread was tried and rejected: it widens the flanks of strong-wind fires,
+# which made both replays worse at every C2.
 P_H = 0.08
 C1 = 0.14
-C2 = 0.22
+C2 = 0.3
 SLOPE_A = 0.05  # per degree of slope between neighbours
 BURN_TICKS = 8
 # A diagonal neighbour is sqrt(2) further away, so it should take longer to

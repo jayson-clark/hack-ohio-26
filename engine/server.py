@@ -21,8 +21,7 @@ import numpy as np
 
 from commander.agent import Commander
 from commander.briefings import BriefingQueue, ForecastWatcher, evacuate_text, round_summary
-from commander.listen import Listener, vocabulary_prompt
-from commander.listen import speakable
+from commander.drafts import DraftDesk, set_known_names
 from commander.tools import CommanderTools
 from forecast.plan import PLAN_ROLLOUTS, PlanOutcome, evaluate_plan
 from forecast.recommend import PlacedCrew, Rec, Recommender, TownInfo, describe
@@ -35,6 +34,7 @@ from protocol import (
     CommanderKind,
     CommanderMessage,
     CommanderQuery,
+    DraftAction,
     CameraState,
     EndRound,
     EvacStatus,
@@ -51,8 +51,7 @@ from protocol import (
     PlanOrderResult,
     PlanResult,
     PlanTown,
-    PttStart,
-    PttStop,
+    RequestBriefing,
     Reset,
     ResourceUse,
     RoundPhase,
@@ -66,7 +65,6 @@ from protocol import (
     StepOnce,
     Token,
     TokenType,
-    Transcript,
     StationInfo,
     UnitInfo,
     Units,
@@ -224,6 +222,9 @@ class Engine:
         self.watcher = ForecastWatcher()
         self.briefings = BriefingQueue()
         self.commander = Commander(self.tools)
+        # Drafted dispatch orders and evacuation alerts for the operator (#132).
+        self.drafts = DraftDesk()
+        self._name_drafts()
         self._query_task: asyncio.Task | None = None
 
     def load(self, name: str) -> None:
@@ -297,11 +298,6 @@ class Engine:
         self._acting: list[Token] = []  # tokens acting on the fire (within limits, unit arrived)
         # Cleared on every load, so a new scenario's units are always sent.
         self._units_sig: tuple = ()
-        # Push-to-talk: the engine records and transcribes (commander/listen.py).
-        exits = [z.name for z in self.roads.safe_zones] if self.roads else []
-        roads = [speakable(n[n.index("(") + 1 : -1]) for n in exits if n.endswith(")")]
-        roads = [r if r.startswith(("Highway", "State")) else ("the " + r if " " not in r else r) for r in roads]
-        self.listener = Listener(vocabulary_prompt([t.name for t in self.towns], roads))
 
     def hello_msg(self) -> str:
         s = self.scenario
@@ -312,7 +308,6 @@ class Engine:
             map_height=s.height,
             sim_minutes_per_tick=SIM_MINUTES_PER_TICK,
             forecast_horizons_min=list(HORIZONS_MIN),
-            speech_to_text=self.listener.available,
             stations=[StationInfo(name=s.name, x=s.x, y=s.y, kind=s.kind) for s in self.stations],
         ).model_dump_json()
 
@@ -458,6 +453,7 @@ class Engine:
                 await ws.send(self.clock_msg())
             await ws.send(self.recs_msg())
             await ws.send(self.envelope_msg())
+            await ws.send(self.drafts.message(self.fire.tick))
             await ws.send(self.units_msg())
             await ws.send(self.situation_msg())
             if self.recent_events:
@@ -523,15 +519,15 @@ class Engine:
                 self.accept_recommendation(msg.id)
             case OrderEvacuation():
                 self.order_evacuation(msg.town, msg.ordered)
+            case DraftAction():
+                self.draft_action(msg)
+            case RequestBriefing():
+                self._new_draft(self.drafts.briefing(self))
             case EvaluatePlan():
                 self._plan_latest = msg.id
                 asyncio.create_task(self.evaluate_plan(msg))
             case CommanderQuery():
                 self.ask(msg.text)
-            case PttStart():
-                self.ptt_start()
-            case PttStop():
-                self.ptt_stop()
             case CalibrationStep():
                 self.calibrator.step(msg.action, self.camera is not None)
                 broadcast(self.clients, self.calibration_msg())
@@ -554,9 +550,6 @@ class Engine:
         if not (ASSETS / name).is_dir():
             log.warning("load_scenario: no scenario %r under %s", name, ASSETS)
             return
-        # Stop anything tied to the old listener before load() replaces it.
-        if self.listener.recording:
-            self.listener.stop()
         previous = self.scenario.name
         try:
             self.load(name)
@@ -583,6 +576,9 @@ class Engine:
         # load() already reset the route tracker (held routes belong to the old graph).
         self._routes_tick = 0
         self.tools.on_scenario()
+        self.drafts.clear()  # orders and alerts were about the old map
+        self._name_drafts()
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
         self._sent_inactive = []
         self._sent_token_version = -1
         self.recent_events.clear()
@@ -611,6 +607,7 @@ class Engine:
         """Put the fire out, drop everything derived from it, and tell the UI."""
         self.fire.reset()
         self.envelope.clear_pending()  # in-flight envelopes were about the old fire; keep what was learned
+        self.drafts.clear()
         self.eta_cal.clear_pending()
         self._burn_tick[:] = np.inf
         self.effects.reset()
@@ -630,8 +627,6 @@ class Engine:
         self.commander.reset()
         if self._query_task is not None:
             self._query_task.cancel()
-        if self.listener.recording:
-            self.listener.stop()
         self.recs = []
         self._rec_started = -RECOMMEND_MIN_TICKS
         self.dispatcher.reset()
@@ -850,18 +845,27 @@ class Engine:
                 token_id=u.token_id, x=round(float(x), 2), y=round(float(y), 2),
                 eta_min=round((u.arrive_tick - tick) * mpt, 1) if u.status == "en_route" else None,
                 path=u.path if u.status == "en_route" else [],
+                line=self.effects.line_of(u.token_id, tick) if u.status == "working" and u.token_id else [],
             ))
         return Units(tick=tick, units=units).model_dump_json()
 
     def flush_dispatch(self) -> None:
-        """Send dispatch events (arrived, blocked, grounded) and unit positions."""
+        """Send dispatch events (arrived, blocked, grounded) and unit positions,
+        and draft an order for every unit just sent (#132)."""
         kinds = {"arrived": EventKind.UNIT_ARRIVED, "blocked": EventKind.UNIT_BLOCKED,
                  "grounded": EventKind.TANKERS_GROUNDED}
-        events = [Event(kind=kinds[e.kind], tick=self.fire.tick, town=None, text=e.text)
-                  for e in self.dispatcher.take_events()]
+        events, sent = [], []
+        for e in self.dispatcher.take_events():
+            if e.kind == "sent":
+                sent.append(e.unit)
+            else:
+                events.append(Event(kind=kinds[e.kind], tick=self.fire.tick, town=None, text=e.text))
         self.broadcast_events(events)
+        for unit in sent:
+            self._new_draft(self.drafts.unit_order(self, unit))
         sig = tuple((u.id, u.status, u.token_id, u.arrive_tick) for u in self.dispatcher.units)
-        moving = any(u.status == "en_route" for u in self.dispatcher.units)
+        # Units go out again while they move and while crews' lines grow (#159).
+        moving = any(u.status == "en_route" for u in self.dispatcher.units) or self.effects.line_growing(self.fire.tick)
         if sig != self._units_sig or (moving and self.tick % 3 == 0):
             self._units_sig = sig
             broadcast(self.clients, self.units_msg())
@@ -943,33 +947,6 @@ class Engine:
         if self._query_task is not None and not self._query_task.done():
             self._query_task.cancel()
         self._query_task = asyncio.create_task(self._answer(question))
-
-    def ptt_start(self) -> None:
-        if not self.listener.available:
-            self.send_transcript("", self.listener.reason)
-            return
-        try:
-            self.listener.start()
-        except Exception as err:  # no mic, or microphone permission denied
-            self.send_transcript("", f"can't open the microphone: {err}")
-
-    def ptt_stop(self) -> None:
-        if self.listener.recording:
-            asyncio.create_task(self._transcribe(self.listener.stop()))
-
-    async def _transcribe(self, audio) -> None:
-        try:
-            text = await asyncio.to_thread(self.listener.transcribe, audio)
-        except Exception as err:
-            log.warning("transcription failed: %s", err)
-            self.send_transcript("", "speech-to-text failed")
-            return
-        self.send_transcript(text, None if text else "didn't catch that")
-        if text:
-            self.ask(text)
-
-    def send_transcript(self, text: str, error: str | None) -> None:
-        broadcast(self.clients, Transcript(text=text, error=error).model_dump_json())
 
     async def _answer(self, question: str) -> None:
         ans = await self.commander.answer(question)
@@ -1161,11 +1138,45 @@ class Engine:
         """Order a town out (from now), or take the order back."""
         if not any(t.name == town for t in self.towns):
             return
+        changed = (town in self.evac_orders) != ordered
         if ordered:
             self.evac_orders.setdefault(town, self.fire.tick)
         else:
             self.evac_orders.pop(town, None)
         self.schedule_clock()
+        if changed:  # draft the public alert, or take back an unsent one (#132)
+            d = self.drafts.evacuation(self, town, ordered)
+            if d is not None:
+                self._new_draft(d)
+            else:
+                broadcast(self.clients, self.drafts.message(self.fire.tick))
+
+    # --- drafts (#132) ------------------------------------------------------
+
+    def _name_drafts(self) -> None:
+        """Names a Claude rewrite may only use when its facts do (per scenario)."""
+        names = [p.name for p in self.scenario.places] + [t.name for t in self.towns]
+        names += [s.name for s in self.stations]
+        if self.roads is not None:
+            names += [z.name for z in self.roads.safe_zones]
+        set_known_names(names)
+
+    def _new_draft(self, d) -> None:
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
+        asyncio.create_task(self._polish_draft(d))
+
+    async def _polish_draft(self, d) -> None:
+        if await self.drafts.polish(d, self.commander.client, self.commander.model):
+            broadcast(self.clients, self.drafts.message(self.fire.tick))
+
+    def draft_action(self, msg: DraftAction) -> None:
+        sent = self.drafts.act(msg.id, msg.action, msg.text, self.fire.tick)
+        if sent is not None:
+            kind = {"unit_order": "Order", "evac_alert": "Alert", "briefing": "Briefing"}[sent.kind]
+            self.broadcast_events([Event(kind=EventKind.DRAFT_SENT, tick=self.fire.tick,
+                                         town=sent.subject if sent.kind == "evac_alert" else None,
+                                         text=f"{kind} sent: {sent.text}")])
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
 
     def evac_flows(self) -> dict[str, float]:
         """People a sim minute leaving each ordered town whose cars are moving."""
@@ -1257,8 +1268,6 @@ class Engine:
 
     async def run(self) -> None:
         self.recommender.warm()
-        if self.listener.available:
-            asyncio.get_running_loop().run_in_executor(None, self.listener.warm)
         period = 1 / TICK_HZ
         loop = asyncio.get_running_loop()
         next_tick = loop.time()

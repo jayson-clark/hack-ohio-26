@@ -7,10 +7,12 @@ From the repo root:
 
 - `make install` once (or after pulling dependency changes).
 - `make dev` runs the engine and the Tauri app together. Or run `make engine` and `make app` in two terminals.
-- Optional engine extras: set `ENGINE_EXTRAS="ml voice"` in `.env` (or `make engine ENGINE_EXTRAS=ml`). `ml` turns on the learned fire emulator (instant forecast previews, crew-spot screening); `voice` turns on push-to-talk. A plain `uv run server.py` drops extras.
+- Optional engine extra: set `ENGINE_EXTRAS=ml` in `.env` (or `make engine ENGINE_EXTRAS=ml`). It turns on the learned fire emulator (instant forecast previews, crew-spot screening). A plain `uv run server.py` drops extras.
 - No Tauri? `make engine` + `make web`, then open `http://localhost:1420/?view=console` (the operator console), `?view=control` (exercise control) and `?view=projector`.
 
 Check it works: the console header shows "Engine connected". The console is the operator's view and can't light fires: click "Exercise control ↗" in its header, then ignite on the 3D virtual table there (I, then click). Within a few seconds the console's decision queue and town board fill in. In the console, keys 1–4 pick an order tool (a click sends that unit), Esc goes back to looking, M/P/R switch Monitor/Plan/Review, and holding Space talks to the commander. In exercise control, 1–4 pick a token type, I ignites, and Space pauses.
+- Demo mode (for recording or judging): open the console with `?demo=1` (or press Shift+D) for a bar over the map with pause, step, speed (`[` `]`, `.` pauses) and Autopilot (`A`), which takes the top decision after a visible countdown. Above 1× the Paradise fire outruns every decision, so record at 0.25–0.5×.
+- Safari upgrades `localhost` to https on some machines and fails to load; use Chrome.
 - Second engine for testing without touching a running one: `ENGINE_PORT=8775 ENGINE_ORIGINS=http://localhost:1430 uv run server.py` from `engine/`, and `VITE_ENGINE_URL=ws://localhost:8775 pnpm exec vite --port 1430 --strictPort` from `app/` (shell env beats `.env`).
 
 No sim yet? The fire layer renders `sim_grid` binary frames (cell states 0–3, PLAN.md order). Until the sim sends them, a throwaway websocket stub on port 8765 that broadcasts `pack_binary(BinaryType.SIM_GRID, ...)` frames is enough to check the visuals.

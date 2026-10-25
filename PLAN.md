@@ -30,7 +30,7 @@ Fireline is decision-support software for people forecasting and responding to a
 | Projector rendering | **WebGL** via Three.js (one projection shader; 3D only for the virtual table) | Shaders for fire, terrain, forecast ghost, routes |
 | Engine | **Python**: OpenCV, NumPy, networkx | Vision, simulation, forecasting, routing, LLM commander |
 | Transport | **WebSocket** | Binary grids and JSON messages between engine and UI |
-| Commander | Claude API (tool use) + push-to-talk speech-to-text | Briefings and what-if questions (text; no in-app TTS, #138) |
+| Commander | Claude API (tool use) | Briefings and typed what-if questions (text only; TTS removed in #138, push-to-talk in #171) |
 
 ### Why Tauri + React
 
@@ -131,7 +131,7 @@ engine/                 Python
   sim/                  fire CA, suppression, layers
   forecast/             batched rollouts, crew recommendations
   routing/              road graph, evac routing
-  commander/            LLM tools, briefings, push-to-talk speech-to-text
+  commander/            LLM tools, briefings, drafted orders and alerts
   uq/                   uncertainty: sampling intervals (mc.py); conformal calibration to come
   protocol.py           Pydantic message models
   gen_schema.py         protocol JSON schema for `make types`
@@ -155,7 +155,7 @@ The operator console is the product. Exercise control and the projector exist fo
 
 ### Operator console (`app/src/console/`)
 
-For an incident manager or planning chief. It answers three questions: what's happening, what needs a decision, and what each option would do. It never plays the world: no igniting, no setting the wind, no clock controls.
+For an incident manager or planning chief. It answers three questions: what's happening, what needs a decision, and what each option would do. It never plays the world: no igniting, no setting the wind, no clock controls. The one exception is demo mode (#158), hidden unless the console is opened with `?demo=1` or Shift+D is pressed: a bar over the map with pause, step and sim speed, and an Autopilot that takes the top decision (dispatch a recommended crew, order a due evacuation) after a countdown shown on its card. It's for recording the video and live judging.
 
 **Design (#130).** A light, map-first operations UI, deliberately unlike the projector's glowing art. The incident map fills the window, with pan and zoom, and draws with its own quiet shader (`render/carto.ts`: light hillshade, faint contours, the burned area in warm gray, active fire in red-orange with a crisp perimeter, the forecast as two translucent bands). Towns, routes, stations, units, orders, recommendations and labels are vector overlays (`console/map/layers.tsx`), so they stay sharp at any zoom. Around it: a top bar (incident, status, clock, modes), the mode's sidebar on the left, an inspector on the right for whatever is selected (a town's fire arrival and evacuation clock, a recommendation's effect with ranges, an order's unit), and the commander docked in the map's corner. Tokens live in `index.css`: neutral surfaces, one blue accent for actions, status colors only for status. `console/model.ts` joins the town board with the evacuation clock so every view agrees on a town's risk.
 
@@ -165,7 +165,7 @@ Three modes over the one incident map:
 - **Plan** (#123): try orders and an assumed wind without changing anything. Clicks add draft orders; each is assigned the free unit dispatch would send, and only acts once that unit could get there. The plan runs against doing nothing on paired simulations (`forecast/plan.py`, `rollout_paired` with the plan as one suppression schedule), so the difference is the plan, not luck. The map shades where the plan keeps fire out (green) or pushes it in (red); the panel shows acres and residents affected with intervals, and per-town reach. It re-runs a moment after each edit; the engine skips a plan that a newer one replaced. "Dispatch" sends the orders for real.
 - **Review:** outcome so far (people evacuated, structures, acres, per town) and the event log. The after-action comparison against doing nothing is #124.
 
-The commander (briefings, typed questions, push-to-talk) sits beside every mode. Voice is off by default: operators mostly want it on screen.
+The commander (briefings and typed questions) sits beside every mode, as text: operators mostly want it on screen.
 
 ### Exercise control (`app/src/control/`)
 
@@ -253,9 +253,19 @@ The top recommendation's realized benefit fell from 985 to 708 (steady wind). It
 | IoU with the 7.1 h / 11.5 h perimeters | 0.54 / 0.63 | 0.55 / 0.64 |
 | Burned area vs the perimeters | 1.73x / 1.53x | 1.71x / 1.51x |
 
-The known gap: the replay burns about 1.5–1.7x the real area, because flanks spread too wide. A higher `C2` (0.3–0.4) fits the perimeters better (IoU 0.67/0.79, area 1.27x/1.12x). But it also starves backing and flank spread at every wind: at 3–8 m/s fires came out under half the size, and instant attack contained them again. One extreme-wind event isn't enough evidence for that, so `C2` stays at 0.22 until a second fire (Marshall, #107) agrees.
+That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x the real area because the flanks spread too wide. `C2` is now 0.3 (see "Choosing C2" below), which brings the perimeters to IoU 0.66/0.78 at 1.32x/1.16x the area.
 
-**Marshall Fire** (`cd engine && uv run python -m eval.marshall`, #107): a second real fire, grass into suburb under a steady 15–20 m/s westerly, scored against the NASA FEDS perimeter at 2.5 h and the WFIGS final perimeter. It has no timed per-house observations. It agrees with the Camp Fire: every top result of the search has `C2` 0.4, which matches the 2.5 h area (0.9–1.0x, IoU ~0.39), where 0.22 burns 4–5x too much. At every setting, though, the sim keeps running east through Louisville to the map edge where the real fire stopped, so the final perimeter is a fuel and structure question (suburbs burn like grass here), not a wind one. The open question is how to narrow strong-wind fires without starving moderate ones, for example a floor on backing and flank spread. Under the measured wind (`--measured`: NCAR Mesa Lab's 5-min record in the foothills, 11–19 m/s from about 245° through the afternoon, gusts to 40 m/s, #141) the verdict holds: 0.22 burns 1.9–4x the real 2.5 h area at any speed scale, while 0.3 at 0.8x the station's speed (IoU 0.46, area 1.09x) and 0.4 at 1x (IoU 0.41, area 0.85x) fit. NOAA's airport record downwind (KBJC) saw only 5–9 m/s from shifting directions, so the foothill station is the one that represents the fire's wind. Suburban fuel is per scenario (#144): Boulder County's irrigated suburbs burn at residential 0.25 and commercial 0.3, while Paradise's forested lots keep 0.9 (its replay needs 0.6 or more). Under the measured wind that takes the best Marshall final perimeter from IoU 0.19 at 2.7x the area to IoU 0.38 at 0.84x (C2 0.4), and from 5.2x to 4.4x at today's 0.22. What's left is shape: the sim misses the real fire's north-west and south flanks, the flank spread that a backing/flank floor would add.
+**Marshall Fire** (`cd engine && uv run python -m eval.marshall`, #107): a second real fire, grass into suburb under a steady 15–20 m/s westerly, scored against the NASA FEDS perimeter at 2.5 h and the WFIGS final perimeter. It has no timed per-house observations. It agrees with the Camp Fire: every top result of the search has `C2` 0.4, which matches the 2.5 h area (0.9–1.0x, IoU ~0.39), where 0.22 burns 4–5x too much. At every setting, though, the sim keeps running east through Louisville to the map edge where the real fire stopped, so the final perimeter is a fuel and structure question (suburbs burn like grass here), not a wind one. Under the measured wind (`--measured`: NCAR Mesa Lab's 5-min record in the foothills, 11–19 m/s from about 245° through the afternoon, gusts to 40 m/s, #141) the verdict holds: 0.22 burns 1.9–4x the real 2.5 h area at any speed scale, while 0.3 at 0.8x the station's speed (IoU 0.46, area 1.09x) and 0.4 at 1x (IoU 0.41, area 0.85x) fit. NOAA's airport record downwind (KBJC) saw only 5–9 m/s from shifting directions, so the foothill station is the one that represents the fire's wind. Suburban fuel is per scenario (#144): Boulder County's irrigated suburbs burn at residential 0.25 and commercial 0.3, while Paradise's forested lots keep 0.9 (its replay needs 0.6 or more). Under the measured wind that takes the best Marshall final perimeter from IoU 0.19 at 2.7x the area to IoU 0.38 at 0.84x (C2 0.4), and from 5.2x to 4.4x at 0.22. What's left is shape: the sim misses the real fire's north-west and south flanks.
+
+**Choosing C2.** Both fires want a narrower head than 0.22, but a higher `C2` also slows backing and flank spread at every wind, so ordinary-wind fires shrink. The sweep scored `C2` 0.22/0.3/0.4 against both replays (Marshall under the measured wind) and `eval.early_attack` (Paradise, 8 ignitions × 2 seeds, 3 h, NE wind). It also tried a floor on the wind factor, so flanking and backing never drop below a fraction of calm spread:
+
+| `C2` | Camp IoU 7.1 h / 11.5 h (area) | Marshall 2.5 h IoU (area), 0.8x wind | No-crew acres at 3 / 8 / 13 m/s (burned out alone at 8 m/s) |
+|---|---|---|---|
+| 0.22 | 0.55 / 0.63 (1.73x / 1.53x) | 0.38 (1.81x) | 5,095 / 6,287 / 21,864 (12%) |
+| **0.3** | **0.66 / 0.78 (1.32x / 1.16x)** | **0.45 (1.01x)** | **2,579 / 2,646 / 11,057 (25%)** |
+| 0.4 | 0.68 / 0.80 (1.14x / 1.01x) | 0.41 (0.50x) | 883 / 831 / 4,925 (62%) |
+
+`C2` is 0.3: close to 0.4 on the Camp Fire, the best Marshall fit, and fires on a moderate day still grow. At 0.4 most fires at 3–8 m/s burn out by themselves, which real timber fires don't. The floor (0.3, 0.5 or 0.7 of calm spread) made both replays worse at every `C2`: Camp IoU fell to 0.38–0.54 and Marshall's 2.5 h area rose to 1.4–3.6x, because it widens the flanks of strong-wind fires too. So there's no floor.
 
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
@@ -342,6 +352,12 @@ Fire tools (WFDSS/FSPro, Technosylva) forecast the fire, alerting tools (Genasys
 
 ### Incident commander (LLM)
 
+**Drafted orders and alerts (#132, `engine/commander/drafts.py`).** When the operator sends a unit or orders a town out, the engine drafts the message for the people who act on it. The drafts sit under Decisions in Monitor, where the operator sends, edits or dismisses each one. Nothing is delivered anywhere: "send" records a `draft_sent` event for the after-action review.
+- **Unit orders:** a radio-style order with where, how soon, the task, the wind and embers, and the escape route.
+- **Evacuation alerts:** a public alert in English and Spanish, within the 360-character limit of a Wireless Emergency Alert. Cancelling drops an unsent alert, or drafts a "lifted" notice if one went out.
+- **Briefings:** on request.
+- **Templates first, Claude second:** every draft starts as a template filled from engine facts, so it works without a key. With a key, Haiku rewrites unit orders and briefings from the same facts. The rewrite is kept only if it finished and every number and named place comes from those facts. Alerts stay templated, because public wording and its Spanish must match exactly.
+
 The LLM gets **tools**, not a raw state dump, so its answers come from real simulation calls:
 
 | Tool | Returns |
@@ -351,7 +367,7 @@ The LLM gets **tools**, not a raw state dump, so its answers come from real simu
 | `evaluate_placement(token_type, x, y)` | Expected outcome change from placing a resource |
 | `get_routes()` | Current evacuation routes and their risk |
 
-- Triggered by events (town threatened, road cut) for proactive briefings, and by push-to-talk questions.
+- Triggered by events (town threatened, road cut) for proactive briefings, and by typed questions.
 - Answers are kept to about two sentences. In-app text-to-speech was removed (#138); the text messages are what an external TTS would read if speech is wanted.
 - Uses a fast model for low latency.
 
@@ -417,10 +433,10 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 ### Phase 5: Incident commander
 - Crew placement recommendations, projected and shown as cards in the console
 - LLM commander with the simulation tools
-- Push-to-talk speech-to-text in, briefings out as text
+- Typed questions in, briefings out as text
 - Proactive event-driven briefings
 
-**Exit:** a judge asks "What if the wind shifts west?" (typed or by push-to-talk) and gets an answer backed by a real forecast.
+**Exit:** a judge asks "What if the wind shifts west?" (typed) and gets an answer backed by a real forecast.
 
 ### Phase 6: Game and polish
 - Scenarios, limited resources, cooldowns, timer, scoring, end summary
@@ -465,7 +481,7 @@ Virtual table mode means nobody is blocked waiting for hardware.
 | App | Tauri shell, console UI, projector shaders, polish | 0, 1 (render), 6 |
 | Vision | Calibration, token tracking, 3D projection | 2, 7 |
 | Sim | Fire CA, terrain layers, suppression, rollouts | 1, 3, 4 (forecaster) |
-| AI | Routing, recommendations, commander, voice | 4 (routing), 5 |
+| AI | Routing, recommendations, commander, uncertainty | 4 (routing), 5 |
 
 ---
 
@@ -496,7 +512,7 @@ Virtual table mode means nobody is blocked waiting for hardware.
 
 ## Demo Script
 
-Judging is virtual, so the demo is a recorded video. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record with exercise control on a second screen (or off-camera) and Autopilot on where clicking every card would drag.
+Judging is virtual, so the demo is a recorded video. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record the console with `?demo=1`: start the fire from exercise control off-camera, slow the clock to show a feature, speed it up to let the fire run, and turn on Autopilot where clicking every card would drag. The Camp Fire scenario outruns any operator above 1× (10 sim-minutes a second), so most of the video runs at 0.25–0.5×.
 
 1. Open on the table under the projector, a fire starting at the Camp Fire origin: "this is what a drone sees."
 2. Cut to the operator console, Monitor. The decision queue fills: Concow likely to see fire in about 40 minutes, evacuate via Highway 70; crew recommendations with stations and ETAs. The town board shows every town's time until fire, with ranges.

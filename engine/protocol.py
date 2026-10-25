@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 23
+PROTOCOL_VERSION = 26
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -95,7 +95,6 @@ class Hello(Model):
     map_height: int
     sim_minutes_per_tick: float
     forecast_horizons_min: list[float]  # order of the grids in a FORECAST_GRID frame
-    speech_to_text: bool  # push-to-talk works (the engine has the voice extra installed)
     stations: list["StationInfo"]  # where fire units come from (#104); air bases may be off the map
 
 
@@ -213,6 +212,7 @@ class EventKind(StrEnum):
     UNIT_BLOCKED = "unit_blocked"  # burning roads keep a ground unit from getting through
     TANKERS_GROUNDED = "tankers_grounded"  # too windy to fly
     EVACUATE_NOW = "evacuate_now"  # a town's latest safe order time has come (#121)
+    DRAFT_SENT = "draft_sent"  # the operator sent a drafted order or alert (#132); text is what was sent
 
 
 class Event(Model):
@@ -305,6 +305,7 @@ class UnitInfo(Model):
     y: float
     eta_min: float | None  # sim minutes until it arrives, while en route
     path: list[list[float]]  # its route, origin to target, while en route
+    line: list[list[float]]  # a working crew's cut line so far, as its two ends (#159); empty if none
 
 
 class Units(Model):
@@ -331,6 +332,28 @@ class ForecastEnvelope(Model):
     miss_recent: list[float | None]  # mean miss over the last ~20 scored forecasts
     miss_overall: list[float | None]  # since the scenario loaded
     scored: list[int]
+
+
+class Draft(Model):
+    """A drafted dispatch order, evacuation alert or briefing (#132). Nothing
+    is delivered anywhere: the operator approves, edits or dismisses it."""
+
+    id: str
+    kind: Literal["unit_order", "evac_alert", "briefing"]
+    subject: str  # the unit id, or the town for an alert
+    status: Literal["draft", "sent", "dismissed"]
+    text: str
+    text_es: str | None  # Spanish version of an evacuation alert
+    source: Literal["template", "llm", "operator"]
+    grounded: bool  # every number and place in it came from the engine's facts
+    tick: int
+    sent_tick: int | None
+
+
+class Drafts(Model):
+    type: Literal["drafts"] = "drafts"
+    tick: int
+    drafts: list[Draft]
 
 
 class Recommendations(Model):
@@ -462,14 +485,6 @@ class CommanderMessage(Model):
     event: EventKind | None  # what triggered a briefing
 
 
-class Transcript(Model):
-    """What push-to-talk heard. A non-empty text is also asked of the commander."""
-
-    type: Literal["transcript"] = "transcript"
-    text: str
-    error: str | None  # why there's no text: not installed, no mic, didn't catch that
-
-
 
 class KofN(Model):
     """How many of the forecast's simulations something happened in, with a
@@ -555,7 +570,7 @@ class PlanResult(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          Transcript, Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope],
+          Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope, Drafts],
     Field(discriminator="type"),
 ]
 
@@ -632,7 +647,7 @@ class StepOnce(Model):
 
 
 class CommanderQuery(Model):
-    """A question for the incident commander, typed or transcribed. A new
+    """A question for the incident commander, typed in the console. A new
     question cancels one still being answered."""
 
     type: Literal["commander_query"] = "commander_query"
@@ -640,23 +655,26 @@ class CommanderQuery(Model):
 
 
 
-class PttStart(Model):
-    """Push-to-talk pressed: the engine starts recording and the commander stops talking."""
-
-    type: Literal["ptt_start"] = "ptt_start"
-
-
-class PttStop(Model):
-    """Push-to-talk released: the engine transcribes and asks the commander."""
-
-    type: Literal["ptt_stop"] = "ptt_stop"
-
-
 class AcceptRecommendation(Model):
     """Place the recommended token (as a virtual token) where it was recommended."""
 
     type: Literal["accept_recommendation"] = "accept_recommendation"
     id: str
+
+
+class DraftAction(Model):
+    """Send, dismiss or edit a draft (#132). `text` is the edited text."""
+
+    type: Literal["draft_action"] = "draft_action"
+    id: str
+    action: Literal["send", "dismiss", "edit"]
+    text: str | None = None
+
+
+class RequestBriefing(Model):
+    """Draft a situation briefing now (#132)."""
+
+    type: Literal["request_briefing"] = "request_briefing"
 
 
 class OrderEvacuation(Model):
@@ -717,8 +735,8 @@ ClientMessage = Annotated[
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
         OrderEvacuation,
-        PttStart,
-        PttStop,
+        DraftAction,
+        RequestBriefing,
         CalibrationStep,
         EvaluatePlan,
     ],

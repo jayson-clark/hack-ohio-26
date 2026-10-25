@@ -65,8 +65,8 @@ function hue(s: string) {
   for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return h % 360;
 }
-export const userColor = (u: string) => `hsl(${hue(u)} 62% 52%)`;
-export const agentColor = (a: string) => `hsl(${(hue(a) + 140) % 360} 70% 64%)`;
+export const userColor = (u: string) => `hsl(${hue(u)} 32% 48%)`;
+export const agentColor = (a: string) => `hsl(${(hue(a) + 140) % 360} 30% 55%)`;
 export function initials(u: string) {
   const p = u.split(/[-_. ]+/).filter(Boolean);
   return ((p[0]?.[0] || "?") + (p[1]?.[0] || "")).toUpperCase();

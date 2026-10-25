@@ -13,12 +13,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getPlatform } from "../platform";
-import { pttStart, pttStop, useEngine } from "../shared/engine";
+import { useEngine } from "../shared/engine";
 import type { Recommendation, TokenType } from "../shared/protocol";
 import { formatSimMinutes } from "../shared/round";
 import { useEngineScenario } from "../shared/scenario";
 import CommanderDock from "./CommanderDock";
 import Decisions, { useDecisions } from "./Decisions";
+import { DemoBar, useAutopilot, useDemoMode } from "./Demo";
+import DispatchDrafts from "./DispatchDrafts";
 import { EventAlerts } from "./EventLog";
 import { FlameMark, Icon, type IconName } from "./icons";
 import Inspector from "./Inspector";
@@ -89,8 +91,13 @@ export default function Console() {
   const over = score?.phase === "ended";
   // Heads-ups such as a town already evacuating show in the queue but aren't
   // decisions, so they don't count toward the badge.
-  const pending = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan }).filter((i) => !i.status).length;
-  const decisions = over ? 0 : pending;
+  const items = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan });
+  const decisions = over ? 0 : items.filter((i) => !i.status).length;
+  const pendingDrafts = useEngine().dispatchDrafts.filter((d) => d.status === "draft").length;
+  // Demo mode (#158): the clock in the console, and an autopilot that takes
+  // decisions on its own while the presenter talks.
+  const demo = useDemoMode();
+  const [autopilot, setAutopilot] = useAutopilot(over ? [] : items, demo);
 
   // Keys: 1-4 pick an order tool, Esc goes back to selecting (then closes the
   // inspector), M/P/R switch modes, and holding Space talks to the commander.
@@ -105,11 +112,6 @@ export default function Console() {
       e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
     function down(e: KeyboardEvent) {
       if (typing(e) || e.metaKey || e.ctrlKey) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (!e.repeat) pttStart();
-        return;
-      }
       const tools = overRef.current ? [] : modeRef.current === "plan" ? PLAN_TYPES : modeRef.current === "monitor" ? ORDER_TOOLS : [];
       const i = Number(e.key) - 1;
       if (i >= 0 && i < tools.length) setTool(tools[i]);
@@ -120,17 +122,8 @@ export default function Console() {
       const m = MODES.find((x) => x.value[0] === e.key.toLowerCase());
       if (m) switchMode(m.value);
     }
-    function up(e: KeyboardEvent) {
-      if (e.code === "Space" && !typing(e)) pttStop();
-    }
     window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    window.addEventListener("blur", pttStop);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", pttStop);
-    };
+    return () => window.removeEventListener("keydown", down);
     // switchMode only touches state through setters, so the first one is fine.
   }, []);
 
@@ -154,7 +147,9 @@ export default function Console() {
         <div className="min-w-0 leading-tight">
           <div className="flex items-center gap-2">
             <span className="truncate text-[13px] font-semibold capitalize text-ink">{scenario?.info.name ?? "—"} incident</span>
-            {burning ? (
+            {over ? (
+              <span className="rounded-full bg-sunken px-2 text-[11px] font-medium leading-[18px] text-ink-2">Exercise over</span>
+            ) : burning ? (
               <span className="flex items-center gap-1 rounded-full bg-crit-soft px-2 text-[11px] font-medium leading-[18px] text-crit">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-crit" />
                 Active fire
@@ -210,7 +205,10 @@ export default function Console() {
             <>
               <Situation towns={towns} />
               <Section title="Needs decision" count={decisions} className="mt-2">
-                <Decisions scenario={scenario} towns={towns} onSelect={select} onTryInPlan={tryInPlan} onReview={() => switchMode("review")} />
+                <Decisions scenario={scenario} towns={towns} onSelect={select} onTryInPlan={tryInPlan} onReview={() => switchMode("review")} autopilot={autopilot} />
+              </Section>
+              <Section title="Drafts" count={pendingDrafts}>
+                <DispatchDrafts />
               </Section>
               <Section title="Towns" count={towns.length}>
                 <Towns towns={towns} selected={selection?.kind === "town" ? selection.name : null} onSelect={(name) => select({ kind: "town", name })} />
@@ -263,6 +261,11 @@ export default function Console() {
             </div>
           )}
           <EventAlerts onSelect={select} />
+          {demo && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
+              <DemoBar autopilot={autopilot} onAutopilot={setAutopilot} />
+            </div>
+          )}
           <div className="absolute bottom-4 right-4 z-10">
             <CommanderDock />
           </div>

@@ -193,6 +193,9 @@ class Dispatcher:
             return
         turnout = TURNOUT_MIN if start == u.home else 0.0
         u.status, u.path, u.depart_tick = "en_route", path, tick
+        # A new trip (first send, a retry that got through, or a moved token):
+        # the engine drafts the order for it (#132).
+        self.events.append(DispatchEvent("sent", u, f"{u.id} sent."))
         u.edges = self._edge_ids(path) if u.station.kind == "ground" else []
         u.arrive_tick = tick + int(math.ceil((eta + turnout) / SIM_MINUTES_PER_TICK))
 
