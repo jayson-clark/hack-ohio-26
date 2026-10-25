@@ -170,3 +170,34 @@ def test_a_recommendation_names_the_fire_its_spot_is_on():
         assert r.incident == west
     finally:
         shut(e)
+
+
+def test_a_tiring_crew_becomes_a_relieve_card():
+    """#178: a crew 3.5 h into its shift tires inside the look-ahead, so the
+    engine scores relieving it; the card is a relieve, sent by the station
+    whose free crew is fastest, and accepting it sends that crew."""
+    from sim.effects import SHIFT_TICKS
+
+    e = engine_in_round(1)
+    try:
+        [t] = e.game.active(e.tracker.tokens)
+        unit = next(u for u in e.dispatcher.units if u.token_type == TokenType.CREW)
+        unit.token_id, unit.status, unit.target = t.id, "working", (t.x, t.y)
+        unit.work_start = e.fire.tick - (SHIFT_TICKS - 30)  # starts to tire in 30 ticks
+        tired = e.tired_crews(e.snapshot(), e.fire.tick)
+        assert [c.id for c in tired] == [t.id] and tired[0].keep.fade_at == 30 and tired[0].relief_at > 0
+        unit.work_start = e.fire.tick  # fresh: nothing to relieve
+        assert e.tired_crews(e.snapshot(), e.fire.tick) == []
+        unit.work_start = e.fire.tick - (SHIFT_TICKS - 30)
+        r = e.rec_message(Rec(t.x, t.y, 3.0, 1.0, relieve_id=t.id, eta_min=12.0), "r1", 2.18)
+        assert r.action == "relieve" and r.move_token == t.id and r.auto and r.station is not None
+        assert r.text.startswith("Relieving this crew")
+        e.recs = [r]
+
+        async def accept():  # sending a unit drafts its order in the background (#132)
+            e.dispatch(AcceptRecommendation(id="r1"))
+
+        asyncio.run(accept())
+        assert any(u.relieving == t.id for u in e.dispatcher.units)
+    finally:
+        shut(e)
