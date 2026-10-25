@@ -12,20 +12,24 @@ scene "The queue fills; read a crew recommendation"
   key period
   waitfor "Send a crew" timeout=20
   hold 1.5
+  key period                    # pause: the queue re-sorts and recommendations are replaced with each forecast
+  hold 0.5
   click "Send a crew" index=0
-  hold 5.5
+  hold 5
 
 scene "Dispatch the crew and speed up to watch it drive in"
   click "Dispatch" role=button index=0   # the inspector's button
-  hold 2
+  hold 1.5
+  key period                             # resume
   key ]
   key ]                                  # 0.25x -> 1x
   move 1150,600
   hold 8
 
 # The inspector's recommendation, then pan to the map for the drive-in.
-zoom 1@end-5.5..2@2 depth=4 at=0.71,0.30
-zoom 2@2..end depth=3 at=0.62,0.50
-label "0.25× · 2.5 sim-min/s" 1@1..2@2
-label "1× · 10 sim-min/s" 2@2..end
+zoom 1@end-5.5..2@2 depth=4 at=0.71,0.36
+zoom 2@2..end depth=3 at=0.60,0.62
+label "0.25× · 2.5 sim-min/s" 1@1..1@end-6.5
+label "Paused" 1@end-6.5..2@1.5
+label "1× · 10 sim-min/s" 2@1.5..end
 export B2-dispatch-crew.mp4
