@@ -40,6 +40,8 @@ interface Props {
 export default function PlanPanel(props: Props) {
   const { scenario, drafts, wind, horizon } = props;
   const { plan, scenario: live, recommendations, hello, score } = useEngine();
+  // A plan can still be tried after the exercise ends, but not sent (#128).
+  const over = score?.phase === "ended";
   const observed = live?.wind ?? null;
   const [runs, setRuns] = useState(0);
 
@@ -205,8 +207,12 @@ export default function PlanPanel(props: Props) {
 
       <div className="flex-1" />
       <footer className="sticky bottom-0 flex gap-2 border-t border-line bg-panel px-4 py-3">
-        <Button variant="primary" className="flex-1" disabled={!counted.length} onClick={dispatch} icon="send">
-          {counted.length ? `Dispatch ${counted.length} order${counted.length > 1 ? "s" : ""}` : "Nothing to dispatch"}
+        <Button variant="primary" className="flex-1" disabled={!counted.length || over} onClick={dispatch} icon="send">
+          {over
+            ? "Exercise over"
+            : counted.length
+              ? `Dispatch ${counted.length} order${counted.length > 1 ? "s" : ""}`
+              : "Nothing to dispatch"}
         </Button>
         <Button disabled={!drafts.length} onClick={() => props.onDrafts(() => [])}>
           Clear

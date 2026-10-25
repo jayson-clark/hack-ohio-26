@@ -66,19 +66,21 @@ interface Props {
 
 export default function IncidentMap(props: Props) {
   const { scenario, mode, towns, layers, tool, selection } = props;
-  const { simGrid, forecast, routes, units, tokens, recommendations, hello, plan, scenario: live } = useEngine();
+  const { simGrid, forecast, routes, units, tokens, recommendations, hello, plan, scenario: live, score } = useEngine();
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [layersOpen, setLayersOpen] = useState(false);
   const local = props.handle;
   const planning = mode === "plan";
   const reach = hello?.crew_radius ?? 14;
-  const tools: TokenType[] = planning ? ["crew", "firebreak", "water"] : mode === "monitor" ? ["crew", "firebreak", "water", "bus"] : [];
+  // An ended exercise takes no orders (#128).
+  const tools: TokenType[] =
+    score?.phase === "ended" ? [] : planning ? ["crew", "firebreak", "water"] : mode === "monitor" ? ["crew", "firebreak", "water", "bus"] : [];
   const showForecast = layers.forecast && !(planning && plan.grids);
   const selTown = selection?.kind === "town" ? selection.name : null;
 
   function click(x: number, y: number) {
     if (tool && planning) return props.onAddDraft(tool, x, y);
-    if (tool && mode === "monitor") return addToken(tool, x, y, scenario);
+    if (tool && mode === "monitor" && tools.length) return addToken(tool, x, y, scenario);
     props.onSelect(null);
   }
 

@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { orderText } from "../shared/dispatch";
 import { acceptRecommendation, orderEvacuation, useEngine } from "../shared/engine";
 import { aboutMinutes, describeLocation } from "../shared/places";
+import { END_REASON_TEXT, formatSimMinutes, headline } from "../shared/round";
 import type { Recommendation } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { ORDER_STYLE } from "../shared/tokens";
@@ -31,6 +32,8 @@ interface Props {
   towns: TownView[];
   onSelect: (s: Selection) => void;
   onTryInPlan: (rec: Recommendation) => void;
+  /** Opens Review; offered once the exercise is over. */
+  onReview?: () => void;
 }
 
 export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
@@ -130,8 +133,33 @@ export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
 
 export default function Decisions(props: Props) {
   const items = useDecisions(props);
-  const { simGrid, situation } = useEngine();
+  const { simGrid, situation, score } = useEngine();
   const burning = !!simGrid && simGrid.payload.includes(2);
+
+  // Once the exercise ends the fire is frozen and orders do nothing, so its
+  // last "act now" cards would only mislead (#128).
+  if (score?.phase === "ended") {
+    return (
+      <div className="rounded-lg border border-line bg-panel p-3 shadow-card">
+        <div className="text-[13px] font-semibold leading-snug text-ink">
+          {score.end_reason ? END_REASON_TEXT[score.end_reason] : "Exercise over"} after {formatSimMinutes(score.elapsed_min)}
+        </div>
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-2">
+          {headline(score)
+            .map((s) => `${s.value} ${s.label.toLowerCase()}${s.pct !== null ? ` (${s.pct}%)` : ""}`)
+            .join(" · ")}
+          . Start another from Exercise control.
+        </p>
+        {props.onReview && (
+          <div className="mt-2.5 flex">
+            <Button size="sm" variant="primary" onClick={props.onReview}>
+              Review the exercise
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
