@@ -2,11 +2,12 @@
 -include .env
 export
 
-.PHONY: install engine web app dev types test board clean distclean
+.PHONY: install engine web app dev types test board board-web board-dev board-vite clean distclean
 
 install:
 	cd engine && uv sync
 	cd app && pnpm install
+	cd tools/agent_board/web && pnpm install
 
 # Python engine (WebSocket server on ws://localhost:8765). ENGINE_EXTRAS in .env
 # picks optional extras, e.g. "ml voice" for the fire emulator and push-to-talk.
@@ -34,10 +35,23 @@ types:
 test:
 	cd engine && uv run pytest -q
 	cd app && pnpm exec tsc --noEmit
+	uv run --project engine pytest -q tools/agent_board/tests
+	cd tools/agent_board/web && pnpm exec tsc --noEmit
 
 # Local agent board on http://localhost:8790 (the team board is https://hack.apps.jaysonc.dev)
 board:
 	python3 tools/agent_board/server.py
+
+# Rebuild the board's web UI into tools/agent_board/web/dist (committed, so the server needs no Node)
+board-web:
+	cd tools/agent_board/web && pnpm install && pnpm build
+
+# Board UI with hot reload on http://localhost:5173, against a local `make board`
+board-dev:
+	$(MAKE) -j2 board board-vite
+
+board-vite:
+	cd tools/agent_board/web && BOARD_URL=http://localhost:8790 pnpm dev
 
 # Remove build output and caches. Keeps .env, the agent board's data, generated
 # STL tiles and the elevation tile cache (slow to rebuild). Installed
@@ -50,4 +64,4 @@ clean:
 
 # Also remove installed dependencies; `make install` brings them back.
 distclean: clean
-	rm -rf app/node_modules engine/.venv
+	rm -rf app/node_modules engine/.venv tools/agent_board/web/node_modules
