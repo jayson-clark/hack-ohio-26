@@ -80,9 +80,14 @@ def masks(state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def finish(p: np.ndarray, state: np.ndarray) -> np.ndarray:
-    """Apply the certain cells to a raw (2, H, W) prediction."""
+    """Apply the certain cells to a raw (2, H, W) prediction, and keep the
+    horizons nested: a cell can't be less likely to have burned by T+60 than
+    by T+30 (Monte Carlo guarantees it; the net doesn't)."""
     done, open_ = masks(state)
-    return np.where(done, 1.0, np.where(open_, p, 0.0)).astype(np.float32)
+    out = np.where(done, 1.0, np.where(open_, p, 0.0)).astype(np.float32)
+    for i in range(1, len(out)):
+        np.maximum(out[i], out[i - 1], out=out[i])
+    return out
 
 
 # Flips are free extra data, but the 8 directional channels must swap to match.

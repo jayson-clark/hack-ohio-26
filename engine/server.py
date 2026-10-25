@@ -12,6 +12,7 @@ import logging
 import os
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import ValidationError
 from websockets.asyncio.server import ServerConnection, broadcast, serve
@@ -155,7 +156,10 @@ class Engine:
         # an instant forecast preview whenever the wind, tokens or fire change,
         # shown until the next Monte Carlo forecast replaces it. Routing, the
         # commander and recommendations only ever use Monte Carlo forecasts.
-        self.emulator = _load_emulator()
+        # MLX ties its streams to the thread that loaded the model, so one
+        # dedicated thread loads the emulator and runs every preview.
+        self._emu_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="emulator")
+        self.emulator = self._emu_thread.submit(_load_emulator).result()
         self._preview: tuple[int, np.ndarray] | None = None  # (tick, (2, H, W) probabilities)
         self._preview_job: asyncio.Task | None = None
         self._preview_sig: tuple | None = None
@@ -541,6 +545,7 @@ class Engine:
         # every window about the new map. hello first: the map size can change,
         # so the UI must re-read terrain before it interprets any grid.
         self.tick = 0
+        self._preview_tick = -PREVIEW_MIN_TICKS  # the throttle counts engine ticks, which just restarted
         self.fire.reset()
         self.effects.reset()
         self._fire_epoch += 1
@@ -1189,7 +1194,8 @@ class Engine:
             return
         self._preview_sig, self._preview_tick = sig, self.tick
         snap, epoch = self.snapshot(), self._fire_epoch
-        self._preview_job = asyncio.create_task(asyncio.to_thread(self.emulator.forecast, snap))
+        loop = asyncio.get_running_loop()
+        self._preview_job = asyncio.ensure_future(loop.run_in_executor(self._emu_thread, self.emulator.forecast, snap))
         self._preview_job.add_done_callback(lambda j: self.preview_done(j, snap.tick, epoch))
 
     def preview_done(self, job: asyncio.Task, tick: int, epoch: int) -> None:
