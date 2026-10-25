@@ -2,12 +2,15 @@
 // projector's glowing art. Light hillshaded terrain with faint contours, the
 // burned area in warm gray, active fire in red-orange with a crisp perimeter,
 // and the forecast as two translucent bands (likely fire by the first and
-// second horizon) with their edges drawn. Everything else on the map (towns,
+// second horizon). The line around each band is the calibrated envelope (#12)
+// once the engine sends one: where at least 90% of the new burning should
+// fall. Until then, the line is the plain 50% edge. Everything else on the map (towns,
 // routes, units, labels) is vector overlay, so it stays sharp at any zoom.
 
 import * as THREE from "three";
 import type { BinaryFrame } from "../shared/binary";
 import type { ForecastGrids } from "../shared/engine";
+import type { ForecastEnvelope } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { blur } from "./projection";
 
@@ -24,7 +27,7 @@ export interface CartoStyle {
 export interface CartoMap {
   material: THREE.ShaderMaterial;
   setFire(frame: BinaryFrame | null): void;
-  setForecast(forecast: ForecastGrids | null): void;
+  setForecast(forecast: ForecastGrids | null, envelope?: ForecastEnvelope | null): void;
   setStyle(style: CartoStyle): void;
   dispose(): void;
 }
@@ -43,6 +46,8 @@ varying vec2 vUv;
 
 uniform sampler2D uHeight;
 uniform sampler2D uFire; // r burning, g burned, b/a P(burned) at the two horizons
+uniform sampler2D uEnv; // r/g: the calibrated envelope at the two horizons (softened masks)
+uniform float uHasEnv;
 uniform vec2 uGrid;
 uniform float uCellM;
 uniform float uElevMin;
@@ -97,8 +102,12 @@ void main() {
       // Likely fire (half the simulations or more) by each horizon, far first.
       col = mix(col, vec3(0.98, 0.78, 0.33), smoothstep(0.42, 0.58, f.a) * 0.32 * out_);
       col = mix(col, vec3(0.97, 0.55, 0.24), smoothstep(0.42, 0.58, f.b) * 0.36 * out_);
-      col = mix(col, vec3(0.80, 0.52, 0.06), edge(f.a, 0.5, 1.2) * 0.9 * out_);
-      col = mix(col, vec3(0.80, 0.33, 0.07), edge(f.b, 0.5, 1.5) * 0.95 * out_);
+      // The line: the calibrated envelope when there is one (#12), else the 50% edge.
+      vec4 env = texture2D(uEnv, vUv);
+      float far = uHasEnv > 0.5 ? env.g : f.a;
+      float near = uHasEnv > 0.5 ? env.r : f.b;
+      col = mix(col, vec3(0.80, 0.52, 0.06), edge(far, 0.5, 1.2) * 0.9 * out_);
+      col = mix(col, vec3(0.80, 0.33, 0.07), edge(near, 0.5, 1.5) * 0.95 * out_);
     }
     float burned = smoothstep(0.35, 0.6, f.g);
     col = mix(col, mix(vec3(0.43, 0.38, 0.36), vec3(0.24, 0.21, 0.20), uDark), burned * 0.6);
@@ -127,6 +136,11 @@ export function createCartoMap(s: Scenario): CartoMap {
   fireTex.magFilter = fireTex.minFilter = THREE.LinearFilter;
   fireTex.needsUpdate = true;
 
+  const envData = new Uint8Array(width * height * 4);
+  const envTex = new THREE.DataTexture(envData, width, height, THREE.RGBAFormat);
+  envTex.magFilter = envTex.minFilter = THREE.LinearFilter;
+  envTex.needsUpdate = true;
+
   const a = new Float32Array(width * height);
   const b = new Float32Array(width * height);
   const scratch = new Float32Array(width * height);
@@ -137,6 +151,8 @@ export function createCartoMap(s: Scenario): CartoMap {
     uniforms: {
       uHeight: { value: heightTex },
       uFire: { value: fireTex },
+      uEnv: { value: envTex },
+      uHasEnv: { value: 0 },
       uGrid: { value: new THREE.Vector2(width, height) },
       uCellM: { value: info.grid.cell_size_m },
       uElevMin: { value: info.elevation_m.min },
@@ -174,7 +190,7 @@ export function createCartoMap(s: Scenario): CartoMap {
       u.uHasFire.value = 1;
     },
 
-    setForecast(forecast) {
+    setForecast(forecast, envelope) {
       const ok = forecast && forecast.width === width && forecast.height === height;
       for (let h = 0; h < 2; h++) {
         const grid = ok ? forecast.horizons[h] : undefined;
@@ -183,6 +199,20 @@ export function createCartoMap(s: Scenario): CartoMap {
         for (let i = 0; i < width * height; i++) fireData[i * 4 + 2 + h] = a[i];
       }
       fireTex.needsUpdate = true;
+      // The calibrated envelope (#12): {P >= threshold} grown by margin cells,
+      // the same set the engine scores. Softened so its edge draws smoothly.
+      const env = ok && envelope && envelope.threshold.length >= 2 ? envelope : null;
+      u.uHasEnv.value = env ? 1 : 0;
+      if (!env || !forecast) return;
+      for (let h = 0; h < 2; h++) {
+        const grid = forecast.horizons[h];
+        const level = env.threshold[h] * 255;
+        for (let i = 0; i < width * height; i++) a[i] = grid[i] >= level ? 1 : 0;
+        for (let k = 0; k < env.margin_cells[h]; k++) grow(a, scratch, width, height);
+        blur(a, scratch, width, height);
+        for (let i = 0; i < width * height; i++) envData[i * 4 + h] = Math.min(255, a[i] * 255);
+      }
+      envTex.needsUpdate = true;
     },
 
     setStyle(style) {
@@ -198,4 +228,26 @@ export function createCartoMap(s: Scenario): CartoMap {
       material.dispose();
     },
   };
+}
+
+/** Grow a 0/1 mask by one king move, in place. */
+function grow(m: Float32Array, tmp: Float32Array, w: number, h: number) {
+  tmp.set(m);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (tmp[y * w + x]) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx >= 0 && xx < w && tmp[yy * w + xx]) {
+            m[y * w + x] = 1;
+            dy = 2;
+            break;
+          }
+        }
+      }
+    }
+  }
 }

@@ -21,6 +21,8 @@ cd engine && uv run python -m eval.evac_clock           # 9 long forecasts to T+
 
 Regenerate the real data with `engine/.venv/bin/python -I tools/campfire_to_assets.py` (the raw downloads live in `tools/.cache/campfire/`; the URLs are in the script's docstring).
 
+The calibrated burn envelope (#12) is scored in the same run. Each horizon's `envelope_miss` (target 0.10), its second-half value and its final threshold/margin are in the calibration block. `--envelope-lr` tries other step sizes (0.1 is the default).
+
 Early attack (does dropping crews on a new ignition still contain it?):
 ```sh
 cd engine && uv run python -m eval.early_attack            # ~10 s; no crews / instant / dispatched, at 3, 8, 13 m/s
