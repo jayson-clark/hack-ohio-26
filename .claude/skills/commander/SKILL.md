@@ -1,9 +1,9 @@
 ---
-name: commander-voice
-description: Set up, try, or debug the incident commander (Claude answers, templated briefings, grounding guard) and push-to-talk (speech-to-text). Use when asked to run or test the commander, add an API key, change the commander's model, measure its latency, or debug push-to-talk.
+name: commander
+description: Set up, try, or debug the incident commander (Claude answers, templated briefings, grounding guard, drafted orders and alerts). Use when asked to run or test the commander, add an API key, change the commander's model, or measure its latency.
 ---
 
-Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop and template fallback, `guard.py` grounding, `briefings.py` unprompted briefings, `listen.py` STT). Design: `PLAN.md` → Incident commander.
+Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop and template fallback, `guard.py` grounding, `briefings.py` unprompted briefings, `drafts.py` orders and alerts). Design: `PLAN.md` → Incident commander.
 
 ## Answers (LLM)
 - Put `ANTHROPIC_API_KEY` in the root `.env`. `make engine` exports it. Without a key, the commander answers from templates, and briefings never need one.
@@ -19,13 +19,5 @@ Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop a
 - A rewrite is rejected if it was cut off (`stop_reason` isn't `end_turn`), has a number not in the facts, or names a known place, town or station the facts don't (`grounded_in`, names set per scenario by `Engine._name_drafts`). The template then stands.
 - Alerts are never rewritten. Keep both templates within 360 characters (`WEA_MAX`).
 
-## No text-to-speech
-In-app TTS (the console's Web Speech voice and macOS `say`) was removed in #138. The commander's output is the `commander_message` text (answers and briefings). If speech is wanted, feed those messages to an external TTS.
-
-## Push-to-talk (speech-to-text)
-- Optional extra (it pulls in mlx-whisper and PyTorch): `cd engine && uv sync --extra voice`, then run the engine with `uv run --extra voice server.py`. A plain `make engine` won't have it, and the "Hold to talk" button stays disabled.
-- The first run downloads `mlx-community/whisper-small.en-mlx` (~480 MB) to `~/.cache/huggingface`. Do that before the venue.
-- **Microphone permission:** the first press makes macOS ask whether the app that launched the engine (Terminal, iTerm, or the Tauri app) may use the mic. If you said no, enable it in System Settings → Privacy & Security → Microphone. The UI shows "can't open the microphone".
-- Hold the Commander panel's **Talk** button, or hold Space, in the console. Releasing it transcribes (~0.1 s on Apple silicon), shows what was heard, and asks the commander.
-- Test without speaking: `say -o q.wav --file-format=WAVE --data-format=LEI16@16000 "How long until the fire reaches Pulga?"`, then feed the samples to `Listener.transcribe` (see `engine/tests/test_listen.py`).
-- Place names misheard? The prompt is built from `towns.json` towns and exit roads (`listen.vocabulary_prompt`), spelled the way they're said (`listen.speakable`: "Oroville via Highway 70"). Keep it a natural sentence, because a bare list pushes Whisper into Title Case.
+## No voice
+In-app TTS (the console's Web Speech voice and macOS `say`) was removed in #138, and push-to-talk speech-to-text in #171. Questions are typed. The commander's output is the `commander_message` text (answers and briefings). If speech is wanted, feed those messages to an external TTS.

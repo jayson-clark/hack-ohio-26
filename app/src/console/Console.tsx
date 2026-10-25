@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getPlatform } from "../platform";
-import { pttStart, pttStop, useEngine } from "../shared/engine";
+import { useEngine } from "../shared/engine";
 import type { Recommendation, TokenType } from "../shared/protocol";
 import { formatSimMinutes } from "../shared/round";
 import { useEngineScenario } from "../shared/scenario";
@@ -107,11 +107,6 @@ export default function Console() {
       e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
     function down(e: KeyboardEvent) {
       if (typing(e) || e.metaKey || e.ctrlKey) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (!e.repeat) pttStart();
-        return;
-      }
       const tools = overRef.current ? [] : modeRef.current === "plan" ? PLAN_TYPES : modeRef.current === "monitor" ? ORDER_TOOLS : [];
       const i = Number(e.key) - 1;
       if (i >= 0 && i < tools.length) setTool(tools[i]);
@@ -122,17 +117,8 @@ export default function Console() {
       const m = MODES.find((x) => x.value[0] === e.key.toLowerCase());
       if (m) switchMode(m.value);
     }
-    function up(e: KeyboardEvent) {
-      if (e.code === "Space" && !typing(e)) pttStop();
-    }
     window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    window.addEventListener("blur", pttStop);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", pttStop);
-    };
+    return () => window.removeEventListener("keydown", down);
     // switchMode only touches state through setters, so the first one is fine.
   }, []);
 

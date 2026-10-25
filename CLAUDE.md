@@ -17,4 +17,4 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `app/src/shared/engine.ts` is the only WebSocket client and the store (`useEngine()` via `useSyncExternalStore`, `send()` for client messages). Each window opens its own connection and reconnects every second.
 - `app/src/main.tsx` chooses the view from `?view=`: the operator console (`console/`, the product), exercise control (`control/`, plays the world: fire, wind, clock, the table) or the projector. Tauri calls go through `getPlatform()` in `app/src/platform/`, which lazy-loads `tauri.ts` so the browser build never imports `@tauri-apps/api`.
 
-**Project skills** in `.claude/skills/` cover running the app, protocol changes, terrain, roads, fuel, fire tuning, the camera, the commander and voice, and the agent board. Each `SKILL.md` says when to use it; check there before rediscovering a workflow.
+**Project skills** in `.claude/skills/` cover running the app, protocol changes, terrain, roads, fuel, fire tuning, the camera, the commander, and the agent board. Each `SKILL.md` says when to use it; check there before rediscovering a workflow.
