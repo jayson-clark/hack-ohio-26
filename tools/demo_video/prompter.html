@@ -8,6 +8,12 @@
   Karaoke prompter for the demo video's voiceover. Reads the "Read-along" table
   in SCRIPT.md (same folder), so the script stays the one source. Serve it with
   `make prompter`; fetch() can't read SCRIPT.md from a file:// page.
+
+  Record mode (K): records the voiceover one line at a time with a 1-2-3
+  count-in, grouped into three thirds with a pause between each, and lets you
+  re-take any single line. "Save clips" downloads one audio file per line plus a
+  manifest; tools/demo_video/stitch_vo.py places each at its cue start to render
+  one cohesive 3:00 track. The mic needs a secure context, which 127.0.0.1 is.
 -->
 <style>
   :root {
@@ -67,6 +73,21 @@
   .error { padding: 10vh 8vw; font-size: 20px; color: var(--warn); }
   .error code { color: var(--ink); }
 
+  .seg { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .seg b { color: var(--ink); }
+  #rec[aria-pressed="true"] { border-color: var(--warn); color: var(--warn); }
+  body.recording #rec { background: var(--warn); color: #0d0f11; border-color: var(--warn); }
+  .state.rec { color: var(--warn); }
+  /* a small dot on lines that already have a take */
+  .line .time::after { content: ""; }
+  .line.has-clip .time::after { content: " ● recorded"; color: #46c46a; }
+  .line.current.has-clip .time::after { color: #46c46a; }
+  /* segment banner shown between thirds */
+  .banner { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; background: rgba(13, 15, 17, 0.9); padding: 0 8vw; }
+  .banner.on { display: flex; }
+  .banner h2 { margin: 0; font-size: 4vh; color: var(--lit); }
+  .banner p { margin: 0; color: var(--dim); font-size: 2.2vh; }
+
   @media (max-width: 640px) {
     :root { --size: 30px; }
     header, footer { padding: 10px 16px; gap: 10px; }
@@ -85,6 +106,10 @@
 <main>
   <div class="lines" id="lines"></div>
   <div class="count" id="count"></div>
+  <div class="banner" id="banner">
+    <h2 id="bannerTitle"></h2>
+    <p id="bannerBody"></p>
+  </div>
 </main>
 <footer>
   <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
@@ -93,11 +118,15 @@
     <dt>On screen</dt><dd id="onscreen">–</dd>
   </dl>
   <div class="grow"></div>
+  <span class="seg" id="seg"></span>
   <button id="prev" title="Previous line">←</button>
-  <button id="play">Start</button>
+  <button id="play" title="Play / record the current line">Start</button>
   <button id="nextBtn" title="Next line">→</button>
+  <button id="rec" title="Record mode: read one line per take with a 1-2-3 count-in" aria-pressed="false">● Record: off</button>
+  <button id="save" title="Download every recorded line clip + manifest.json (spaced out)">Save clips</button>
+  <button id="saveNext" title="Save one clip at a time (if the browser blocks the batch)">Save next</button>
   <button id="srt">Captions (.srt)</button>
-  <span class="hint"><kbd>Space</kbd> start/pause · <kbd>←</kbd><kbd>→</kbd> lines · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> size · <kbd>C</kbd> count-in</span>
+  <span class="hint"><kbd>Space</kbd> play/record · <kbd>←</kbd><kbd>→</kbd> lines · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> size · <kbd>C</kbd> count-in · <kbd>K</kbd> record mode</span>
 </footer>
 <script>
 const COUNT_IN_S = 3;
@@ -105,6 +134,22 @@ const $ = (id) => document.getElementById(id);
 let cues = [], total = 0;
 let t = 0;               // script time, seconds
 let running = false, lastFrame = 0, countIn = true, counting = null;
+
+// --- Recording (line-by-line) ---------------------------------------------
+// In record mode you read one line per take: a 1-2-3 count-in, the line's
+// karaoke fill plays over its cue window, then the take auto-stops and parks on
+// the next line. Re-reading a line overwrites its clip. The 20 cues are grouped
+// into thirds; the prompter pauses with a banner between groups so you can
+// breathe. "Save clips" downloads every take + a manifest; stitch_vo.py places
+// each clip at its cue start to render one cohesive 3:00 track.
+let recordMode = false;      // whether we're in line-by-line record mode
+let mediaStream = null;      // the mic stream (requested once)
+let recorder = null;         // the active MediaRecorder, or null
+let recChunks = [];          // chunks for the take in progress
+let recIndex = -1;           // cue index currently being recorded
+const clips = {};            // index -> { blob, dur } of recorded takes
+let segStarts = [];          // cue indices that begin each third (e.g. [0, 7, 13])
+let recMime = "audio/webm";  // chosen MediaRecorder mime
 
 const toSec = (s) => { const [m, sec] = s.split(":"); return Number(m) * 60 + Number(sec); };
 const fmt = (s, tenths = true) => {
@@ -122,6 +167,22 @@ function parse(md) {
     return { start: toSec(c[0]), end: toSec(c[1]), picture: c[2] || "–", line: c[3] || "", onscreen: c[4] || "–" };
   });
 }
+
+// Group the cues into three roughly equal thirds. A third begins at the cue
+// whose start is nearest 1/3 and 2/3 of the total, so breaks fall on line
+// boundaries. Returns the cue indices that start each group, e.g. [0, 7, 13].
+function computeSegments() {
+  const nearestStart = (target) => {
+    let best = 0, bestD = Infinity;
+    cues.forEach((c, i) => { const d = Math.abs(c.start - target); if (d < bestD) { bestD = d; best = i; } });
+    return best;
+  };
+  const a = nearestStart(total / 3), b = nearestStart((2 * total) / 3);
+  // Guard against degenerate scripts: keep strictly increasing, skip 0.
+  return [0, a, b].filter((v, i, xs) => i === 0 || v > xs[i - 1]);
+}
+const segOf = (i) => { let s = 0; for (let k = 0; k < segStarts.length; k++) if (i >= segStarts[k]) s = k; return s; };
+const segLastIndex = (seg) => (seg + 1 < segStarts.length ? segStarts[seg + 1] - 1 : cues.length - 1);
 
 // Each word lights when the time spent reading the words before it has passed.
 // Longer words take longer to say, so the share is by letters, not by count.
@@ -192,16 +253,33 @@ function render() {
   $("next").innerHTML = inGap
     ? `Breathe · line in <b>${(c.start - t).toFixed(1)} s</b>`
     : i + 1 < cues.length ? `Next line in <b>${(cues[i + 1].start - t).toFixed(1)} s</b>` : t >= total ? "End" : "Last line";
+  // Segment indicator: which third we're in and the recorded/total count.
+  if (segStarts.length) {
+    const recorded = Object.keys(clips).length;
+    $("seg").innerHTML = `Seg <b>${segOf(i) + 1}/${segStarts.length}</b> · line <b>${i + 1}/${cues.length}</b> · rec <b>${recorded}/${cues.length}</b>`;
+  }
   const st = $("state");
-  st.className = "state" + (running ? " live" : "");
-  st.textContent = counting !== null ? "Get ready" : running ? "Reading" : t >= total ? "Done · R to restart" : t > 0 ? "Paused · Space to resume" : "Ready · Space to start";
-  $("play").textContent = running || counting !== null ? "Pause" : t > 0 && t < total ? "Resume" : "Start";
+  const recing = (recorder && recorder.state === "recording") || (recordMode && running && recIndex >= 0);
+  st.className = "state" + (recing ? " rec" : running ? " live" : "");
+  if (counting !== null) st.textContent = recordMode ? "Get ready to read this line" : "Get ready";
+  else if (recing) st.textContent = "● Recording this line";
+  else if (recordMode) st.textContent = clips[i] ? "Recorded · Space to re-take · → next" : "Record mode · Space to record this line";
+  else st.textContent = running ? "Reading" : t >= total ? "Done · R to restart" : t > 0 ? "Paused · Space to resume" : "Ready · Space to start";
+  $("play").textContent = (running || counting !== null)
+    ? (recordMode ? "Stop" : "Pause")
+    : recordMode ? (clips[i] ? "Re-record" : "Record line") : t > 0 && t < total ? "Resume" : "Start";
 }
 
 function tick(now) {
   if (running) {
     t += (now - lastFrame) / 1000;
-    if (t >= total) { t = total; running = false; }
+    if (recordMode && recIndex >= 0) {
+      // A take plays only over its own line's window, then stops.
+      const c = cues[recIndex];
+      if (t >= c.end) { t = c.end; finishTake(); }
+    } else if (t >= total) {
+      t = total; running = false;
+    }
   }
   lastFrame = now;
   render();
@@ -209,8 +287,21 @@ function tick(now) {
 }
 
 function start() {
+  if (recordMode) return startTake();
   if (t >= total) t = 0;
   if (!countIn) { running = true; lastFrame = performance.now(); return; }
+  runCountIn(() => { running = true; lastFrame = performance.now(); });
+}
+function stop() {
+  running = false;
+  if (counting !== null) { clearInterval(counting); counting = null; $("count").classList.remove("on"); }
+  if (recordMode && recorder && recorder.state === "recording") cancelTake();
+}
+const toggle = () => (running || counting !== null ? stop() : start());
+
+// Run the 1-2-3 count-in, then call done().
+function runCountIn(done) {
+  if (!countIn) return done();
   let n = COUNT_IN_S;
   const show = () => { $("count").textContent = n; $("count").classList.add("on"); };
   show();
@@ -219,15 +310,161 @@ function start() {
     if (n > 0) return show();
     clearInterval(counting); counting = null;
     $("count").classList.remove("on");
-    running = true; lastFrame = performance.now();
+    done();
   }, 1000);
 }
-function stop() {
-  running = false;
-  if (counting !== null) { clearInterval(counting); counting = null; $("count").classList.remove("on"); }
+
+// --- Line-by-line take flow ------------------------------------------------
+async function ensureMic() {
+  if (mediaStream) return true;
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (err) {
+    alert("Couldn't open the microphone: " + err.message + "\n\nServe the prompter over http://127.0.0.1 (make prompter) and allow mic access.");
+    return false;
+  }
+  for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) { recMime = m; break; }
+  }
+  return true;
 }
-const toggle = () => (running || counting !== null ? stop() : start());
-function seek(s) { stop(); t = Math.max(0, Math.min(total, s)); render(); }
+
+// Begin recording the current line: count-in, snap to its start, record over
+// its cue window. tick() calls finishTake() when the line's end is reached.
+async function startTake() {
+  const i = currentIndex();
+  if (!(await ensureMic())) return;
+  seekSilently(cues[i].start);
+  runCountIn(() => {
+    recIndex = i;
+    recChunks = [];
+    recorder = new MediaRecorder(mediaStream, { mimeType: recMime });
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    recorder.onstop = saveTakeChunks;
+    recorder.start();
+    document.body.classList.add("recording");
+    running = true; lastFrame = performance.now();
+  });
+}
+
+// Stop and keep the take (called at line end).
+function finishTake() {
+  running = false;
+  if (recorder && recorder.state === "recording") recorder.stop(); // triggers saveTakeChunks
+  else afterTake();
+}
+
+// Stop and discard the take (manual pause mid-line).
+function cancelTake() {
+  const r = recorder; recorder = null; recIndex = -1;
+  document.body.classList.remove("recording");
+  if (r && r.state === "recording") { r.onstop = null; r.stop(); }
+}
+
+function saveTakeChunks() {
+  document.body.classList.remove("recording");
+  if (recIndex >= 0 && recChunks.length) {
+    const blob = new Blob(recChunks, { type: recMime });
+    const c = cues[recIndex];
+    clips[recIndex] = { blob, dur: c.end - c.start };
+    cues[recIndex].el.classList.add("has-clip");
+  }
+  recorder = null;
+  afterTake();
+}
+
+// After a take: advance to the next line, pausing at a third boundary.
+function afterTake() {
+  const done = recIndex;
+  recIndex = -1;
+  const next = done + 1;
+  if (next >= cues.length) { showBanner("All lines recorded", "Save clips, then run stitch_vo.py to render the 3:00 track."); seekSilently(cues[done].start); return; }
+  seekSilently(cues[next].start);
+  if (segOf(next) !== segOf(done)) {
+    const seg = segOf(next);
+    showBanner(`Segment ${seg + 1} of ${segStarts.length}`, `${countLeft(seg)} lines coming up · Space (or ● Record) to continue`);
+  }
+}
+
+const countLeft = (seg) => segLastIndex(seg) - segStarts[seg] + 1;
+
+function showBanner(title, body) {
+  $("bannerTitle").textContent = title;
+  $("bannerBody").textContent = body;
+  $("banner").classList.add("on");
+}
+function hideBanner() { $("banner").classList.remove("on"); }
+
+// Move the clock without the record-mode auto-start side effects.
+function seekSilently(s) { t = Math.max(0, Math.min(total, s)); render(); }
+
+async function toggleRecordMode() {
+  recordMode = !recordMode;
+  stop();
+  if (recordMode) {
+    await ensureMic();
+    const i = currentIndex();
+    seekSilently(cues[i].start);
+    showBanner("Record mode", "Read one line per take. Space starts a 1-2-3 count-in, the line records, then it parks on the next line. ← → to re-take any line. Breaks fall between thirds.");
+  } else {
+    hideBanner();
+  }
+  $("rec").setAttribute("aria-pressed", String(recordMode));
+  $("rec").textContent = recordMode ? "● Record: on" : "● Record: off";
+  render();
+}
+
+// Download every recorded clip, named by cue, plus a manifest for the stitcher.
+// Browsers block a rapid burst of downloads, so we space them out and save the
+// manifest first (the important one). A "Save next" button saves one at a time
+// as a guaranteed fallback.
+let savedCount = 0;
+function clipName(i) {
+  const ext = recMime.includes("mp4") ? "m4a" : "webm";
+  return `vo_${String(i).padStart(2, "0")}_${cues[i].start.toFixed(0)}.${ext}`;
+}
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function manifestBlob() {
+  const ext = recMime.includes("mp4") ? "m4a" : "webm";
+  const idxs = Object.keys(clips).map(Number).sort((a, b) => a - b);
+  const manifest = { total, mime: recMime, ext, clips: idxs.map((i) => ({ index: i, file: clipName(i), start: cues[i].start, end: cues[i].end, line: cues[i].line })) };
+  return new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
+}
+async function saveClips() {
+  const idxs = Object.keys(clips).map(Number).sort((a, b) => a - b);
+  if (!idxs.length) { alert("No takes recorded yet. Turn on Record and read some lines first."); return; }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  download(manifestBlob(), "manifest.json");          // save the manifest first
+  for (let k = 0; k < idxs.length; k++) {
+    const i = idxs[k];
+    $("save").textContent = `Saving ${k + 1}/${idxs.length}…`;
+    download(clips[i].blob, clipName(i));
+    await sleep(450);                                  // spaced out so the browser doesn't block the burst
+  }
+  savedCount = idxs.length;
+  $("save").textContent = `Saved ${idxs.length} ✓`;
+  setTimeout(() => ($("save").textContent = "Save clips"), 2500);
+}
+// Save exactly one not-yet-saved clip per click (guaranteed by the browser).
+function saveNext() {
+  const idxs = Object.keys(clips).map(Number).sort((a, b) => a - b);
+  if (!idxs.length) { alert("No takes recorded yet."); return; }
+  if (savedCount === 0) download(manifestBlob(), "manifest.json");
+  if (savedCount >= idxs.length) { alert("All clips saved. (If some are missing, check your downloads folder.)"); return; }
+  const i = idxs[savedCount];
+  download(clips[i].blob, clipName(i));
+  savedCount += 1;
+  $("saveNext").textContent = savedCount >= idxs.length ? "All saved ✓" : `Save next (${savedCount}/${idxs.length})`;
+}
+function seek(s) { stop(); hideBanner(); t = Math.max(0, Math.min(total, s)); render(); }
 function step(d) {
   const i = currentIndex();
   // ← from the middle of a line goes back to its start; again goes to the line before.
@@ -255,17 +492,20 @@ function size(d) {
 
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.code === "Space") { e.preventDefault(); toggle(); }
+  if (e.code === "Space") { e.preventDefault(); hideBanner(); toggle(); }
   else if (e.key === "ArrowLeft") step(-1);
   else if (e.key === "ArrowRight") step(1);
   else if (e.key === "r" || e.key === "R" || e.key === "Home") seek(0);
   else if (e.key === "+" || e.key === "=") size(4);
   else if (e.key === "-" || e.key === "_") size(-4);
   else if (e.key === "c" || e.key === "C") { countIn = !countIn; $("state").textContent = `Count-in ${countIn ? "on" : "off"}`; }
+  else if (e.key === "k" || e.key === "K") toggleRecordMode();
 });
-$("play").addEventListener("click", toggle);
+$("play").addEventListener("click", () => { hideBanner(); toggle(); });
 $("prev").addEventListener("click", () => step(-1));
 $("nextBtn").addEventListener("click", () => step(1));
+$("rec").addEventListener("click", toggleRecordMode);
+$("save").addEventListener("click", saveClips);
 $("srt").addEventListener("click", srt);
 $("bar").addEventListener("click", (e) => {
   const r = e.currentTarget.getBoundingClientRect();
@@ -278,6 +518,7 @@ fetch("SCRIPT.md", { cache: "no-store" })
     cues = parse(md);
     if (!cues.length) throw new Error("the Read-along table has no rows");
     total = cues[cues.length - 1].end;
+    segStarts = computeSegments();
     $("total").textContent = fmt(total, false);
     build();
     requestAnimationFrame((now) => { lastFrame = now; tick(now); });
