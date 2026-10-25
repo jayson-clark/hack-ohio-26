@@ -13,21 +13,26 @@ with the directional channels swapped to match. Each epoch reports the
 held-out Brier score next to a 32-rollout forecast's, so it's clear whether
 the net is as good as what the engine draws today.
 
-Speed (#193): inputs are built once (float16), not every epoch; a thread
-builds the next batch while the GPU runs the current one; and the training
-step is compiled (mx.compile), once per map shape.
+Speed (#193): BUILDERS threads build upcoming batches while the GPU runs the
+current one, and the training step is compiled (mx.compile), once per input
+shape. Loss masks are computed once; inputs are rebuilt per batch, because
+holding every input of a 512 x 480 map in memory would take tens of GB.
 
 Map size: the net is fully convolutional, so it runs on any map. On a map
 twice as wide and tall (terrain mirrored outward), predictions moved 0.006 on
-average and the Brier score rose 3%, so a bigger map needs no special handling.
+average and the Brier score rose 3%, so inference uses the whole map. On maps
+bigger than WINDOW, training uses a random WINDOW x WINDOW square that holds
+the fire's reach (anything farther can't change a label), so a big map
+doesn't make training slower. Every map side no bigger than WINDOW is kept
+whole, so there are only a few input shapes and few compiles.
 """
 
 import argparse
 import glob
 import json
-import queue
-import threading
 import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 import mlx.core as mx
@@ -40,22 +45,58 @@ from emulator import device as D
 from emulator import features as F
 from emulator.data import _scenario, load
 from emulator.model import WEIGHTS, FireUNet, pad_to
-from sim.fire import Wind
+from sim.fire import BURNING, Wind
+
+WINDOW = 256  # cells: on bigger maps, train on a square this size around the fire
+REACH = max(F.HORIZONS) + 16  # the fire's reach by the longest horizon, plus context
+BUILDERS = 4  # threads building batches ahead of the GPU
 
 
 def prepare(r: dict) -> dict:
-    """A sample's inputs, label and loss mask, built once (float16)."""
-    _, layers = _scenario(r["scenario"])
-    x = F.inputs(r["state"], r["burn_left"], layers.spread, Wind(*map(float, r["wind"])), r["sup"] / 255.0)
+    """A sample with its loss mask (computed once) and the fire's bounding box."""
     _, open_ = F.masks(r["state"])
-    return {"x": x.astype(np.float16), "y": (r["label"] / 255.0).astype(np.float16), "m": open_.astype(np.float16)}
+    ys, xs = np.nonzero(r["state"] >= BURNING)
+    return {"row": r, "m": open_, "box": (ys.min(), ys.max(), xs.min(), xs.max())}
 
 
-def tensors(samples: list[dict], flips: list[tuple[bool, bool]] | None = None):
-    """(x, y, mask) as (B, H, W, C) MLX arrays, for samples of one map shape."""
+def window(s: dict, rng: np.random.Generator | None = None) -> tuple[slice, slice]:
+    """A random WINDOW-sized square holding the fire's reach (a map side no
+    bigger than WINDOW stays whole), or the whole map if the reach is bigger.
+    Without rng, the whole map."""
+    h, w = s["m"].shape[1:]
+    if rng is None:
+        return slice(0, h), slice(0, w)
+    y0, y1, x0, x1 = s["box"]
+    out = []
+    for lo, hi, n in ((y0 - REACH, y1 + REACH, h), (x0 - REACH, x1 + REACH, w)):
+        size = min(WINDOW, n)
+        lo, hi = max(lo, 0), min(hi, n - 1)
+        if hi - lo + 1 > size:
+            return slice(0, h), slice(0, w)
+        first, last = max(hi - size + 1, 0), min(lo, n - size)
+        start = int(rng.integers(first, last + 1))
+        out.append(slice(start, start + size))
+    return out[0], out[1]
+
+
+def shape_of(win: tuple[slice, slice]) -> tuple[int, int]:
+    return win[0].stop - win[0].start, win[1].stop - win[1].start
+
+
+def piece(s: dict, win: tuple[slice, slice]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Inputs, label and loss mask inside a window."""
+    r, (ys, xs) = s["row"], win
+    _, layers = _scenario(r["scenario"])
+    x = F.inputs(r["state"][ys, xs], r["burn_left"][ys, xs], layers.spread[:, ys, xs],
+                 Wind(*map(float, r["wind"])), r["sup"][:, ys, xs] / 255.0)
+    return x, r["label"][:, ys, xs] / 255.0, s["m"][:, ys, xs]
+
+
+def tensors(samples: list[dict], wins: list[tuple[slice, slice]], flips: list[tuple[bool, bool]] | None = None):
+    """(x, y, mask) as (B, H, W, C) MLX arrays, for same-shaped windows."""
     xs, ys, ms = [], [], []
     for i, s in enumerate(samples):
-        x, y, m = s["x"], s["y"], s["m"]
+        x, y, m = piece(s, wins[i])
         if flips:
             fy, fx = flips[i]
             x, y, m = F.flip(x, fy, fx), F.flip_grid(y, fy, fx), F.flip_grid(m, fy, fx)
@@ -66,19 +107,16 @@ def tensors(samples: list[dict], flips: list[tuple[bool, bool]] | None = None):
     return t(xs), t(ys), t(ms)
 
 
-def prefetched(make, items, depth: int = 3):
-    """make(item) for each item, built in a background thread so the next
-    batch is ready when the GPU finishes the current one."""
-    q: queue.Queue = queue.Queue(depth)
-
-    def work():
-        for it in items:
-            q.put(make(it))
-        q.put(None)
-
-    threading.Thread(target=work, daemon=True).start()
-    while (b := q.get()) is not None:
-        yield b
+def prefetched(make, items, pool: ThreadPoolExecutor, ahead: int = 2 * BUILDERS):
+    """make(item) for each item in order, built by the pool up to `ahead`
+    items early (NumPy releases the GIL, so threads run in parallel)."""
+    items = list(items)
+    pending: deque = deque(pool.submit(make, it) for it in items[:ahead])
+    for it in items[ahead:]:
+        yield pending.popleft().result()
+        pending.append(pool.submit(make, it))
+    while pending:
+        yield pending.popleft().result()
 
 
 def loss_fn(net, x, y, m):
@@ -86,11 +124,11 @@ def loss_fn(net, x, y, m):
     return (bce * m).sum() / mx.maximum(m.sum(), 1.0)
 
 
-def batches(samples: list[dict], size: int, rng):
-    """Shuffled batches of indices, each from a single map shape."""
+def batches(shapes: list[tuple[int, int]], size: int, rng):
+    """Shuffled batches of indices, each of a single input shape."""
     by_shape: dict[tuple, list[int]] = {}
-    for i, s in enumerate(samples):
-        by_shape.setdefault(s["x"].shape, []).append(i)
+    for i, sh in enumerate(shapes):
+        by_shape.setdefault(sh, []).append(i)
     out = []
     for idx in by_shape.values():
         idx = rng.permutation(idx)
@@ -102,8 +140,9 @@ def evaluate(net, test: list[dict], rows: list[dict]) -> dict:
     """Masked Brier on held-out samples: emulator vs the label (64 rollouts),
     and a 32-rollout forecast vs the same label when stored."""
     se_emu = se_32 = cells = 0.0
-    for b in batches(test, 8, np.random.default_rng(0)):
-        x, y, m = tensors([test[i] for i in b])
+    wins = [window(s) for s in test]
+    for b in batches([shape_of(w) for w in wins], 8, np.random.default_rng(0)):
+        x, y, m = tensors([test[i] for i in b], [wins[i] for i in b])
         p = mx.sigmoid(net(x))
         se_emu += float(((p - y) ** 2 * m).sum())
         cells += float(m.sum())
@@ -140,7 +179,8 @@ def main() -> None:
     net = FireUNet()
     mx.eval(net.parameters())
     n_params = sum(v.size for _, v in tree_flatten(net.parameters()))
-    steps = args.epochs * len(batches(train, args.batch, np.random.default_rng(0)))
+    probe = np.random.default_rng(1)
+    steps = args.epochs * len(batches([shape_of(window(s, probe)) for s in train], args.batch, probe))
     opt = optim.AdamW(learning_rate=optim.cosine_decay(args.lr, steps), weight_decay=1e-4)
     loss_and_grad = nn.value_and_grad(net, loss_fn)
     print(f"{n_params:,} parameters", flush=True)
@@ -155,15 +195,17 @@ def main() -> None:
     if not args.no_compile:
         train_step = partial(mx.compile, inputs=state, outputs=state)(train_step)
     history = []
+    pool = ThreadPoolExecutor(BUILDERS)
     for epoch in range(args.epochs):
         net.train()
         t0, total, count = time.perf_counter(), 0.0, 0
-        order = batches(train, args.batch, rng)
+        wins = [window(s, rng) for s in train]
+        order = batches([shape_of(w) for w in wins], args.batch, rng)
         if args.max_steps:
             order = order[: args.max_steps]
         flips = [[(bool(rng.integers(2)), bool(rng.integers(2))) for _ in b] for b in order]
-        make = lambda k: tensors([train[i] for i in order[k]], flips[k])  # noqa: E731
-        for x, y, m in prefetched(make, range(len(order))):
+        make = lambda k: tensors([train[i] for i in order[k]], [wins[i] for i in order[k]], flips[k])  # noqa: E731
+        for x, y, m in prefetched(make, range(len(order)), pool):
             loss = train_step(x, y, m)
             mx.eval(state, loss)
             total, count = total + float(loss), count + 1

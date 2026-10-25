@@ -21,9 +21,10 @@ Device: training and `evaluate` print the device they use, and the `.json` recor
 
 Training on an NVIDIA machine (e.g. a cluster) is optional. The repo is macOS-only, so the `ml` extra only installs on Apple silicon. On Linux, sync normally, run `uv pip install "mlx[cuda]"`, then `uv run --no-sync python -m emulator.train --device gpu`. The weights are plain safetensors, so they load on a Mac whichever GPU trained them.
 
-Training speed (#193): inputs are built once, a thread prefetches batches, and the step is compiled (`mx.compile`), so an epoch of 5,200 fires takes ~72 s at batch 16 (was ~125 s at batch 8).
+Training speed (#193): `BUILDERS` threads build batches ahead of the GPU and the step is compiled (`mx.compile`), so an epoch of 5,200 fires takes ~74 s at batch 16 (was ~125 s at batch 8). On maps bigger than `WINDOW` (256 cells), training uses a random 256 x 256 square holding the fire's 76-cell reach, so the 512 x 480 Paradise trains about as fast as today's maps. Inference still runs on the whole map. Inputs are rebuilt per batch rather than held in memory, since a 512 x 480 map's inputs would take tens of GB.
 - **Batch 16 is the sweet spot on an M2 Max.** Batch 32 took 264 s an epoch at full map size and learned less per epoch.
-- **Don't crop to many shapes.** MLX compiles kernels per input shape; 24 crop shapes never finished 100 steps in 10 min.
+- **Don't crop to many shapes.** MLX compiles kernels per input shape; 24 crop shapes never finished 100 steps in 10 min. One fixed `WINDOW` square plus the whole maps is a handful of shapes.
+- **Epochs:** the held-out Brier prints after each one. On the bigger maps each sample carries more cells, so start at 8 epochs and add more only if it's still falling.
 - **Map size barely matters.** On a map twice as wide and tall, predictions moved 0.006 on average (Brier +3%), so bigger maps need no special handling.
 
 Gotchas:
