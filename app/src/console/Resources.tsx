@@ -20,6 +20,8 @@ const STATUS_TONE: Record<UnitStatus, Tone> = {
   working: "ok",
   blocked: "crit",
   grounded: "warn",
+  reloading: "info",
+  resting: "neutral",
 };
 
 export default function Resources({
