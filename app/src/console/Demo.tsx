@@ -63,11 +63,16 @@ export function useDemoMode(): boolean {
 /** Take the first card that has an action, `delayS` after it comes up. One at
  * a time, each card at most once, and nothing while the fire is paused. */
 export function useAutopilot(items: AutoItem[], enabled: boolean): [AutopilotState, (s: Partial<Pick<AutopilotState, "on" | "delayS">>) => void] {
-  const { scenario } = useEngine();
+  const { scenario, score } = useEngine();
   const [on, setOn] = useState(false);
   const [delayS, setDelayS] = useState(4);
   const [pending, setPending] = useState<AutopilotState["pending"]>(null);
   const done = useRef(new Set<string>());
+  // A new round or a reset brings back cards with the same keys (evac-<town>),
+  // so forget what was taken when the fire's clock goes back.
+  const lastTick = useRef(score?.tick ?? 0);
+  if (score && score.tick < lastTick.current) done.current.clear();
+  lastTick.current = score?.tick ?? lastTick.current;
   const latest = useRef(items);
   latest.current = items;
 
