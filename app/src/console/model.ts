@@ -67,12 +67,17 @@ export function townView(t: Town, threat: TownThreat | null, evac: TownEvac | nu
   // like the inspector and the cards; otherwise the simulations' early end.
   const lo = threat?.eta_lo_min ?? null;
   const hi = threat?.eta_hi_min ?? null;
+  const now = lo !== null && lo < 1; // the range starts now
   const eta = threat?.fire_inside
     ? "Fire in town"
     : lo !== null && hi !== null
-      ? `Fire in ${aboutMinutes(lo)}–${aboutMinutes(hi)}`
+      ? now
+        ? `Fire within ${aboutMinutes(hi)}`
+        : `Fire in ${aboutMinutes(lo)}–${aboutMinutes(hi)}`
       : lo !== null
-        ? `Fire in ${aboutMinutes(lo)}+`
+        ? now
+          ? "Fire possible any time"
+          : `Fire in ${aboutMinutes(lo)} or later`
         : soon !== null
           ? `Fire in ~${aboutMinutes(soon)}`
           : null;
