@@ -210,6 +210,7 @@ export interface VisionStatus {
   markers_seen: number;
   corners_seen: string[];
   board_found: boolean;
+  feed_rectified: boolean;
 }
 /**
  * The game layer's state. Sent once a second, immediately when the round

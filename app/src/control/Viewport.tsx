@@ -70,7 +70,7 @@ export default function Viewport(props: Props) {
   return (
     <div className="relative h-full overflow-hidden rounded-xl border border-edge bg-black">
       {mode === "camera" ? (
-        <CameraView frame={props.cameraFrame} vision={props.vision} />
+        <CameraView frame={props.cameraFrame} vision={props.vision} scenario={scenario} />
       ) : viewProps ? (
         mode === "table" ? (
           <TableView {...viewProps} camera={props.camera} />
