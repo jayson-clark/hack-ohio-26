@@ -7,7 +7,6 @@ windows are views that can connect and disconnect at any time.
 import asyncio
 import dataclasses
 import json
-import itertools
 import logging
 import os
 import time
@@ -23,7 +22,7 @@ import numpy as np
 from commander.agent import Commander
 from commander.briefings import BriefingQueue, ForecastWatcher, evacuate_text, round_summary
 from commander.listen import Listener, vocabulary_prompt
-from commander.voice import MacVoice, speakable
+from commander.listen import speakable
 from commander.tools import CommanderTools
 from forecast.plan import PLAN_ROLLOUTS, PlanOutcome, evaluate_plan
 from forecast.recommend import PlacedCrew, Rec, Recommender, TownInfo, describe
@@ -35,7 +34,6 @@ from protocol import (
     CommanderKind,
     CommanderMessage,
     CommanderQuery,
-    CommanderSpeech,
     CameraState,
     EndRound,
     EvacStatus,
@@ -60,7 +58,6 @@ from protocol import (
     Score,
     SetRunning,
     SetSpeed,
-    SetVoice,
     SetWind,
     Situation,
     StartRound,
@@ -72,7 +69,6 @@ from protocol import (
     UnitInfo,
     Units,
     UnitStatus,
-    VoiceMode,
     Tokens,
     TokenSource,
     VirtualTokenAdd,
@@ -222,15 +218,11 @@ class Engine:
         self.briefings = BriefingQueue()
         self.commander = Commander(self.tools)
         self._query_task: asyncio.Task | None = None
-        # Voice is off until a console turns it on (commander/voice.py).
-        self.voice_mode = VoiceMode.OFF
-        self.mac_voice = MacVoice()
-        self._utterances = itertools.count(1)
 
     def load(self, name: str) -> None:
         """Build (or rebuild) every scenario-derived piece of state. Called
         once at startup and again on a load_scenario message. Does not touch
-        the worker processes, pause/speed, voice, the commander or the token
+        the worker processes, pause/speed, the commander or the token
         tracker; switch_scenario handles those."""
         self.scenario = load_scenario(name)
         s = self.scenario
@@ -510,10 +502,6 @@ class Engine:
                 self.ptt_start()
             case PttStop():
                 self.ptt_stop()
-            case SetVoice():
-                self.voice_mode = msg.mode
-                if msg.mode != VoiceMode.MAC:
-                    self.mac_voice.interrupt()
             case CalibrationStep():
                 self.calibrator.step(msg.action, self.camera is not None)
                 broadcast(self.clients, self.calibration_msg())
@@ -572,7 +560,6 @@ class Engine:
         self.commander.reset()
         if self._query_task is not None:
             self._query_task.cancel()
-        self.mac_voice.interrupt()
         self.recs = []
         self._rec_started = -RECOMMEND_MIN_TICKS
         broadcast(self.clients, self.hello_msg())
@@ -609,7 +596,6 @@ class Engine:
         self.commander.reset()
         if self._query_task is not None:
             self._query_task.cancel()
-        self.mac_voice.interrupt()
         if self.listener.recording:
             self.listener.stop()
         self.recs = []
@@ -897,7 +883,6 @@ class Engine:
         self._query_task = asyncio.create_task(self._answer(question))
 
     def ptt_start(self) -> None:
-        self.mac_voice.interrupt()  # the console stops its own voice when the button goes down
         if not self.listener.available:
             self.send_transcript("", self.listener.reason)
             return
@@ -924,19 +909,8 @@ class Engine:
     def send_transcript(self, text: str, error: str | None) -> None:
         broadcast(self.clients, Transcript(text=text, error=error).model_dump_json())
 
-    def speak(self, utterance: str, kind: CommanderKind, text: str, urgent: bool = False) -> None:
-        """Send text to whichever voice is on. Sentences of one answer share an utterance id."""
-        if self.voice_mode == VoiceMode.CONSOLE:
-            msg = CommanderSpeech(utterance=utterance, kind=kind, text=speakable(text), urgent=urgent)
-            broadcast(self.clients, msg.model_dump_json())
-        elif self.voice_mode == VoiceMode.MAC:
-            self.mac_voice.speak(utterance, kind.value, speakable(text))
-
     async def _answer(self, question: str) -> None:
-        utterance = f"a{next(self._utterances)}"
-        ans = await self.commander.answer(
-            question, on_sentence=lambda s: self.speak(utterance, CommanderKind.ANSWER, s)
-        )
+        ans = await self.commander.answer(question)
         msg = CommanderMessage(
             kind=CommanderKind.ANSWER,
             tick=self.fire.tick,
@@ -1231,8 +1205,6 @@ class Engine:
             self.maybe_preview()
             if (briefing := self.briefings.next(time.monotonic(), self.fire.tick, self.paused)) is not None:
                 broadcast(self.clients, briefing.model_dump_json())
-                urgent = briefing.event in (EventKind.NO_SAFE_ROUTE, EventKind.TOWN_THREATENED, EventKind.EVACUATE_NOW)
-                self.speak(f"b{next(self._utterances)}", CommanderKind.BRIEFING, briefing.text, urgent)
             if self.tick % TICK_HZ == 0:
                 broadcast(self.clients, self.state_msg())
                 broadcast(self.clients, self.vision_status_msg())

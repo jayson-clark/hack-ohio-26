@@ -1,6 +1,6 @@
 # Firewatch: Wildfire Forecasting and Response Software
 
-Firewatch is decision-support software for people forecasting and responding to a wildfire. It forecasts where the fire will go, plans evacuation routes around roads that are about to burn, dispatches crews and tankers from real stations, recommends where to put them, and gives spoken briefings through an AI incident commander. **The command console is the product.**
+Firewatch is decision-support software for people forecasting and responding to a wildfire. It forecasts where the fire will go, plans evacuation routes around roads that are about to burn, dispatches crews and tankers from real stations, recommends where to put them, and gives written briefings and answers through an AI incident commander. **The command console is the product.**
 
 **The physical table is a demo extra, not the product.** A 3D-printed terrain model sits under an overhead projector and webcam, and the projector paints the live fire, topo colors, roads and towns onto it. It stands in for the real world seen from above, the way drone or aerial footage shows an incident. The camera looking down at the table plays the part of a drone looking down at the fire. A real operator wouldn't stand at a table placing tokens during an incident; they'd use the software. So the table is a showpiece for the demo, and features are judged by whether they help an operator who only has the software.
 
@@ -30,7 +30,7 @@ Firewatch is decision-support software for people forecasting and responding to 
 | Projector rendering | **WebGL** via Three.js (one projection shader; 3D only for the virtual table) | Shaders for fire, terrain, forecast ghost, routes |
 | Engine | **Python**: OpenCV, NumPy, networkx, pyserial | Vision, simulation, forecasting, routing, LLM commander, wind knob |
 | Transport | **WebSocket** | Binary grids and JSON messages between engine and UI |
-| Commander | Claude API (tool use) + speech-to-text + TTS | Spoken briefings and what-if questions |
+| Commander | Claude API (tool use) + push-to-talk speech-to-text | Briefings and what-if questions (text; no in-app TTS, #138) |
 
 ### Why Tauri + React
 
@@ -131,7 +131,7 @@ engine/                 Python
   sim/                  fire CA, suppression, layers
   forecast/             batched rollouts, crew recommendations
   routing/              road graph, evac routing
-  commander/            LLM tools, speech-to-text/TTS
+  commander/            LLM tools, briefings, push-to-talk speech-to-text
   uq/                   uncertainty: sampling intervals (mc.py); conformal calibration to come
   protocol.py           Pydantic message models
   gen_schema.py         protocol JSON schema for `make types`
@@ -319,7 +319,7 @@ The LLM gets **tools**, not a raw state dump, so its answers come from real simu
 | `get_routes()` | Current evacuation routes and their risk |
 
 - Triggered by events (town threatened, road cut) for proactive briefings, and by push-to-talk questions.
-- Answers are kept to about two sentences so they work spoken aloud.
+- Answers are kept to about two sentences. In-app text-to-speech was removed (#138); the text messages are what an external TTS would read if speech is wanted.
 - Uses a fast model for low latency.
 
 ### Game layer
@@ -385,10 +385,10 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 ### Phase 5: Incident commander
 - Crew placement recommendations, projected and shown as cards in the console
 - LLM commander with the simulation tools
-- Push-to-talk speech-to-text in, TTS briefings out
+- Push-to-talk speech-to-text in, briefings out as text
 - Proactive event-driven briefings
 
-**Exit:** a judge asks "What if the wind shifts west?" and hears a spoken answer backed by a real forecast.
+**Exit:** a judge asks "What if the wind shifts west?" (typed or by push-to-talk) and gets an answer backed by a real forecast.
 
 ### Phase 6: Game and polish
 - Scenarios, limited resources, cooldowns, timer, scoring, end summary

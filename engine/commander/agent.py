@@ -119,7 +119,7 @@ class Commander:
         """Answer a question with the LLM if it can, else from rules. Never raises.
 
         `on_sentence` gets each sentence as soon as it's known to be grounded
-        (for text-to-speech). Whatever it receives is exactly the start of the
+        (the CLI uses it to time the first sentence). Whatever it receives is exactly the start of the
         final answer's text.
         """
         said: list[str] = []
