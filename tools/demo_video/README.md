@@ -14,9 +14,17 @@ Exports land in `~/Movies/fireline-demo/` (`DEMO_OUT_DIR` or `--out` to change),
 
 Hands off the mouse and keyboard while it runs. If you touch them, Recordly stops that scene and the take fails; run it again.
 
+## Putting the video together
+
+After the takes, three scripts finish the cut (all from `engine/`, with `uv run --with pillow python ../tools/demo_video/<script>`):
+
+- `split.py`: the synced table shot, the phone's video beside take F's camera view, lined up on the slate's grid flash and colour-graded.
+- `cards.py ~/Movies/fireline-demo/cards`: the Camp Fire replay over the real perimeters (the default replay, measured as it's drawn), the limits card and the end card.
+- `assemble.py`: a silent 3:00 rough cut on SCRIPT.md's clock, with each line burned in as a caption. Which footage fills each line's slot, and from where, is `SHOTS` at its top; re-pick the in-points after re-recording a take. Record the voiceover with the prompter, then lay it under this cut.
+
 ## The window
 
-The runner records the whole screen and drives a Chrome app window titled "Fireline" (no tabs or address bar). If none is open it opens one at `http://localhost:1420/?view=console&demo=1`. The video is cropped to that window minus its title bar and framed on a wallpaper, so a shot with no zoom shows the whole window like a Mac screenshot and the zooms move in from there. The window fills about 78% of the frame, so `depth=3` (1.8×) is roughly the old full-window framing. Takes that click by coordinates (C's sliders and map point) assume the 1668×1084 window this was written on; re-aim them with `--rehearse` if yours differs.
+If the desktop app's Fireline Console and Fireline Exercise Control windows are open on this desktop, the runner drives those instead (sized to 1668×1056, the same picture as the Chrome window's content; `DEMO_APP=chrome` to skip them). It clicks the header before any keys, because keys only reach the app's page after a click, and turns on the console's demo bar with Shift+D. Otherwise the runner records the whole screen and drives a Chrome app window titled "Fireline" (no tabs or address bar). If none is open it opens one at `http://localhost:1420/?view=console&demo=1`. The video is cropped to that window minus its title bar and framed on a wallpaper, so a shot with no zoom shows the whole window like a Mac screenshot and the zooms move in from there. The window fills about 78% of the frame, so `depth=3` (1.8×) is roughly the old full-window framing. Takes that click by coordinates (C's sliders and map point) assume the 1668×1084 window this was written on; re-aim them with `--rehearse` if yours differs.
 
 ## Commands
 

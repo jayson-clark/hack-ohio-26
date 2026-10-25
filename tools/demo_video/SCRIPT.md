@@ -12,30 +12,30 @@ make prompter     # http://127.0.0.1:8792/prompter.html: Space starts, words fil
 
 ## Read-along
 
-Times are in the final cut. A line's words fill evenly between its start and end, and the gaps between lines are breaths. Lines run at 2.0–2.5 spoken words a second (about 135 a minute). `G·2` means take G, scene 2.
+Times are in the final cut. A line's words fill evenly between its start and end, and each line runs into the next, so keep up with the fill. Lines run at about 2.7–3.0 spoken words a second (about 165 a minute, a brisk talk pace). `G·2` means take G, scene 2.
 
 | Start | End | Picture | Line | On screen |
 |---|---|---|---|---|
-| 0:00 | 0:08 | `A·1` wide: the fire leaving Pulga | Fireline is decision support for wildfire incident command. This is a replay of the 2018 Camp Fire. | Lower third: Fireline |
-| 0:08 | 0:17 | `A·1`: 2.2× on the fire and its forecast bands | The real fire reached Paradise in about eighty minutes; emptying it takes hours. So when must each town be ordered out? | Badge: 0.5× |
-| 0:18 | 0:28 | `A·1`, later: the bands growing toward Concow | Underneath is a fire model on real terrain, fuel and roads, at ninety-four metre cells, with embers that jump ahead in strong wind. | |
-| 0:29 | 0:36 | Insert: Camp Fire replay over the real perimeters | We tested it by replaying two real fires, rather than tuning it by eye. | |
-| 0:37 | 0:43 | Insert, Marshall row | On the Marshall Fire, it matches the burned area at two and a half hours. | Marshall Fire, 2.5 h: area 1.01×, IoU 0.45 |
-| 0:44 | 0:51 | Insert, Camp Fire row | On the Camp Fire, it gets the direction right, but burns about twice the real area. | Camp Fire, 7 h / 11.5 h: IoU 0.39 / 0.53 (best replay settings; 0.35 / 0.46 at defaults), about 2× the area |
-| 0:52 | 1:01 | `B1`: 3.5× on Pulga's evacuation card | Every number comes from running the fire forward thirty-two times, so we show it as a count, like seventeen of thirty-two. | 17 of 32 simulations |
-| 1:02 | 1:10 | `B2·1`: the crew recommendation card | A crew card appears only when even the pessimistic end of its range still helps. | Crew cards: 16 paired runs, shown only if the low end is above zero |
-| 1:11 | 1:21 | `G·1`: Concow's label with its calibrated range | A count can't see a wind shift, so the outline and town ranges are calibrated as the fire burns, against what actually burned. | Fire in 1h 07m–1h 37m |
-| 1:22 | 1:31 | `G·1`: the legend's live miss rate | The outline aims for one acre in ten of new fire outside it, and the legend shows how well that's holding. | Target 10% outside · measured 11–13% |
-| 1:32 | 1:40 | `G·2`: the wind shifts; the legend turns orange, Widening; the outline grows | When the wind shifts, that number rises, and the outline widens to catch up. | Badge: Wind shift NE → ESE |
-| 1:41 | 1:50 | Card: the limits, over the console | Town arrival ranges hold ninety-five percent of the time in steady wind, but about two in three right after a shift. | Steady wind 95% · after a shift 67% |
-| 1:51 | 2:00 | Card, next lines | We don't forecast the wind or fuel moisture, and the ranges cover the simulator, not its error against real fires. | No wind forecast · no fuel moisture · no house-to-house spread |
-| 2:01 | 2:09 | `B1`: Order evacuation; the queue re-sorts; the drafted alert | Within those limits, decisions land in one queue, most urgent first, and an evacuation order drafts the alert. | Badge: 0.25× · Replay check: all 4 towns the fire reached were called at the first forecast, 1–43 min before the real deadline |
-| 2:10 | 2:16 | `B2·2`: Dispatch; the crew drives in | A dispatched crew is credited in the forecast from when it arrives. | Badge: 1× |
-| 2:17 | 2:25 | Phone: the table, wide and locked off, the fire spreading | On a real fire, the view comes from a drone. Our stand-in is a 3D print of the terrain. | Lower third: Physical table, standing in for drone footage |
-| 2:26 | 2:33 | Split, synced on the slate: phone (left), `F·2` camera view (right) | The projector paints only ground and fire, and the camera overhead plays the drone. | Labels: The table · What the camera sees |
-| 2:34 | 2:43 | `F·3`: the map layers come on over the photo; `F·4`: the console on the same feed | It corrects for the terrain's height, straightens the view into a map, and the console works from that picture. | |
-| 2:44 | 2:54 | Agent board, live: a question and its answer, a claim, a merge | Four of us built this, each with coding agents that shared findings and claimed work on one live board. | hack.apps.jaysonc.dev · 108 PRs [count on the day] |
-| 2:55 | 3:00 | Phone: the table, slow push-in → end card | Fireline: know when to act, and how far to trust the forecast. | End card: Fireline · team · repo URL |
+| 0:00 | 0:08 | `A·1` wide: the fire leaving Pulga | Fireline helps an incident commander decide when to evacuate each town and where to send crews. This is the 2018 Camp Fire, replayed. | Lower third: Fireline |
+| 0:08 | 0:18 | `A·1`: 2.2× on the fire and its forecast bands | The fire reached Paradise in about eighty minutes. Emptying the town takes hours, so the order has to go out long before the fire gets close. | Badge: 0.5× |
+| 0:18 | 0:29 | `A·1`, later: the bands growing toward Concow; Paradise's clock | Underneath is a cellular fire model on real terrain, fuel and roads, at ninety-four metre cells, with embers that jump ahead in strong wind. Each forecast runs it thirty-two times. |  |
+| 0:29 | 0:37 | Card: the Camp Fire replay over the real perimeters | We didn't tune it by eye. We replayed two real fires and scored the simulation against their mapped perimeters. |  |
+| 0:37 | 0:44 | Card, Marshall line | On the Marshall Fire it matches the burned area at two and a half hours, within one percent. | Marshall Fire, 2.5 h: area 1.01×, IoU 0.45 |
+| 0:44 | 0:52 | Card, Camp Fire panels | On the Camp Fire it gets the direction but burns at least twice the real area; we report that rather than tune it away. | Camp Fire, 7.1 h / 11.5 h: IoU 0.35 / 0.46 at 2.5× / 2.0× the area (default replay) |
+| 0:52 | 1:02 | `B1`: 3.5× on Pulga's evacuation card | Every number comes straight from those runs, not a language model or a learned shortcut, so Pulga's card says the last car gets out first in twenty-two of thirty-two. | 22 of 32 simulations |
+| 1:02 | 1:11 | `B2·1`: the crew recommendation card | Crew recommendations re-run the fire with and without a crew at each candidate spot, and appear only when even the pessimistic end still helps. | Crew cards: paired runs, shown only if the low end is above zero |
+| 1:11 | 1:22 | `G·1`: Concow's calibrated range, then the legend | Simulations can't see a wind shift coming. So the outline and every town's arrival range are calibrated online: each past forecast is checked against what actually burned once its time is up. | Fire in 47 min–1h 19m |
+| 1:22 | 1:32 | `G·2`: the wind shift arrives, wide | The outline aims to miss at most one acre in ten of new fire, and the legend shows the live miss rate: how far to trust it right now. | Target 10% outside · measured 11–13% |
+| 1:32 | 1:41 | `G·2`: the legend turns orange, Widening; the outline grows | Here the wind swings to the east-southeast. The misses jump to twenty-eight percent, the legend turns orange, and the outline widens until it catches up. | Badge: Wind shift NE → ESE |
+| 1:41 | 1:51 | Card: the limits | We measured it: town arrival ranges hold ninety-five percent of the time in steady wind, but only two in three right after a shift. | Steady wind 95% · after a shift 67% |
+| 1:51 | 2:01 | Card, next lines | There's no wind forecast, no fuel moisture and no house-to-house spread, and the ranges cover the simulator's own uncertainty, not its error against real fires. | No wind forecast · no fuel moisture · no house-to-house spread |
+| 2:01 | 2:10 | `B1`: Order evacuation; the queue re-sorts; the drafted alert | Within those limits, decisions land in one queue, most urgent first. Ordering an evacuation re-sorts the queue and drafts the public alert in English and Spanish. | Badge: 0.25× · Replay check: all 4 towns the fire reached were called at the first forecast, 1–43 min before the real deadline |
+| 2:10 | 2:17 | `B2·2`: Dispatch; the crew drives in | A crew drives in from a real fire station, and the forecast only credits it once it arrives. | Badge: 1× |
+| 2:17 | 2:26 | Phone: the table, wide | On a real fire, the operator's view comes from a drone. Our stand-in is a 3D print of the Camp Fire's terrain under a projector. | Lower third: Physical table, standing in for drone footage |
+| 2:26 | 2:34 | Split, synced on the slate: phone (left), `F·2` camera view (right) | The projector paints only ground and fire. The camera overhead is the drone, and the two views here are synced to the same moment. | Labels: The table · What the camera sees |
+| 2:34 | 2:44 | `F·3`: the map layers over the photo; `F·4`: the console on the same feed | The engine finds the board from its corner markers, corrects for the terrain's height, and straightens the view into a map, which becomes the console's live basemap. |  |
+| 2:44 | 2:55 | Agent board, live | Four of us built this, each with coding agents that shared findings, questions and claimed files on one live board: thirty-nine shared notes and a hundred and eight merged pull requests. | hack.apps.jaysonc.dev · 108 PRs · 39 shared notes [count on the day] |
+| 2:55 | 3:00 | End card | Fireline: know when to act, and how far to trust the forecast. | End card: Fireline · team · repo URL |
 
 ## Before recording
 
@@ -57,10 +57,16 @@ The voice should be one person, one take, in a quiet room. Music, if any, stays 
 
 The same moment from two sides: the real table on a phone, next to what the overhead camera made of it. Take F starts with a slate for this: the projector flashes its test grid for one second while the fire is paused. The grid is bright cyan, so it's obvious in both the phone video and the camera view on screen.
 
-1. Phone on a tripod, landscape, 60 fps if it has it, framed on the whole table. Dim the room until the projection reads well on the phone. No handheld moves.
-2. Start the phone recording, then run `make demo-video TAKES=F`. Stay out of the frame and off the mouse and keyboard until it ends.
-3. In the editor, line the two clips up on the first frame of the grid flash, then cut the slate off both.
-4. Use the phone clip for 2:17–2:33 and the closing push-in (a slow digital push-in on the wide shot is fine).
+Record the phone in its own Camera app, started before `make demo-video TAKES=F`, then build the side-by-side with `tools/demo_video/split.py` (see its docstring). It finds the grid flash in both recordings and lines them up, crops the phone to the print, and frames both panels on the takes' wallpaper with their labels and the speed badge:
+
+```sh
+cd engine && uv run --with pillow python ../tools/demo_video/split.py \
+    "<Recordly recordings>/recording-….mp4" ~/Downloads/IMG_….MOV ~/Movies/fireline-demo/F-split-synced.mp4 --from 6.6 --to 41
+```
+
+Recordly's own webcam (a Continuity Camera phone) also works (`--mirror --offset 0`), but it records at 640×480. Turn Do Not Disturb on first: switching the phone between Continuity Camera and its Camera app leaves a "Disconnected" banner over the app for the whole take.
+
+Either way: a tripod, landscape, the print filling as much of the frame as you can, the room dim enough for the projection to read, and nobody in frame or on the mouse and keyboard until the take ends. Use the phone for 2:17–2:33 and the closing push-in (a slow digital push-in on a wide shot is fine). Cut the take to its slots rather than speeding it up: the burned-in 0.5× badge would be wrong at any other speed.
 
 ## Footage
 
@@ -86,7 +92,7 @@ Takes C, D and E aren't in this cut. They stay in `takes/` for other uses. Never
 | The fire reached Paradise in about 80 minutes; emptying it takes hours | `eval.evac_clock` (NIST arrival 80 min after ignition; the model needs 934 min to clear Paradise on the extended map) |
 | Real terrain, fuel and roads, 94 m cells, embers in strong wind | `PLAN.md`, fire model: DEM terrain (`tools/dem_to_assets.py`), OSM fuel and roads, 93.75 m cells, ember spotting above 9 m/s |
 | Marshall: matches the area at 2.5 h | `PLAN.md`, Marshall Fire (`eval.marshall`): 2.5 h IoU 0.45 at 1.01× the area at `C2` 0.3 |
-| Camp Fire: direction right, about twice the area | Board [258] and `PLAN.md` "On the extended map (#200)" (`eval.campfire`, 512×480 map, rebuilt truth): best of the 432-setting search at `C2` 0.3 is IoU 0.39 / 0.53 at 2.2× / 1.7×; the default replay is 0.35 / 0.46 at 2.55× / 2.0×. The old map's 0.66 / 0.78 doesn't hold |
+| Camp Fire: direction right, at least twice the area (2.55× / 2.01×, IoU 0.35 / 0.46: the default replay on the card); reported rather than tuned away (the 432-setting search's best, 0.39 / 0.53, wasn't adopted) | Board [258] and `PLAN.md` "On the extended map (#200)" (`eval.campfire`, 512×480 map, rebuilt truth): best of the 432-setting search at `C2` 0.3 is IoU 0.39 / 0.53 at 2.2× / 1.7×; the default replay is 0.35 / 0.46 at 2.55× / 2.0×. The old map's 0.66 / 0.78 doesn't hold |
 | 32 runs; shown as a count | `PLAN.md`, forecasting: the live forecast is 32 rollouts; counts carry 90% Wilson intervals |
 | Crew card only when the pessimistic end helps | `PLAN.md`, recommendations: shown only if the low end of the paired interval is above zero (16 paired runs on the card) |
 | Outline aims for 10% outside; measured 11–13% | `PLAN.md`, "Calibrated burn envelope" (online conformal, `eval.run`): 10.9% steady, 11.7 / 12.6% shift, 12.4 / 12.2% gusty (T+30 / T+60) |
@@ -95,4 +101,9 @@ Takes C, D and E aren't in this cut. They stay in `takes/` for other uses. Never
 | The camera corrects for height and straightens the view | `PLAN.md`, height parallax (solvePnP camera pose, rays to the heightmap) and the rectified orthophoto (#194) |
 | Projector paints only ground and fire | `PLAN.md`, projector: drone layers by default (#198) |
 | Clock: all 4 towns called at the first forecast, 1–43 min early | `cd engine && uv run python -m eval.evac_clock` on `main` after #219 (Paradise 39, Magalia 22, Concow 43, Pulga 1 min before the real deadline; Butte Creek Canyon is the one false alarm) |
+| Pulga: last car out first in 22 of 32 | On screen in take B1 (the count changes with the round; match the line to the footage) |
+| Misses jump to 28% after the shift | On screen in take G's legend (13% at 30 min, 28% at 60 min); match the line to the footage |
+| The order drafts the alert in English and Spanish | `PLAN.md`, commander: alerts stay templated so the public wording and its Spanish match exactly |
+| The engine finds the board from its corner markers and corrects for height | `PLAN.md`, height parallax: camera pose from the four corner markers (solvePnP), rays to the heightmap; the rectified feed is the console's basemap (#203) |
+| 39 shared notes | The board's knowledge entries, on the day |
 | PR count | `gh pr list --state merged`, on the day (108 at the time of writing) |
