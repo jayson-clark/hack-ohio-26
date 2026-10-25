@@ -778,6 +778,14 @@ class RequestMutualAid(Model):
     token_type: TokenType
 
 
+class RelieveOrder(Model):
+    """Send a fresh unit to take over a crew order (#178). The tired crew keeps
+    working until the fresh one arrives, then goes back to rest."""
+
+    type: Literal["relieve_order"] = "relieve_order"
+    token_id: str
+
+
 ClientMessage = Annotated[
     Union[
         VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, LoadScenario, SetWind, AcceptRecommendation,
@@ -789,6 +797,7 @@ ClientMessage = Annotated[
         CalibrationStep,
         EvaluatePlan,
         RequestMutualAid,
+        RelieveOrder,
     ],
     Field(discriminator="type"),
 ]

@@ -62,7 +62,8 @@ export type ClientMessage =
   | RequestBriefing
   | CalibrationStep
   | EvaluatePlan
-  | RequestMutualAid;
+  | RequestMutualAid
+  | RelieveOrder;
 export type CalibrationAction = "start" | "save" | "check" | "cancel" | "clear";
 
 /**
@@ -629,4 +630,12 @@ export interface PlanOrder {
 export interface RequestMutualAid {
   type: "request_mutual_aid";
   token_type: TokenType;
+}
+/**
+ * Send a fresh unit to take over a crew order (#178). The tired crew keeps
+ * working until the fresh one arrives, then goes back to rest.
+ */
+export interface RelieveOrder {
+  type: "relieve_order";
+  token_id: string;
 }
