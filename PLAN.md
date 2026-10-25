@@ -28,7 +28,7 @@ Firewatch is decision-support software for people forecasting and responding to 
 | Desktop shell | **Tauri** (Rust, kept thin) | Launch the engine, manage windows and monitors, fullscreen projector window |
 | UI | **React + Vite + Tailwind + shadcn/ui** | Command console and projector view |
 | Projector rendering | **WebGL** via Three.js (one projection shader; 3D only for the virtual table) | Shaders for fire, terrain, forecast ghost, routes |
-| Engine | **Python**: OpenCV, NumPy, networkx, pyserial | Vision, simulation, forecasting, routing, LLM commander, wind knob |
+| Engine | **Python**: OpenCV, NumPy, networkx | Vision, simulation, forecasting, routing, LLM commander |
 | Transport | **WebSocket** | Binary grids and JSON messages between engine and UI |
 | Commander | Claude API (tool use) + push-to-talk speech-to-text | Briefings and what-if questions (text; no in-app TTS, #138) |
 
@@ -64,7 +64,7 @@ The React app must also run unchanged in a plain browser (`vite dev` plus two Ch
                            │ WebSocket (JSON + binary frames)
 ┌──────────────────────────┴────────────────────────────┐
 │  Python engine: vision · sim · forecaster · router ·  │
-│                 LLM commander · wind knob (pyserial)  │
+│                 LLM commander                         │
 └───────────────────────────────────────────────────────┘
 ```
 
@@ -73,7 +73,7 @@ Inside the engine:
 ```
  Webcam ──► Vision (thread) ──► tokens[] in map coords ──┐
                                                          ▼
- Wind knob / console dial ─────────────────────► Sim tick (~10 Hz, NumPy)
+ Wind (exercise control) ──────────────────────► Sim tick (~10 Hz, NumPy)
                                                          │ state snapshot
                        ┌─────────────────────────────────┼─────────────────┐
                        ▼                                 ▼                 ▼
@@ -260,7 +260,7 @@ The known gap: the replay burns about 1.5–1.7x the real area, because flanks s
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
 - **Vectorized:** 8 shifted-array operations per tick (one per neighbor direction), restricted to the bounding box of the burning cells. A step on Paradise takes well under 1 ms.
-- Wind comes from the physical knob (Arduino potentiometer → pyserial) or the console dial.
+- Wind is set from exercise control (`set_wind`). There is no physical wind knob.
 - **Time scale:** one tick is one sim-minute (`SIM_MINUTES_PER_TICK` in `engine/sim/fire.py`), so 10 Hz is 10 sim-minutes per second and T+60 is 60 ticks. A fire can move at most one 94 m cell per tick (≈5.6 km/h), about the Camp Fire's run through Paradise.
 - **Constants are tuned for the table, not the paper:** `p_h` is lower (cells burn for 8 ticks, so neighbors get 8 tries), the wind terms are about 3× Alexandridis' so the wind visibly steers the fire, and the slope term is softened because Paradise's real canyon walls made the paper's value impassable downhill. Slope uses the real heightmap in metres, not the print's exaggerated relief. See the `tune-fire` skill.
 - **Fuel:** uniform until a fuel map exists. `fuel.png` (grayscale, black = unburnable) and `roads.json` (roads are a partial fuel break) are loaded if present.
@@ -364,7 +364,6 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 - ArUco token tracking with debouncing and smoothing
 - White halos under tracked tokens
 - All four token types wired into the sim
-- Physical wind knob
 
 **Exit:** a real crew token on the table makes the projected fire around it die.
 
@@ -431,7 +430,7 @@ Virtual table mode means nobody is blocked waiting for hardware.
 | Owner | Areas | Phases |
 |---|---|---|
 | App | Tauri shell, console UI, projector shaders, polish | 0, 1 (render), 6 |
-| Vision | Calibration, token tracking, wind knob, 3D projection | 2, 7 |
+| Vision | Calibration, token tracking, 3D projection | 2, 7 |
 | Sim | Fire CA, terrain layers, suppression, rollouts | 1, 3, 4 (forecaster) |
 | AI | Routing, recommendations, commander, voice | 4 (routing), 5 |
 
@@ -443,7 +442,6 @@ Virtual table mode means nobody is blocked waiting for hardware.
 - 1080p webcam mounted next to the projector
 - Terrain tiles in matte white or light-gray PLA
 - Printed tokens with laminated ArUco markers
-- Arduino and potentiometer for the wind knob
 - Black cloth or pop-up canopy to block ambient light
 - Speaker and microphone for the commander
 
