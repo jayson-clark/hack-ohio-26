@@ -25,7 +25,10 @@ from vision.projector import (
 # keystoned and off-centre, like a projector beside the webcam.
 PROJ_QUAD = np.float32([[180, 90], [1760, 40], [1700, 1010], [240, 1050]])
 # camera px -> map cells, for a board seen roughly where the projector lands.
-BOARD = cv2.getPerspectiveTransform(
+# The print is a window of the sim map (#197), so the board's cells are the
+# window's, shifted by its offset into map coordinates.
+_X0, _Y0, _PW, _PH = load_scenario("paradise").print_window
+BOARD = np.array([[1, 0, _X0], [0, 1, _Y0], [0, 0, 1]]) @ cv2.getPerspectiveTransform(
     np.float32([[300, 150], [1600, 140], [1580, 1000], [320, 990]]), np.float32([[0, 0], [256, 0], [256, 192], [0, 192]])
 ).astype(np.float64)
 
@@ -44,6 +47,12 @@ def start(cal: Calibrator) -> None:
     """Calibrate, and see the board with the projector black."""
     cal.step("start", has_camera=True)
     cal.poll(None, BOARD)
+
+
+def ring_only(cal: Calibrator) -> None:
+    """The dot grid after the ring isn't seen: review falls back to the ring."""
+    assert cal.finding == cal.search and cal.phase == CalibrationPhase.PATTERN
+    cal.poll(PatternProgress(cal.search, 0, 0, None, failed=True, dots=True), None)
 
 
 def proj_to_cam() -> np.ndarray:
@@ -110,12 +119,16 @@ def test_calibrator_wizard_flow(scenario, tmp_path):
     assert not cal.poll(PatternProgress(cal.search - 1, 90, FRAMES_NEEDED, _fit()), None)
     assert cal.phase == CalibrationPhase.PATTERN
     assert cal.poll(PatternProgress(cal.search, 90, FRAMES_NEEDED, _fit()), None)
-    assert cal.phase == CalibrationPhase.REVIEW and cal.finding is None
+    # Then the dot grid; the ring's search stays on while the projector switches.
+    dots = cal.message_model().pattern
+    assert cal.phase == CalibrationPhase.PATTERN and dots not in (black, None)
+    ring_only(cal)
+    assert cal.phase == CalibrationPhase.REVIEW and cal.finding is None and "ring" in cal.message
 
     msg = cal.message_model()
     h = np.array(msg.map_to_proj).reshape(3, 3)
     # The map's corners land where the board's corners are in the projector.
-    map_corners = np.array([[0, 0], [256, 0], [256, 192], [0, 192]], float)
+    map_corners = np.array([[0, 0], [256, 0], [256, 192], [0, 192]], float) + [_X0, _Y0]
     cam_corners = transform(np.linalg.inv(BOARD), map_corners)
     assert np.allclose(transform(h, map_corners), transform(_fit().cam_to_proj, cam_corners), atol=1e-6)
     assert not path.exists()
@@ -135,12 +148,14 @@ def test_cancel_keeps_the_saved_calibration(scenario, tmp_path):
     cal = Calibrator(scenario, tmp_path / "calibration.json")
     start(cal)
     cal.poll(PatternProgress(cal.search, 90, FRAMES_NEEDED, _fit()), None)
+    ring_only(cal)
     cal.step("save", has_camera=True)
     saved = cal.message_model().map_to_proj
 
     start(cal)
     other = PatternFit(_fit().cam_to_proj @ np.diag([1.1, 1.0, 1.0]), 0.8, 90)
     cal.poll(PatternProgress(cal.search, 90, FRAMES_NEEDED, other), None)
+    ring_only(cal)
     assert cal.phase == CalibrationPhase.REVIEW and cal.message_model().map_to_proj != saved
     cal.step("cancel", has_camera=True)
     assert cal.phase == CalibrationPhase.CALIBRATED
@@ -151,6 +166,7 @@ def test_calibrator_follows_a_moved_board(scenario, tmp_path):
     cal = Calibrator(scenario, tmp_path / "calibration.json")
     start(cal)
     cal.poll(PatternProgress(cal.search, 90, FRAMES_NEEDED, _fit()), None)
+    ring_only(cal)
     cal.step("save", has_camera=True)
     before = np.array(cal.message_model().map_to_proj).reshape(3, 3)
 

@@ -83,7 +83,7 @@ def test_engine_snapshot_carries_the_schedule_through_the_worker():
     async def go():
         e = Engine()
         try:
-            e.fire.ignite(217.3, 54.5)
+            e.fire.ignite(409.3, 118.5)
             e.virtual.handle(VirtualTokenAdd(token_type=TokenType.CREW, x=200, y=70))
             # One dispatch step: the crew's unit sets off from a station (#104).
             e._acting = e.dispatcher.update(e.game.active(e.tracker.tokens), e.fire.tick, e.fire.wind.speed_ms, e._closed)

@@ -2,7 +2,7 @@
 
 Fireline is decision-support software for people forecasting and responding to a wildfire. It forecasts where the fire will go, plans evacuation routes around roads that are about to burn, dispatches crews and tankers from real stations, recommends where to put them, and gives written briefings and answers through an AI incident commander. **The command console is the product.**
 
-**The physical table is a demo extra, not the product.** A 3D-printed terrain model sits under an overhead projector and webcam, and the projector paints the live fire, topo colors, roads and towns onto it. It stands in for the real world seen from above, the way drone or aerial footage shows an incident. The camera looking down at the table plays the part of a drone looking down at the fire. A real operator wouldn't stand at a table placing tokens during an incident; they'd use the software. So the table is a showpiece for the demo, and features are judged by whether they help an operator who only has the software.
+**The physical table is a demo extra, not the product.** A 3D-printed terrain model sits under an overhead projector and webcam, and the projector paints the live fire onto it. It stands in for the real world seen from above, the way drone or aerial footage shows an incident. The camera looking down at the table plays the part of a drone looking down at the fire, so the projector lights only what's really there (ground and fire), and the map annotations are drawn over the camera view instead (#198). A real operator wouldn't stand at a table placing tokens during an incident; they'd use the software. So the table is a showpiece for the demo, and features are judged by whether they help an operator who only has the software.
 
 ---
 
@@ -175,7 +175,7 @@ Plays the real world. In a real incident this is the fire itself plus drone foot
 
 Pure WebGL, no UI chrome, fullscreen on the projector monitor.
 
-**One projection shader** (`app/src/render/shaders.ts`) computes what the projector emits, per pixel in map coordinates: topo tint, hillshade, contours, labels, fire and token halos. The projector draws it on a flat quad. Exercise control's virtual table drapes the *same* shader over the terrain mesh, so what you see in 3D is what the real projector would throw onto the print, and the console's incident map is the same flat projection. The UI loads terrain straight from `assets/scenarios/<name>/` (`terrain.json` + `heightmap.npy`), picked by `VITE_SCENARIO` or `?scenario=`.
+**One projection shader** (`app/src/render/shaders.ts`) computes what the projector emits, per pixel in map coordinates: topo tint, hillshade, contours, labels, fire and token halos. The projector draws it on a flat quad, by default as the drone view (#198): `DRONE_LAYERS`, ground and fire only, with just the white disc under each token marker; `?overlays=1` on the projector window turns every layer, the attract screen and the round summary back on. Exercise control's Camera view draws the operational layers (forecast, routes, towns, stations, units, orders, recommendations) over the camera's orthophoto, which `VisionStatus.feed_rectified` says covers exactly the map grid. The operator console uses the same orthophoto as its basemap (#203): while it's live, a Map/Drone switch on the incident map swaps the cartographic basemap for the drone's photo (the default), with every layer, order tool and Plan draft on top and the forecast drawn as an SVG fill. It falls back to the map, with a note, when the feed drops. Exercise control's virtual table drapes the *same* shader over the terrain mesh, so what you see in 3D is what the real projector would throw onto the print, and the console's incident map is the same flat projection. The UI loads terrain straight from `assets/scenarios/<name>/` (`terrain.json` + `heightmap.npy`), picked by `VITE_SCENARIO` or `?scenario=`.
 
 - The sim grid is uploaded as a texture each tick. A fragment shader maps cell states to visuals: topo base, flickering flame on burning cells, char on burned ones.
 - Overlay layers include the forecast ghost (probability contours), glowing evacuation routes, pulsing recommendation markers, wind particles, town labels, and the token halos.
@@ -200,7 +200,11 @@ A second product for the people carrying out orders (fire crews, police and sher
 
 Code: `engine/vision/projector.py` (engine), `app/src/control/CalibrationPanel.tsx` and `app/src/render/ProjectionView.tsx` (UI).
 
-**Height parallax.** Projected points land offset by roughly `h × d / H` (feature height × distance from the projector's center axis ÷ projector height). With a projector about 150 cm up, a 4 cm hill 30 cm off-axis shifts about 0.8 cm. That's acceptable with low relief. The full fix (rendering the terrain mesh from a calibrated projector pose) is in Phase 7.
+**Height parallax.** A point at height `h` is seen (and lit) about `h × d / H` from where the marker-plane homography puts it (distance from the viewpoint's foot × height ÷ viewpoint height). Our rig is under a metre up, so 35 mm of relief is up to ~1 cm off at the edges, so both the camera and the projector are corrected as pinholes (`engine/vision/geometry.py`):
+- **Camera:** placed on every board lock from the four corner markers (solvePnP with the C920's nominal focal length). Token positions follow the line of sight down to the heightmap (plus the token's height), so a crew on a ridge reads where it sits.
+- **Calibration** runs with the terrain in place. After the ring, the projector shows a grid of ~100 dots placed with the ring's flat fit. Each dot's camera ray, followed down to the heightmap, gives a 3D point and the projector pixel that lit it, and the vision thread solves for the projector lens position and map → projector together (a pattern search over the lens, a homography per trial). The ring's corners can't do this: they're intersections of lines fitted along whole edges that cross hills. `PROJECTOR_MM` in `.env` (east, north from the terrain's SW corner, up from the table, mm) is only a starting guess and the fallback; if the dots aren't seen, the ring alone is used.
+- **Projector:** the solved lens is saved in `calibration.json` and moves with the rig when the board is bumped. The projector window draws the map as a mesh with the print's height at each vertex, and the vertex shader moves each one to where the lens's ray through it meets the marker plane. The review grid and map border are drawn in the shader, on the terrain.
+- On the first table (camera ~730 mm up, projector ~570 mm up beside it) the dots fit to 3.7 projector px RMS (~0.85 mm) against 7.6 px for the ring. Camera and projector close together means their parallaxes mostly cancel, so the correction matters most on ridges and the raised edges.
 
 ### Token tracking
 
@@ -217,7 +221,7 @@ Code: `engine/vision/projector.py` (engine), `app/src/control/CalibrationPanel.t
 | Water drop | Instant knockdown in a radius, with a cooldown |
 | Evac bus | Moves along the computed route and picks up residents from a town |
 
-**Dispatch (#104).** A crew, firebreak or water token is an order, not a teleport. The fastest free unit of that type is sent: an engine crew or dozer from a real fire station (`stations.json`, from OSM) driving the road graph at 50 km/h, skipping burning roads, then hiking the last stretch; or a tanker flying from the Chico air base, grounded above 13 m/s wind. Every order pays a 3-minute turnout. The token only acts on the fire once its unit arrives (`engine/sim/dispatch.py`, travel times in `engine/routing/units.py`). Moving a token re-routes its unit, removing it frees the unit, and a unit whose road burns re-routes or reports blocked. Buses are not dispatched. Units go out as a `units` message and the projector draws each one's route and ETA. Forecasts credit en-route units from their arrival tick, and recommendations and the commander's what-ifs start a crew digging in only when one could get there, with the station named ("a crew from Jarbo Gap, about 17 minutes out").
+**Dispatch (#104).** A crew, firebreak or water token is an order, not a teleport. The fastest free unit of that type is sent: an engine crew or dozer from a real fire station (`stations.json`, from OSM) driving the road graph at 50 km/h, skipping burning roads, then hiking the last stretch; or a tanker flying from the Chico air base, grounded above 13 m/s wind. Every order pays a 3-minute turnout. The token only acts on the fire once its unit arrives (`engine/sim/dispatch.py`, travel times in `engine/routing/units.py`). Moving a token re-routes its unit, removing it frees the unit, and a unit whose road burns re-routes or reports blocked. Buses are not dispatched. Units go out as a `units` message, and the console map and the Camera view draw each one's route and ETA (the projector too with `?overlays=1`). Forecasts credit en-route units from their arrival tick, and recommendations and the commander's what-ifs start a crew digging in only when one could get there, with the station named ("a crew from Jarbo Gap, about 17 minutes out").
 
 ### Fire model
 
@@ -240,6 +244,8 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 
 The top recommendation's realized benefit fell from 985 to 708 (steady wind). It still beats a random front spot 19 of 32 times, and its prediction stays calibrated (689 predicted).
 
+At `C2` 0.3 (#170), most comparisons are ties: in 15–20 of about 30 cases per wind schedule neither spot changes the outcome, because narrower fires reach towns less often. Where they differ, the top recommendation wins 31 of 36 (steady 12 of 13, shift 9 of 10, gusty 10 of 13). `eval.run` now reports ties separately. On the extended map (#200, #212) it's 29 of 34 (steady 10 of 11, shift 7 of 9, gusty 12 of 14), with 14–23 ties per schedule.
+
 **Ember spotting.** In wind over `SPOT_MIN_WIND` (9 m/s), burning cells throw embers downwind (`_spot` in `engine/sim/fire.py`). Each ember flies an exponential distance (mean 12 cells, about 1.1 km, at 10 m/s, capped at 6.6 km) and lights fuel where it lands, less so under suppression. That lets a wind-driven fire outrun the one-cell-per-tick limit, as the Camp Fire did. Calm and moderate days are unchanged, and ember draws are shared across paired what-ifs.
 
 **Checked against the real Camp Fire (#15).** `eval.campfire` replays the 2018 fire from its NIST origin near Pulga, with a 19 m/s ENE wind easing to 6 m/s by the afternoon. It scores the replay against real data in `assets/scenarios/paradise/real/`:
@@ -253,7 +259,9 @@ The top recommendation's realized benefit fell from 985 to 708 (steady wind). It
 | IoU with the 7.1 h / 11.5 h perimeters | 0.54 / 0.63 | 0.55 / 0.64 |
 | Burned area vs the perimeters | 1.73x / 1.53x | 1.71x / 1.51x |
 
-That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x the real area because the flanks spread too wide. `C2` is now 0.3 (see "Choosing C2" below), which brings the perimeters to IoU 0.66/0.78 at 1.32x/1.16x the area.
+That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x the real area because the flanks spread too wide. `C2` is now 0.3 (see "Choosing C2" below), which brought the perimeters to IoU 0.66/0.78 at 1.32x/1.16x the area, but only inside the old 256x192 map.
+
+**On the extended map (#200), the fit is worse, and that's the honest number.** The old map's edges were hiding an over-prediction: inside the old box the sim had already burned everything burnable by 7 h, so its score was capped. With the truth files rebuilt on the 512x480 grid (`tools/campfire_to_assets.py`: 2,221 NIST observations, 9 perimeters) and the valley floor's irrigated farmland made nearly unburnable (#212), the replay overlaps the real perimeters at IoU 0.35/0.46, burning 2.55x/2.0x the real area. The best of a 432-setting search (`C2` x spotting x the replay wind) reaches 0.39/0.53 at 2.1–2.2x, with `C2` 0.3 and 0.4 tied, so `C2` stays 0.3. What's left isn't in those knobs: the sim keeps burning foothill grass and oak west and south-west under the 19 m/s north-easterly, and about 20% of the observed points are never reached, so it's shape as well as size. Fuel moisture (afternoon humidity recovery) or a wind that dies faster off the ridge are the likely missing pieces. It's a known limit. The evacuation clock still flags all 4 towns the real fire reached at its first forecast, before the real deadline.
 
 **Marshall Fire** (`cd engine && uv run python -m eval.marshall`, #107): a second real fire, grass into suburb under a steady 15–20 m/s westerly, scored against the NASA FEDS perimeter at 2.5 h and the WFIGS final perimeter. It has no timed per-house observations. It agrees with the Camp Fire: every top result of the search has `C2` 0.4, which matches the 2.5 h area (0.9–1.0x, IoU ~0.39), where 0.22 burns 4–5x too much. At every setting, though, the sim keeps running east through Louisville to the map edge where the real fire stopped, so the final perimeter is a fuel and structure question (suburbs burn like grass here), not a wind one. Under the measured wind (`--measured`: NCAR Mesa Lab's 5-min record in the foothills, 11–19 m/s from about 245° through the afternoon, gusts to 40 m/s, #141) the verdict holds: 0.22 burns 1.9–4x the real 2.5 h area at any speed scale, while 0.3 at 0.8x the station's speed (IoU 0.46, area 1.09x) and 0.4 at 1x (IoU 0.41, area 0.85x) fit. NOAA's airport record downwind (KBJC) saw only 5–9 m/s from shifting directions, so the foothill station is the one that represents the fire's wind. Suburban fuel is per scenario (#144): Boulder County's irrigated suburbs burn at residential 0.25 and commercial 0.3, while Paradise's forested lots keep 0.9 (its replay needs 0.6 or more). Under the measured wind that takes the best Marshall final perimeter from IoU 0.19 at 2.7x the area to IoU 0.38 at 0.84x (C2 0.4), and from 5.2x to 4.4x at 0.22. What's left is shape: the sim misses the real fire's north-west and south flanks.
 
@@ -263,6 +271,8 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
 |---|---|---|---|
 | 0.22 | 0.55 / 0.63 (1.73x / 1.53x) | 0.38 (1.81x) | 5,095 / 6,287 / 21,864 (12%) |
 | **0.3** | **0.66 / 0.78 (1.32x / 1.16x)** | **0.45 (1.01x)** | **2,579 / 2,646 / 11,057 (25%)** |
+
+That table was scored inside the old 256x192 maps. On the extended maps the Camp Fire column is 0.32/0.38 (0.22), 0.39/0.53 (0.3) and 0.39/0.53 (0.4), all at about 2x the area (see above), and Marshall at 0.3 is unchanged (2.5 h IoU 0.45 at 1.01x).
 | 0.4 | 0.68 / 0.80 (1.14x / 1.01x) | 0.41 (0.50x) | 883 / 831 / 4,925 (62%) |
 
 `C2` is 0.3: close to 0.4 on the Camp Fire, the best Marshall fit, and fires on a moderate day still grow. At 0.4 most fires at 3–8 m/s burn out by themselves, which real timber fires don't. The floor (0.3, 0.5 or 0.7 of calm spread) made both replays worse at every `C2`: Camp IoU fell to 0.38–0.54 and Marshall's 2.5 h area rose to 1.4–3.6x, because it widens the flanks of strong-wind fires too. So there's no floor.
@@ -283,21 +293,25 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
 - `forecast.rollout(snapshot, n, ticks, wind=..., extra_suppression=...)` returns that first-burn time as `(n, H, W)` float32, with optional wind and crew what-ifs; `forecast.burn_probability` turns it into `P(burn by horizon)`. The live forecast (32 rollouts to T+60) runs in a worker process, one at a time, and lands on `Engine.latest_forecast` for routing and the commander. Suppression follows the tokens' schedule (`TokenEffects.schedule`, carried on the snapshot): crews keep digging in and wet ground dries out over the forecast, exactly as the live sim would if the tokens stay put (#56). Paired what-ifs can be `TimedLayer`s that start at an arrival tick.
 - **Paired what-ifs:** `forecast.rollout_paired(snapshot, n, ticks, variants)` runs a baseline plus K suppression variants (e.g. a crew at each candidate spot) in one batch, as `(K+1, n, H, W)`. Rollout i of every variant shares its random draws (`advance(..., group=K+1)`), so the difference between a variant and the baseline is the intervention's effect, not luck. Recommendations rely on this.
 - **Wind spread (optional):** `WindSpread(speed_frac, dir_deg)` gives each rollout its own wind (`advance(..., wind_rows=...)`). It's off for the live forecast (`forecast.runner.WIND_SPREAD = None`), and when it's on, `Forecast.wind_spread` records it.
-- The projector shows a translucent ghost with 50% and 90% contours at T+30 and T+60 sim-minutes.
+- The console map and the Camera view show the forecast at T+30 and T+60 sim-minutes (the projector's translucent ghost with 50% and 90% contours is behind `?overlays=1`).
 - **Calibrated burn envelope (#12, `engine/uq/conformal.py`).** The console draws the forecast's outline as an envelope that promises at most 10% of the ground that newly burns by T+30 / T+60 falls outside it. The raw contours can't promise that: they assume the wind and tokens hold, and miss 11–31% (`eval.run`, the 50% line).
   - **How it holds:** each envelope shown is remembered and scored when its horizon passes, as burned area outside / burned area. An online conformal update (adaptive conformal inference, conformal risk control) moves one knob per horizon: the probability cutoff, then a margin of extra cells once the cutoff hits 1/N. The long-run miss stays near 10% even under shifts, after a short catch-up.
-  - **Measured:** step 0.1, `eval.run`, 4 episodes per schedule, missed share over the whole run:
+  - **Measured:** step 0.1, `eval.run`, 4 episodes per schedule (83–96 scored forecasts), missed share over the whole run, at `C2` 0.3 (#170; at 0.22 it was 9.3/8.8%, 10.5/12.0% and 11.3/11.7%):
 
     | Wind | T+30 | T+60 |
     |---|---|---|
-    | Steady | 9.3% | 8.8% |
-    | Shift | 10.5% | 12.0% |
-    | Gusty | 11.3% | 11.7% |
+    | Steady | 10.9% | 10.9% |
+    | Shift | 11.7% | 12.6% |
+    | Gusty | 12.4% | 12.2% |
 
-    In gusty wind no fixed cutoff gets under 14%, while the envelope ends at a cutoff near 1/32 plus a 3-cell margin.
+    That's on the extended Paradise map with the valley fuel fix (#200, #212), simulator only; on the old map it was 10.9/11.0%, 11.7/13.0% and 12.3/12.1%.
+
+    In gusty wind and after shifts the envelope ends at a cutoff near 1/32 plus a 1–5-cell margin; in steady wind near 0.11 with no margin.
+  - **What is guaranteed:** online ACI gives a finite-sample bound on the running average, for any sequence of data, but nothing per forecast. Each update moves θ by `lr × (miss − α)`, so the sum telescopes: average miss ≤ α + (θ_0 − θ_min) / (lr × T), as long as the widest envelope (cutoff 1/32 plus `MAX_MARGIN`) itself misses at most α. With the T+30 warm start that's 10% + 3.7/T, so the measured 11–13% at T ≈ 90 is within it. Split conformal's per-prediction guarantee would need exchangeable data, which wind shifts and player actions rule out.
   - **Per scenario:** the knob learns per scenario. A scenario switch restarts from `ENVELOPE_WARM`, because a new map is a new distribution and conformal promises only transfer within one. A map reset keeps what was learned.
   - **Real units:** misses are counted in area, so the promise keeps its meaning across resolutions.
   - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates.
+  - **Simulator only.** Both calibrators learn from and apply to Monte Carlo forecasts. Neither needs the learned emulator, and the engine calibrates the same with or without the `ml` extra. An emulator preview is sent as a `FORECAST_PREVIEW` frame (protocol 28), and the console draws the plain 50% edge around it, not the calibrated line, since the cutoff and margin were learned on 32-run Monte Carlo probabilities.
 - **Calibrated time-to-impact ranges (#13, `ArrivalCalibrator` in `engine/uq/conformal.py`).** Each threatened town shows "fire likely arrives in 25–40 min (90%)".
   - **The range:** the long forecast's 5–95% arrival, widened or narrowed by an online conformal correction (CQR) per lead-time bucket (<30, 30–120, >120 min).
   - **Calibration units:** towns catch fire too rarely to calibrate on, so the units are town-sized disks (radius 8 cells) dropped on unburned ground. Each is scored, like a town, by the first time fire touches it. Single cells held their own 90% but transferred badly to towns.
@@ -306,9 +320,11 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
 
     | Wind | Calibrated | Raw |
     |---|---|---|
-    | Steady | **89%** | 93% |
-    | Wind shift | **56%** | 47% |
-    | Gusty | **75%** | 34% |
+    | Steady | **95%** | 89% |
+    | Wind shift | **67%** | 31% |
+    | Gusty | **65%** | 32% |
+
+    That's on the extended Paradise map with the valley fuel fix (#200, #212), with 39–56 town ranges per schedule. On the old map at `C2` 0.3 it was 98%, 70% and 72%; at 0.22, 89%, 56% and 75%. The same ACI bound holds for the disks' miss rate per bucket (no clipping, so it holds unconditionally); town coverage is the empirical check that towns behave like disks.
 
   - **Known limit: an unforecast wind shift.** Every range issued before it is wrong at once, and the correction only learns afterwards.
     - Per-rollout wind spread (±20%, ±20°) lifted the shift case to 68%, but gave half as many towns a range and dropped steady to 79%. Wider spread left almost no town bounded. The long forecast stays without spread.
@@ -316,11 +332,12 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
   - **Where it shows:** `TownThreat.eta_lo_min` / `eta_hi_min` (null when too few simulations reach the town to bound it), the threat cards and inspector, and the commander's town table.
   - **Per scenario:** the calibrator learns per scenario. A reset clears in-flight forecasts and keeps what was learned. It covers the simulator's own uncertainty plus shifts in wind and tokens, not the model's error against real fires; that's what the replays (#15, #107) check.
 - **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
-  - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
+  - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On 342 held-out fires its Brier score against the 64-rollout label is 0.0038, slightly better than the engine's 32-run forecast (0.0039), and in every probability bin the mean prediction is within 0.003 of the label.
+  - **It hedges over model error (#170).** Each training label uses its own `C2` (0.22–0.4, the range the Camp and Marshall replays support), a ×0.85–1.15 spread rate, and per-run wind (±20% speed, ±15°), while the inputs stay nominal. So a preview is less sure than the Monte Carlo forecast that replaces it: its P ≥ 0.1 area is about 27% larger and its P ≥ 0.9 core about half the size, and its 50% outline overlaps the engine's by 79%.
   - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
   - **Screening:** recommendations take 48 front spots, keep the emulator's best 8 for the paired Monte Carlo, and only Monte Carlo numbers are shown. It helps most after a wind shift. Over two measurements of 32 cases each, the top recommendation's realized benefit went from 159/163 to 173/181 after a shift, and it beat a random spot 19 and 23 times out of 32 (15 and 17 without screening). In steady wind it was within noise: 708 → 780, then 702 → 690.
   - **Not used for decisions:** routing, alerts and the commander never use it.
-  - **How it was trained:** about 5,750 random fires on paradise and valley, labelled by 64-rollout forecasts of the current fire model (ember spotting included, #118). It's retrained whenever the fire model changes; see the `fire-emulator` skill.
+  - **How it was trained:** about 5,600 random fires on Paradise (65%) and Marshall (35%), labelled by 64-rollout forecasts of the current fire model with the model noise above (ember spotting, crew lines and suburban fuel included). It's retrained whenever the fire model changes; see the `fire-emulator` skill.
 
 ### Evacuation routing
 
@@ -348,6 +365,8 @@ Fire tools (WFDSS/FSPro, Technosylva) forecast the fire, alerting tools (Genasys
 - Project the top 3 as pulsing markers labeled, for example, "Saves Pinecrest in 87% of simulations."
 - **Uncertainty** (`engine/uq/mc.py`): every "k of N" carries a 90% Wilson interval, and each recommendation's benefit a paired t interval. A recommendation is shown only if the *low* end of its benefit is above zero, and the top two are re-run head to head when their intervals overlap. Town threat briefings use the interval's bounds instead of the raw share. This is sampling uncertainty only; whether the forecast's assumptions hold is for conformal calibration (#12, #13).
 - **Look-ahead and act-by time.** Each crew is scored over the next **2 hours** (`REC_HORIZON_TICKS`). Half the candidate spots come from where the evacuation clock's long forecast expects fire in 60–120 min (`Engine.lookahead`). Each card says when to act: the fire's likely arrival at the crew's area (10th percentile across simulations) minus the crew's travel time, which is "send within N min" or "send now". On Paradise the first recommendation for a threatened town now comes about 2 hours before the fire, up from 37–53 min. At 13 m/s, crews dig in a median 98 min ahead (16 min before), and none arrive late (4 of 10 before). Cards show the town-save range ("likely 31–68%") and an acres range ("300–900 acres", 90%).
+- **Relieving tired crews (#178).** A crew starts to tire 4 hours into its shift. For each working crew that will start to tire inside the 2-hour look-ahead, with no relief already on its way and a free crew to send, the recommender runs three variants on the same simulations: the fire without the crew, the crew carrying on as it tires, and a fresh crew taking over when the fastest free crew can get there (`TimedLayer.relief_at`: full strength on the same ground and line, on a new shift). The relief's benefit is "carries on" minus "relieved". With one candidate per crew there's no winner's curse to correct, so each runs once on 16 rollouts, and it's shown only if the low end of its 90% interval is above zero, like every other card. The card is `RecAction.RELIEVE`, with the station and drive time of the fresh crew, and an act-by of when the crew starts to tire minus that drive. Since a cut line keeps holding as bare soil, relief mostly matters where the crew itself is holding a gap or catching spot fires; elsewhere the interval rarely clears zero and no card appears.
+- **Several fires (#179).** Recommendations are ranked across every fire on the map at once, since the rollouts simulate them all together. Each card names its fire: `Recommendation.incident` is the incident its spot is on, or the nearest one (`IncidentTracker.of`). A threatened town names the fire coming for it (`TownThreat.incident`, `commander/tools.threat_incident`): the incident already inside it, or else the median simulation among those that reach it, and the incident nearest the town cell that run burns first, so the fire is credited from the side it arrives. The calibrated envelope stays pooled across fires (one knob per horizon); the console splits the drawn outline by incident.
 - **Caveat:** the intervals are sampling uncertainty under a held wind. After a wind shift, the 2-hour predicted benefit overstates the realized benefit about 3.4x (849 vs 252 in `eval.run --schedules shift`; about 2x at 1 h). In steady wind it's calibrated (1,641 vs 1,549). Conformal calibration (#12/#13) is the planned correction.
 
 ### Incident commander (LLM)
@@ -448,7 +467,6 @@ Each phase ends in a demoable state. The exit criteria say when to move on, and 
 
 ### Phase 7: Stretch
 - **Camp Fire replay:** real ignition point and wind, compared against the actual 2018 perimeter (public data from NIFC) for validation
-- **3D-corrected projection:** calibrate the projector as a pinhole camera and render the terrain mesh from its pose in Three.js, so projections stay aligned on tall features
 - **Multiple players:** role-specific tokens and parallel objectives
 
 ---

@@ -11,16 +11,25 @@ import { useEngine } from "../shared/engine";
 import { useEngineScenario } from "../shared/scenario";
 import { TOKEN_TYPES } from "../shared/tokens";
 import type { PlaceType } from "../shared/virtualTokens";
-import { DEFAULT_LAYERS } from "../render/projection";
+import { DEFAULT_LAYERS, DRONE_LAYERS } from "../render/projection";
 import ProjectionView from "../render/ProjectionView";
 import { RoundSummaryProjected } from "../control/RoundSummary";
 import AttractMode, { useAttract } from "./AttractMode";
+
+// The table is the real world and the camera is the drone over it (#198), so by
+// default the projector lights only what's really there: the ground and the
+// fire. Towns, routes, forecast, token rings, the attract screen and the round
+// summary are drawn over the camera view in exercise control instead. The white
+// disc under each marker stays: it's what keeps markers readable under fire light.
+// ?overlays=1 brings the full annotated projection back.
+const OVERLAYS = new URLSearchParams(window.location.search).get("overlays") === "1";
+const FORCE_ATTRACT = new URLSearchParams(window.location.search).get("attract") === "1";
 
 export default function Projector() {
   const { tokens, simGrid, forecast, routes, score, calibration } = useEngine();
   const { scenario, error } = useEngineScenario();
   const [placeType, setPlaceType] = useState<PlaceType>("crew");
-  const attract = useAttract();
+  const attract = useAttract() && (OVERLAYS || FORCE_ATTRACT);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -50,11 +59,14 @@ export default function Projector() {
           simGrid={simGrid}
           forecast={forecast}
           routes={routes}
-          layers={DEFAULT_LAYERS}
+          layers={OVERLAYS ? DEFAULT_LAYERS : DRONE_LAYERS}
+          showTokens={OVERLAYS}
           placeType={placeType}
           selectedId={null}
           mapToProj={calibration?.map_to_proj}
+          lens={calibration?.projector}
           testPattern={calibration?.phase === "review"}
+          printOnly
         />
       ) : (
         error && <p className="p-6 font-mono text-sm text-red-400">{error}</p>
@@ -62,7 +74,7 @@ export default function Projector() {
       {scenario && attract && calibration?.phase !== "pattern" && (
         <AttractMode scenario={scenario} mapToProj={calibration?.map_to_proj} />
       )}
-      <RoundSummaryProjected score={score} />
+      {OVERLAYS && <RoundSummaryProjected score={score} />}
       {calibration?.phase === "pattern" && calibration.pattern && (
         // Stretched to the exact window: the engine reads it in window-normalised coords.
         <img src={calibration.pattern} alt="" draggable={false} className="fixed inset-0 z-50 h-full w-full cursor-none object-fill" />

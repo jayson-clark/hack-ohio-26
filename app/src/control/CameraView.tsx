@@ -1,27 +1,60 @@
-// The webcam as the engine sees it: camera_frame JPEGs with the vision
-// overlay (markers, map outline, placed tokens) already drawn in by the engine.
+// The webcam as the engine sees it: the drone's view of the incident. Once the
+// board is locked the engine sends a top-down orthophoto, the frame rectified
+// and cropped to the map grid with terrain lean corrected
+// (VisionStatus.feed_rectified). Then the operational layers the projector no
+// longer paints on the table (#198) are drawn over it here, in map cells:
+// forecast, routes, towns, stations, units, orders and recommendations.
+// Before the lock it's the raw frame with the engine's vision overlay.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
+import { useEngine } from "../shared/engine";
+import { useFeedUrl } from "../shared/feed";
 import type { VisionStatus } from "../shared/protocol";
+import { printWindow, type Scenario } from "../shared/scenario";
+import { useTowns } from "../console/model";
+import { ForecastLayer, OrdersLayer, PlacesLayer, RecsLayer, RoutesLayer, StationsLayer, TownsLayer, UnitsLayer } from "../console/map/layers";
+import { ToggleGroup } from "../console/ui";
 
 const CORNERS = ["NW", "NE", "SE", "SW"] as const;
+const noop = () => {};
 
-export default function CameraView({ frame, vision }: { frame: BinaryFrame | null; vision: VisionStatus | null }) {
-  const [url, setUrl] = useState<string | null>(null);
+interface Overlays {
+  forecast: boolean;
+  routes: boolean;
+  towns: boolean;
+  resources: boolean;
+}
 
-  useEffect(() => {
-    if (!frame) return;
-    const next = URL.createObjectURL(new Blob([frame.payload as Uint8Array<ArrayBuffer>], { type: "image/jpeg" }));
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
-  }, [frame]);
+const OVERLAY_LABELS: Record<keyof Overlays, string> = {
+  forecast: "Forecast",
+  routes: "Routes",
+  towns: "Towns",
+  resources: "Units",
+};
+
+export default function CameraView({
+  frame,
+  vision,
+  scenario,
+}: {
+  frame: BinaryFrame | null;
+  vision: VisionStatus | null;
+  scenario: Scenario | null;
+}) {
+  const url = useFeedUrl(frame);
+  const [overlays, setOverlays] = useState<Overlays>({ forecast: true, routes: true, towns: true, resources: true });
 
   const on = vision && vision.camera !== "off";
+  const rectified = !!(vision?.feed_rectified && scenario);
   return (
-    <div className="flex h-full items-center justify-center px-6 pt-16 pb-14">
+    <div className="relative flex h-full items-center justify-center px-6 pt-16 pb-14">
       {on && url && vision.camera === "ok" ? (
-        <img src={url} alt="Camera feed" className="max-h-full max-w-full rounded-md object-contain" />
+        rectified ? (
+          <RectifiedFeed url={url} scenario={scenario!} overlays={overlays} />
+        ) : (
+          <img src={url} alt="Camera feed" className="max-h-full max-w-full rounded-md object-contain" />
+        )
       ) : (
         <div className="max-w-sm text-center text-sm text-fg-subtle">
           {!vision ? (
@@ -38,6 +71,56 @@ export default function CameraView({ frame, vision }: { frame: BinaryFrame | nul
           )}
         </div>
       )}
+      {rectified && (
+        <div className="absolute right-3 top-3 z-10">
+          <ToggleGroup
+            items={(Object.keys(OVERLAY_LABELS) as (keyof Overlays)[]).map((k) => ({ key: k, label: OVERLAY_LABELS[k], on: overlays[k] }))}
+            onToggle={(k) => setOverlays((o) => ({ ...o, [k]: !o[k] }))}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The orthophoto in a box of the map's aspect, with the map layers over it. */
+function RectifiedFeed({ url, scenario, overlays }: { url: string; scenario: Scenario; overlays: Overlays }) {
+  const { routes, units, tokens, recommendations, hello, forecast, simGrid } = useEngine();
+  const towns = useTowns(scenario);
+  const box = useRef<HTMLDivElement>(null);
+  const [px, setPx] = useState(1);
+
+  useEffect(() => {
+    const el = box.current!;
+    const ro = new ResizeObserver(() => setPx(el.clientWidth || 1));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // The camera sees the printed terrain only, which is a window of the sim map
+  // (#197): the orthophoto covers that window, so the layers are drawn in it.
+  const win = printWindow(scenario);
+  const k = win.w / px; // map cells per screen pixel, for the layers' pixel sizes
+  const reach = hello?.crew_radius ?? 14;
+  return (
+    <div className="flex h-full w-full items-center justify-center [container-type:size]">
+      <div
+        ref={box}
+        className="relative overflow-hidden rounded-md"
+        style={{ aspectRatio: `${win.w} / ${win.h}`, width: `min(100cqw, 100cqh * ${win.w / win.h})` }}
+      >
+        <img src={url} alt="Camera feed, top-down" className="absolute inset-0 h-full w-full object-fill" />
+        <svg viewBox={`${win.x0} ${win.y0} ${win.w} ${win.h}`} preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+          {overlays.forecast && <ForecastLayer scenario={scenario} forecast={forecast} simGrid={simGrid} />}
+          {overlays.routes && <RoutesLayer routes={routes} k={k} highlight={null} />}
+          {overlays.towns && <PlacesLayer scenario={scenario} k={k} />}
+          {overlays.resources && <StationsLayer stations={hello?.stations ?? []} k={k} />}
+          {overlays.towns && <TownsLayer towns={towns} k={k} selected={null} onSelect={noop} />}
+          <RecsLayer recs={recommendations} k={k} reach={reach} selected={null} onSelect={noop} />
+          {overlays.resources && <UnitsLayer units={units} k={k} />}
+          <OrdersLayer tokens={tokens} k={k} reach={reach} selected={null} onSelect={noop} />
+        </svg>
+      </div>
     </div>
   );
 }

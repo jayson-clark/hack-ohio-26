@@ -15,14 +15,20 @@ app/src/shared/binary.ts), followed by a payload:
   scaled to 0-255. `tick` is the sim tick the forecast started from. Sent
   whenever a forecast finishes (a few per second), and once, all zero, on
   reset.
+- FORECAST_PREVIEW: the same layout as FORECAST_GRID, from the learned emulator
+  (#113) while a Monte Carlo forecast is on its way. The calibrated envelope
+  (#12) is learned on Monte Carlo forecasts only, so clients draw it on
+  FORECAST_GRID frames and the plain 50% edge on previews.
 - PLAN_GRID: two width*height uint8 grids, P(burned by the plan's horizon)
   as 0-255: first without the plan's orders, then with them, both under the
   plan's wind. `tick` is the PlanResult.id it belongs to (not a sim tick).
   Sent right after each PlanResult that has no error.
-- CAMERA_FRAME: one JPEG of the webcam with the vision overlay drawn on it
-  (markers, map outline, placed tokens), for the console's camera view.
-  width/height are the JPEG's size and `tick` counts feed frames. A few per
-  second, only while the engine has a camera (CAMERA in .env).
+- CAMERA_FRAME: one JPEG of the webcam for exercise control's camera view.
+  Once the board is locked it's the top-down orthophoto, cropped to the map
+  grid (VisionStatus.feed_rectified), and the UI draws its layers over it;
+  before that, the raw frame with the vision overlay (markers, map outline,
+  placed tokens). width/height are the JPEG's size and `tick` counts feed
+  frames. About 10 a second, only while the engine has a camera (CAMERA in .env).
 
 All positions are in map-grid coordinates, in cell units (floats allowed):
 x runs from 0 to the map width, y from 0 to the map height, origin at the
@@ -35,7 +41,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 27
+PROTOCOL_VERSION = 28
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -45,6 +51,7 @@ class BinaryType(IntEnum):
     FORECAST_GRID = 2
     CAMERA_FRAME = 3
     PLAN_GRID = 4
+    FORECAST_PREVIEW = 5  # a FORECAST_GRID from the learned emulator, not Monte Carlo (#113)
 
 
 # type: u8, 3 pad bytes, tick: u32, width: u16, height: u16 (little-endian)
@@ -391,6 +398,12 @@ class VisionStatus(Model):
     # A camera->map homography has been solved (all four corners seen at
     # once). It is kept while corners are covered, so tokens still track.
     board_found: bool
+    # The camera_frame feed is the top-down orthophoto: the printed board
+    # rectified to fill the frame. The print is a window of the sim map
+    # (terrain.json `print`, #197), so pixel (u, v) of a w x h JPEG is map cell
+    # (x0 + u * pw / w, y0 + v * ph / h) for the print's offset (x0, y0) and
+    # size pw x ph. False: the raw frame with the overlay.
+    feed_rectified: bool = False
 
 
 class CalibrationPhase(StrEnum):
@@ -411,6 +424,10 @@ class Calibration(Model):
     # normalised: (0, 0) top-left, (1, 1) bottom-right, y down. What the
     # projector applies now (in review, the fit being reviewed). None: letterbox.
     map_to_proj: list[float] | None
+    # The projector lens for the shader's height correction: [x, y] map cells
+    # straight below it, then mm above the corner markers' plane. None: no
+    # correction (PROJECTOR_MM unset), the map is drawn flat.
+    projector: list[float] | None = None
     # PNG data URL of the pattern (black, then the ring), only in the pattern phase. The
     # projector stretches it to fill its whole window.
     pattern: str | None

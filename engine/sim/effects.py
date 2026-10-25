@@ -59,9 +59,24 @@ CREW_MOVE_RESET = 2.0
 # 0.9 a two-cell strip leaked under flanking fire (HOLD_P weakens partial
 # suppression) and changed nothing. It runs along the wind, so it meets flanks,
 # not the head.
+# Shifts (#178): a crew works at full strength for SHIFT_TICKS, then fades to
+# FATIGUE_FLOOR of it over FADE_TICKS unless it's relieved. Real crews work
+# long shifts, but these rounds run 4-10 sim hours, so the limit has to bite
+# inside one: relieving a crew is a decision, not housekeeping.
+SHIFT_TICKS = 240
+FADE_TICKS = 120
+FATIGUE_FLOOR = 0.5
 LINE_LENGTH = 80.0  # cells, end to end
 LINE_RATE = 0.5  # cells a tick, at each end
 LINE_HALF_WIDTH = 1.0
+# Patrol (#178): a staffed line also catches embers landing across it and
+# slopovers at its edges, so while its crew works there's partial suppression
+# PATROL x the crew's current strength within PATROL_BAND cells of the line.
+# Bare soil doesn't tire, but the patrol does: it fades with the crew and is
+# gone once the crew leaves, which is what makes relieving a crew matter when
+# embers fly (above SPOT_MIN_WIND).
+PATROL = 0.5
+PATROL_BAND = 3.0
 
 WATER_RADIUS = 5.0
 WATER_WET = 0.8
@@ -105,15 +120,29 @@ class TimedLayer:
     # crew (inf off it), and how far the line reaches at dt = t_on (negative
     # while the crew is still digging in), growing at line_rate a tick.
     line_along: np.ndarray | None = None
+    line_band: np.ndarray | None = None  # the same, for cells within PATROL_BAND of the line
     line_reach0: float = 0.0
     line_rate: float = 0.0
+    # A crew's shift (#178): from dt = fade_at it fades linearly to
+    # FATIGUE_FLOOR of cap over FADE_TICKS. None never fades.
+    fade_at: int | None = None
+    # A relief crew takes over at dt = relief_at (#178): already dug in on the
+    # same ground and line, so full strength, on a fresh shift from then.
+    # Recommendations use it to score "relieve this crew".
+    relief_at: int | None = None
 
     def level(self, dt: int) -> float:
         if dt < self.t_on:
             return 0.0
         if dt == self.t_on and self.first is not None:
             return self.first
-        return min(self.cap, max(0.0, self.level0 + self.slope * (dt - self.t_on)))
+        lvl = min(self.cap, max(0.0, self.level0 + self.slope * (dt - self.t_on)))
+        fade_at = self.fade_at
+        if self.relief_at is not None and dt >= self.relief_at:
+            lvl, fade_at = self.cap, self.relief_at + SHIFT_TICKS
+        if fade_at is not None and dt > fade_at:
+            lvl = min(lvl, self.cap * max(FATIGUE_FLOOR, 1.0 - (1.0 - FATIGUE_FLOOR) * (dt - fade_at) / FADE_TICKS))
+        return lvl
 
     def grid(self, dt: int) -> np.ndarray | None:
         """Suppression this layer applies dt ticks from now, or None if none."""
@@ -123,13 +152,15 @@ class TimedLayer:
             reach = min(LINE_LENGTH / 2, self.line_reach0 + self.line_rate * (dt - self.t_on))
             if reach > 0:
                 line = (self.line_along <= reach).astype(np.float32)
+                if self.line_band is not None and lvl > 0:
+                    np.maximum(line, (self.line_band <= reach) * np.float32(PATROL * lvl / self.cap), out=line)
                 g = line if g is None else np.maximum(g, line)
         return g
 
     @property
     def varies(self) -> bool:
         growing = self.line_along is not None and self.line_reach0 < LINE_LENGTH / 2
-        return self.slope != 0 or self.t_on > 0 or self.first is not None or growing
+        return self.slope != 0 or self.t_on > 0 or self.first is not None or growing or self.fade_at is not None
 
 
 @dataclass
@@ -156,8 +187,9 @@ class SuppressionSchedule:
         return any(layer.varies for layer in self.layers)
 
 
-def line_along(cx: np.ndarray, cy: np.ndarray, x: float, y: float, wind_from: float) -> np.ndarray:
-    """Distance along a crew's line from (x, y) for cells on it, inf off it.
+def line_along(cx: np.ndarray, cy: np.ndarray, x: float, y: float, wind_from: float) -> tuple[np.ndarray, np.ndarray]:
+    """Distance along a crew's line from (x, y) for cells on it, inf off it;
+    and the same for cells within PATROL_BAND of it (the patrolled band).
     The line runs with the wind: bearing b is the direction (sin b, -cos b) in
     map coords (y south), and the line goes both ways from the crew."""
     b = math.radians(wind_from)
@@ -165,7 +197,9 @@ def line_along(cx: np.ndarray, cy: np.ndarray, x: float, y: float, wind_from: fl
     dx, dy = cx - x, cy - y
     along = dx * ux + dy * uy
     off = np.abs(dx * uy - dy * ux)
-    return np.where(off <= LINE_HALF_WIDTH, np.abs(along), np.inf).astype(np.float32)
+    dist = np.abs(along)
+    return (np.where(off <= LINE_HALF_WIDTH, dist, np.inf).astype(np.float32),
+            np.where(off <= PATROL_BAND, dist, np.inf).astype(np.float32))
 
 
 def crew_layer(width: int, height: int, x: float, y: float, *, t_on: int = 0, ramped: float = 0.0,
@@ -177,9 +211,10 @@ def crew_layer(width: int, height: int, x: float, y: float, *, t_on: int = 0, ra
     placed one would really act."""
     cy, cx = np.mgrid[:height, :width].astype(np.float32) + 0.5
     disk = soft_disk(np.hypot(cx - x, cy - y), CREW_RADIUS).astype(np.float32)
-    layer = TimedLayer(disk, CREW_MAX * ramped, CREW_MAX / CREW_RAMP_TICKS, CREW_MAX, t_on=t_on)
+    layer = TimedLayer(disk, CREW_MAX * ramped, CREW_MAX / CREW_RAMP_TICKS, CREW_MAX, t_on=t_on,
+                       fade_at=t_on + SHIFT_TICKS - int(ramped * CREW_RAMP_TICKS))
     if wind_from is not None:
-        layer.line_along = line_along(cx, cy, x, y, wind_from)
+        layer.line_along, layer.line_band = line_along(cx, cy, x, y, wind_from)
         layer.line_reach0 = -LINE_RATE * CREW_RAMP_TICKS * (1.0 - ramped)
         layer.line_rate = LINE_RATE
     return layer
@@ -189,8 +224,9 @@ def crew_layer(width: int, height: int, x: float, y: float, *, t_on: int = 0, ra
 class _Crew:
     x: float
     y: float
-    since: int
+    since: int  # when this shift started; a relief crew starts a new one (#178)
     wind_from: float | None  # locked when it starts, so the line doesn't swing with later wind
+    line_since: int = 0  # when the line started: a relief crew carries on the same line
 
 
 @dataclass
@@ -220,24 +256,34 @@ class TokenEffects:
         """The wind crews starting now cut their lines along (#99)."""
         self.wind_from = from_deg
 
-    def update(self, tokens: list[Token], tick: int) -> np.ndarray:
-        """Suppression for this tick, and advance each crew's and drop's state."""
-        return self._build(tokens, tick).at(0)
+    def update(self, tokens: list[Token], tick: int, starts: dict[str, int] | None = None) -> np.ndarray:
+        """Suppression for this tick, and advance each crew's and drop's state.
 
-    def schedule(self, tokens: list[Token], tick: int) -> SuppressionSchedule:
+        `starts` (from the dispatcher, #178) maps a token to the tick its
+        current unit arrived: a relief crew starts a fresh shift, and each
+        tanker arrival is a new drop. Without it (no stations), a crew's shift
+        runs from when its token first acts and water re-drops on a cooldown."""
+        return self._build(tokens, tick, starts).at(0)
+
+    def schedule(self, tokens: list[Token], tick: int, starts: dict[str, int] | None = None) -> SuppressionSchedule:
         """Suppression from this tick on, if the tokens stay put, without
         changing any state. at(0) equals what update() would return."""
         crews, water = copy.deepcopy(self._crews), copy.deepcopy(self._water)
         try:
-            return self._build(tokens, tick)
+            return self._build(tokens, tick, starts)
         finally:
             self._crews, self._water = crews, water
 
-    def preview(self, tokens: list[Token], tick: int) -> np.ndarray:
+    def preview(self, tokens: list[Token], tick: int, starts: dict[str, int] | None = None) -> np.ndarray:
         """What update() would return for `tokens`, without changing any
         crew's ramp-up or water drop's timer. Recommendations use it to ask
         "what if this crew weren't here?"."""
-        return self.schedule(tokens, tick).at(0)
+        return self.schedule(tokens, tick, starts).at(0)
+
+    def fatigue_of(self, token_id: str, tick: int) -> float:
+        """0 for a fresh crew, 1 once it has faded to FATIGUE_FLOOR (#178)."""
+        c = self._crews.get(token_id)
+        return 0.0 if c is None else min(1.0, max(0.0, (tick - c.since - SHIFT_TICKS) / FADE_TICKS))
 
     def arrival_layer(self, t: Token, t_on: int) -> TimedLayer | None:
         """What `t` will do once its unit arrives `t_on` ticks from now (#104):
@@ -246,7 +292,8 @@ class TokenEffects:
         match t.token_type:
             case TokenType.CREW:
                 return self._with_line(
-                    TimedLayer(self._disk(t.x, t.y, CREW_RADIUS), 0.0, CREW_MAX / CREW_RAMP_TICKS, CREW_MAX, t_on=t_on),
+                    TimedLayer(self._disk(t.x, t.y, CREW_RADIUS), 0.0, CREW_MAX / CREW_RAMP_TICKS, CREW_MAX, t_on=t_on,
+                               fade_at=t_on + SHIFT_TICKS),
                     t.x, t.y, self.wind_from, 0.0)
             case TokenType.WATER:
                 return TimedLayer(self._disk(t.x, t.y, WATER_RADIUS), WATER_WET, -WATER_WET / WATER_WET_TICKS,
@@ -255,7 +302,7 @@ class TokenEffects:
                 return TimedLayer(self._firebreak(t), 1.0, 0.0, 1.0, t_on=t_on)
         return None
 
-    def _build(self, tokens: list[Token], tick: int) -> SuppressionSchedule:
+    def _build(self, tokens: list[Token], tick: int, starts: dict[str, int] | None = None) -> SuppressionSchedule:
         static = np.zeros((self.height, self.width), np.float32)
         layers: list[TimedLayer] = []
         seen = set()
@@ -263,9 +310,9 @@ class TokenEffects:
             seen.add(t.id)
             match t.token_type:
                 case TokenType.CREW:
-                    layers.append(self._crew(t, tick))
+                    layers.append(self._crew(t, tick, None if starts is None else starts.get(t.id)))
                 case TokenType.WATER:
-                    layers.append(self._water_drop(t, tick))
+                    layers.append(self._water_drop(t, tick, None if starts is None else starts.get(t.id)))
                 case TokenType.FIREBREAK:
                     np.maximum(static, self._firebreak(t), out=static)
         for d in (self._crews, self._water):
@@ -302,29 +349,42 @@ class TokenEffects:
     def _disk(self, x: float, y: float, radius: float) -> np.ndarray:
         return soft_disk(self._dist(x, y), radius)
 
-    def _crew(self, t: Token, tick: int) -> TimedLayer:
+    def _crew(self, t: Token, tick: int, start: int | None = None) -> TimedLayer:
         c = self._crews.get(t.id)
         if c is None or math.hypot(t.x - c.x, t.y - c.y) > CREW_MOVE_RESET:
-            c = self._crews[t.id] = _Crew(t.x, t.y, tick, self.wind_from)
+            begun = tick if start is None else start
+            c = self._crews[t.id] = _Crew(t.x, t.y, begun, self.wind_from, begun)
         else:
             c.x, c.y = t.x, t.y  # follow jitter without restarting the ramp
-        ramp = min(1.0, (tick - c.since) / CREW_RAMP_TICKS)
-        layer = TimedLayer(self._disk(t.x, t.y, CREW_RADIUS), CREW_MAX * ramp, CREW_MAX / CREW_RAMP_TICKS, CREW_MAX)
-        return self._with_line(layer, t.x, t.y, c.wind_from, tick - c.since)
+            if start is not None and start > c.since:
+                # A relief crew took over (#178): a fresh shift, already dug in
+                # (it takes over the same ground), carrying on the same line.
+                c.since = start
+        dug_in = c.since > c.line_since  # a relief crew starts at full strength
+        ramp = 1.0 if dug_in else min(1.0, (tick - c.since) / CREW_RAMP_TICKS)
+        layer = TimedLayer(self._disk(t.x, t.y, CREW_RADIUS), CREW_MAX * ramp, CREW_MAX / CREW_RAMP_TICKS, CREW_MAX,
+                           fade_at=c.since + SHIFT_TICKS - tick)
+        return self._with_line(layer, t.x, t.y, c.wind_from, tick - c.line_since)
 
     def _with_line(self, layer: TimedLayer, x: float, y: float, wind_from: float | None, age: int) -> TimedLayer:
         """Add the line a crew `age` ticks into its job cuts (none without a wind)."""
         if wind_from is not None:
-            layer.line_along = line_along(self._cx, self._cy, x, y, wind_from)
+            layer.line_along, layer.line_band = line_along(self._cx, self._cy, x, y, wind_from)
             layer.line_reach0 = LINE_RATE * (age - CREW_RAMP_TICKS)
             layer.line_rate = LINE_RATE
         return layer
 
-    def _water_drop(self, t: Token, tick: int) -> TimedLayer:
+    def _water_drop(self, t: Token, tick: int, start: int | None = None) -> TimedLayer:
         w = self._water.get(t.id)
-        moved = w is not None and math.hypot(t.x - w.x, t.y - w.y) > WATER_RADIUS
-        if w is None or (moved and tick - w.dropped >= WATER_COOLDOWN_TICKS):
-            w = self._water[t.id] = _Water(t.x, t.y, tick)
+        if start is not None:
+            # Dispatched (#178): each tanker arrival is a drop, wherever the
+            # token is then; the round trip to reload sets the pace.
+            if w is None or w.dropped != start:
+                w = self._water[t.id] = _Water(t.x, t.y, start)
+        else:
+            moved = w is not None and math.hypot(t.x - w.x, t.y - w.y) > WATER_RADIUS
+            if w is None or (moved and tick - w.dropped >= WATER_COOLDOWN_TICKS):
+                w = self._water[t.id] = _Water(t.x, t.y, tick)
         age = tick - w.dropped
         # Full knockdown the tick it lands, then a wet patch that dries out.
         # The knockdown stays where the water landed, even if the token moves.

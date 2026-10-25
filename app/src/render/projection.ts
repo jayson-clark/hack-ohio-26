@@ -29,6 +29,18 @@ export const DEFAULT_LAYERS: Layers = {
   forecast: true,
 };
 
+/** The projector's default (#198): the table is the real world and the camera
+ * the drone over it, so only what's really there is lit: the ground and the
+ * fire. Annotations go on the camera view instead. */
+export const DRONE_LAYERS: Layers = {
+  tint: true,
+  contours: false,
+  labels: false,
+  grid: false,
+  routes: false,
+  forecast: false,
+};
+
 // sim_grid cell states, in PLAN.md order. Switch to the generated enum once
 // the sim defines it in protocol.py.
 const CELL_BURNING = 2;
@@ -63,6 +75,9 @@ export function blur(a: Float32Array, tmp: Float32Array, w: number, h: number) {
 export interface Projection {
   material: THREE.ShaderMaterial;
   setTokens(tokens: Token[], selectedId: string | null): void;
+  /** Draw token rings, crew reach and selection. Off (the drone-view
+   * projector), only the white disc under each marker is lit, for detection. */
+  setShowTokens(on: boolean): void;
   setCrewReach(cells: number): void;
   setLayers(layers: Layers): void;
   setFire(frame: BinaryFrame | null): void;
@@ -73,6 +88,10 @@ export interface Projection {
   setThreatened(towns: string[]): void;
   /** Projector calibration (row-major map -> projector), or null to letterbox. Flat views only. */
   setMapToProj(h: number[] | null): void;
+  /** The projector lens (Calibration.projector) for the height correction, or null. Flat views only. */
+  setLens(lens: number[] | null): void;
+  /** Draw the calibration check (grid and map border) on the terrain. */
+  setTestGrid(on: boolean): void;
   update(timeSec: number): void;
   dispose(): void;
 }
@@ -141,12 +160,15 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       uLayers: { value: new THREE.Vector4(1, 1, 1, 0) },
       uTokens: { value: tokenData },
       uTokenCount: { value: 0 },
+      uShowTokens: { value: 1 },
       uTokenColors: { value: TOKEN_TYPES.map((t) => rgb(TOKEN_STYLE[t].color)) },
       uHalo: { value: HALO_RADIUS },
       uCrewReach: { value: 14 },
       uRing: { value: HALO_RADIUS + 1.6 },
       uMapToProj: { value: new THREE.Matrix3() },
       uCalibrated: { value: 0 },
+      uLens: { value: new THREE.Vector4() },
+      uTestGrid: { value: 0 },
       uProjector: { value: new THREE.Vector3(0, 1500, 0) },
       uAmbient: { value: 0.07 },
       uTiles: {
@@ -176,6 +198,10 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
         tokenData[i].set(t.x, t.y, TOKEN_TYPES.indexOf(t.token_type), t.id === selectedId ? 1 : 0);
       }
       u.uTokenCount.value = n;
+    },
+
+    setShowTokens(on) {
+      u.uShowTokens.value = on ? 1 : 0;
     },
 
     setLayers(l) {
@@ -248,6 +274,14 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     setMapToProj(h) {
       if (h) (u.uMapToProj.value as THREE.Matrix3).set(h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
       u.uCalibrated.value = h ? 1 : 0;
+    },
+
+    setLens(lens) {
+      (u.uLens.value as THREE.Vector4).set(lens?.[0] ?? 0, lens?.[1] ?? 0, lens?.[2] ?? 0, lens ? 1 : 0);
+    },
+
+    setTestGrid(on) {
+      u.uTestGrid.value = on ? 1 : 0;
     },
 
     update(timeSec) {

@@ -2,7 +2,8 @@
 
 Everything here comes from assets/scenarios/<name>/, written by
 tools/dem_to_assets.py. The map grid is `width` x `height` cells with row 0 at
-north; it is not square (Paradise is 256 x 192), so never assume it is.
+north; it is not square (Paradise is 512 x 480), so never assume it is. The
+printed terrain covers only part of it (`print_window`).
 """
 
 import json
@@ -34,6 +35,16 @@ class Scenario:
 
     def in_bounds(self, x: float, y: float) -> bool:
         return 0 <= x < self.width and 0 <= y < self.height
+
+    @property
+    def print_window(self) -> tuple[int, int, int, int]:
+        """The printed terrain in map cells, (x0, y0, width, height). The sim map
+        reaches past it on some scenarios (terrain.json `print`)."""
+        p = self.terrain.get("print")
+        if not p:
+            return 0, 0, self.width, self.height
+        x0, y0 = p["offset_cells"]
+        return x0, y0, p["width"], p["height"]
 
 
 def load_scenario(name: str) -> Scenario:

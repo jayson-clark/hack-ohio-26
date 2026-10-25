@@ -16,6 +16,11 @@ varying vec3 vNormal;
 // uCalibrated = 0 to use the camera (letterboxed map).
 uniform mat3 uMapToProj;
 uniform float uCalibrated;
+// The projector lens (Calibration.projector): x, y in map cells below it, z mm
+// above the corner markers' plane, w = 1 to correct for terrain height.
+uniform vec4 uLens;
+// The printed surface's height above the corner markers' plane, mm.
+attribute float aHeight;
 #endif
 
 void main() {
@@ -27,10 +32,16 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * wp;
 #else
   if (uCalibrated > 0.5) {
-    // The flat view's world is (x, -y) in map cells. Keeping the homography's
-    // w as clip w makes the GPU interpolate perspective-correctly.
-    vec3 p = uMapToProj * vec3(wp.x, -wp.y, 1.0);
-    gl_Position = vec4(2.0 * p.x - p.z, p.z - 2.0 * p.y, 0.0, p.z);
+    // The flat view's world is (x, -y) in map cells. The calibration is for
+    // the marker plane, so a raised point is drawn where the lens's line of
+    // sight through it meets that plane (vision/geometry.py, to_plane).
+    vec2 m = vec2(wp.x, -wp.y);
+    if (uLens.w > 0.5) m = uLens.xy + (m - uLens.xy) * (uLens.z / (uLens.z - aHeight));
+    // Keeping the homography's w as clip w makes the GPU interpolate
+    // perspective-correctly. Depth: higher ground is nearer the lens, so it
+    // wins where a ridge hides the slope behind it.
+    vec3 p = uMapToProj * vec3(m, 1.0);
+    gl_Position = vec4(2.0 * p.x - p.z, p.z - 2.0 * p.y, -aHeight / 200.0 * p.z, p.z);
   } else {
     gl_Position = projectionMatrix * viewMatrix * wp;
   }
@@ -63,10 +74,12 @@ uniform vec4 uLayers;      // tint, contours, labels, grid (0 or 1)
 
 uniform vec4 uTokens[MAX_TOKENS]; // x, y (cells), type index, selected
 uniform int uTokenCount;
+uniform float uShowTokens; // 0 on the drone-view projector: only the white disc under each marker
 uniform vec3 uTokenColors[4];
 uniform float uHalo;
 uniform float uCrewReach; // cells: a crew's reach (hello.crew_radius)
 uniform float uRing;
+uniform float uTestGrid;   // calibration check: grid and map border on the terrain
 
 #ifdef DRAPED
 varying vec3 vNormal;
@@ -205,7 +218,7 @@ vec3 tokens(vec3 col, vec2 cell) {
     // faint tint fading out like its suppression, and a dashed ring at the
     // full radius, dashed like the recommendation rings that use the same
     // radius. Type 0 is crew (TOKEN_TYPES).
-    if (tk.z < 0.5) {
+    if (tk.z < 0.5 && uShowTokens > 0.5) {
       float core = 0.6 * uCrewReach;
       float reach = clamp((uCrewReach - d) / (uCrewReach - core), 0.0, 1.0);
       col = mix(col, tc, 0.18 * reach);
@@ -213,10 +226,12 @@ vec3 tokens(vec3 col, vec2 cell) {
       float dash = step(0.0, sin(atan(rel.y, rel.x) * 18.0));
       col = mix(col, tc, (1.0 - smoothstep(0.3, 0.3 + aa * 1.5, abs(d - uCrewReach))) * dash * 0.9);
     }
-    // Colored ring for the type, white disc under the marker.
-    col = mix(col, tc, 1.0 - smoothstep(uRing - aa, uRing + aa, d));
+    // Colored ring for the type, white disc under the marker. The drone view
+    // (uShowTokens = 0) keeps only the disc: it's what lets the camera read
+    // the marker under fire light, not an annotation.
+    if (uShowTokens > 0.5) col = mix(col, tc, 1.0 - smoothstep(uRing - aa, uRing + aa, d));
     col = mix(col, vec3(1.0), 1.0 - smoothstep(uHalo - aa, uHalo + aa, d));
-    if (tk.w > 0.5) {
+    if (tk.w > 0.5 && uShowTokens > 0.5) {
       float r = uRing + 2.5 + 1.2 * sin(uTime * 5.0);
       col = mix(col, vec3(1.0), (1.0 - smoothstep(0.35, 0.35 + aa * 1.5, abs(d - r))) * 0.9);
     }
@@ -234,6 +249,15 @@ void main() {
   vec4 lab = texture2D(uLabels, vUv);
   col = mix(col, lab.rgb, lab.a * uLayers.z);
   col = tokens(col, cell);
+
+  // Drawn here rather than as an overlay so it lands on the terrain through
+  // the height correction: the border should sit on the print's edge.
+  if (uTestGrid > 0.5) {
+    float g = max(isoLine(cell.x / 16.0, 2.0), isoLine(cell.y / 16.0, 2.0));
+    float edge = min(min(cell.x, uGrid.x - cell.x), min(cell.y, uGrid.y - cell.y));
+    float border = 1.0 - smoothstep(1.0, 1.0 + fwidth(edge), edge);
+    col = mix(col, vec3(0.13, 0.83, 0.93), max(g * 0.85, border));
+  }
 
 #ifdef DRAPED
   // Projected light on matte white PLA, plus a little room light.

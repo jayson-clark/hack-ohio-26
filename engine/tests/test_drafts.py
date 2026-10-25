@@ -36,7 +36,7 @@ def run(coro):
 
 def test_sending_a_crew_drafts_its_order(engine):
     async def go():
-        engine.fire.ignite(217.3, 54.5)
+        engine.fire.ignite(409.3, 118.5)
         engine.virtual.handle(VirtualTokenAdd(token_type=TokenType.CREW, x=200, y=70))
         engine.step_fire()
         await asyncio.sleep(0)

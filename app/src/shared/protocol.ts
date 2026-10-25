@@ -210,6 +210,7 @@ export interface VisionStatus {
   markers_seen: number;
   corners_seen: string[];
   board_found: boolean;
+  feed_rectified: boolean;
 }
 /**
  * The game layer's state. Sent once a second, immediately when the round
@@ -417,6 +418,7 @@ export interface Calibration {
   type: "calibration";
   phase: CalibrationPhase;
   map_to_proj: number[] | null;
+  projector: number[] | null;
   pattern: string | null;
   corners_found: number;
   corners_total: number;

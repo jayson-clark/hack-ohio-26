@@ -8,7 +8,7 @@ import * as THREE from "three";
 import type { BinaryFrame } from "../../shared/binary";
 import type { ForecastGrids } from "../../shared/engine";
 import type { ForecastEnvelope } from "../../shared/protocol";
-import type { Scenario } from "../../shared/scenario";
+import { printWindow, type Scenario } from "../../shared/scenario";
 import { createCartoMap, type CartoMap, type CartoStyle } from "../../render/carto";
 import { mountViewport } from "../../render/viewport";
 
@@ -54,16 +54,20 @@ export default function MapView(props: Props) {
   viewRef.current = view;
   const anim = useRef(0);
 
-  const fitView = (w: number, h: number): View => ({
-    cx: scenario.width / 2,
-    cy: scenario.height / 2,
-    s: Math.min(w / scenario.width, h / scenario.height) * 0.94,
-  });
+  // The map opens on the incident area, the printed terrain's window (#197):
+  // the extended maps reach out to the evacuation destinations, which at full
+  // extent would leave the fire and towns a small patch in the middle. The
+  // operator can still zoom out to the whole map.
+  const fitView = (w: number, h: number): View => {
+    const win = printWindow(scenario);
+    return { cx: win.x0 + win.w / 2, cy: win.y0 + win.h / 2, s: Math.min(w / win.w, h / win.h) * 0.94 };
+  };
   const fitScale = () => (size.w ? fitView(size.w, size.h).s : 1);
+  const wholeScale = () => (size.w ? Math.min(size.w / scenario.width, size.h / scenario.height) * 0.94 : 1);
 
   function clamp(v: View): View {
     const fit = fitScale();
-    const s = Math.min(Math.max(v.s, fit * 0.8), fit * MAX_ZOOM);
+    const s = Math.min(Math.max(v.s, wholeScale() * 0.8), fit * MAX_ZOOM);
     // Keep some of the map on screen.
     const cx = Math.min(Math.max(v.cx, 0), scenario.width);
     const cy = Math.min(Math.max(v.cy, 0), scenario.height);
@@ -154,7 +158,9 @@ export default function MapView(props: Props) {
   }, [scenario]);
 
   useEffect(() => carto.current?.setFire(simGrid), [simGrid, scenario]);
-  useEffect(() => carto.current?.setForecast(forecast, envelope), [forecast, envelope, scenario]);
+  // The calibrated envelope is learned on Monte Carlo forecasts; around an
+  // emulator preview the line falls back to the plain 50% edge.
+  useEffect(() => carto.current?.setForecast(forecast, forecast?.preview ? null : envelope), [forecast, envelope, scenario]);
   useEffect(() => carto.current?.setStyle(style), [style.terrain, style.contours, style.forecast, style.dark, scenario]);
 
   // Wheel and trackpad: zoom about the cursor (pinch arrives as ctrl+wheel).

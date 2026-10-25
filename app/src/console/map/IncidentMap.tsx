@@ -3,20 +3,24 @@
 // the wind. In Monitor a click with an order tool sends that unit; in Plan it
 // adds a draft order; otherwise clicks select towns, orders and
 // recommendations for the inspector.
+//
+// With the camera's top-down orthophoto live, the basemap can be the drone's
+// photo instead (#203): the same layers and tools, over what's really there.
 
 import { useState } from "react";
 import { useEngine } from "../../shared/engine";
+import { droneFeedLive, useFeedUrl } from "../../shared/feed";
 import { compass, describeLocation } from "../../shared/places";
 import type { ForecastEnvelope, TokenType } from "../../shared/protocol";
-import type { Scenario } from "../../shared/scenario";
+import { printWindow, type Scenario } from "../../shared/scenario";
 import { useTheme } from "../../shared/theme";
 import { ORDER_STYLE } from "../../shared/tokens";
 import { addToken } from "../../shared/virtualTokens";
 import { Icon } from "../icons";
 import { findRec, ORDER_COLOR, ORDER_ICON, type Selection, type TownView } from "../model";
 import { resultsFor, type DraftOrder } from "../plan";
-import { Floating, IconButton } from "../ui";
-import { FocusPulse, OrdersLayer, PlacesLayer, PlanLayer, RecsLayer, RoutesLayer, StationsLayer, TownsLayer, UnitsLayer } from "./layers";
+import { Chip, Floating, IconButton, Segmented } from "../ui";
+import { DroneLayer, FocusPulse, ForecastLayer, OrdersLayer, PlacesLayer, PlanLayer, RecsLayer, RoutesLayer, StationsLayer, TownsLayer, UnitsLayer } from "./layers";
 import MapView, { type MapHandle } from "./MapView";
 
 export type ConsoleMode = "monitor" | "plan" | "review";
@@ -48,6 +52,11 @@ const LAYER_LABELS: Record<keyof MapLayers, string> = {
   labels: "Place names",
 };
 
+// Basemap styling the drone photo covers up.
+const BASEMAP_ONLY: (keyof MapLayers)[] = ["terrain", "contours"];
+
+type Basemap = "map" | "drone";
+
 interface Props {
   scenario: Scenario;
   mode: ConsoleMode;
@@ -67,9 +76,20 @@ interface Props {
 
 export default function IncidentMap(props: Props) {
   const { scenario, mode, towns, layers, tool, selection } = props;
-  const { simGrid, forecast, envelope, routes, units, tokens, recommendations, hello, plan, scenario: live, score } = useEngine();
+  const { simGrid, forecast, envelope, routes, units, tokens, recommendations, hello, plan, scenario: live, score, vision, cameraFrame } = useEngine();
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [layersOpen, setLayersOpen] = useState(false);
+  // The operator's pick, kept while the feed comes and goes: the drone photo
+  // whenever it's live, unless they've switched to the map.
+  const [basemap, setBasemap] = useState<Basemap>("drone");
+  const feedLive = droneFeedLive(vision);
+  // vision_status comes once a second and frames ten times, so also check each
+  // frame has the print window's shape (what the camera sees, #197) before
+  // laying it over the map.
+  const win = printWindow(scenario);
+  const ortho = feedLive && cameraFrame && Math.abs(cameraFrame.width / cameraFrame.height - win.w / win.h) < 0.02;
+  const feedUrl = useFeedUrl(ortho ? cameraFrame : null);
+  const drone = basemap === "drone" && feedLive && !!feedUrl;
   const theme = useTheme();
   const local = props.handle;
   const planning = mode === "plan";
@@ -93,7 +113,7 @@ export default function IncidentMap(props: Props) {
         simGrid={simGrid}
         forecast={forecast}
         envelope={envelope}
-        style={{ terrain: layers.terrain, contours: layers.contours, forecast: showForecast, dark: theme === "dark" }}
+        style={{ terrain: layers.terrain, contours: layers.contours, forecast: showForecast && !drone, dark: theme === "dark" }}
         onClick={click}
         onHover={setHover}
         cursor={tool ? "crosshair" : undefined}
@@ -101,6 +121,8 @@ export default function IncidentMap(props: Props) {
       >
         {(k) => (
           <>
+            {drone && <DroneLayer scenario={scenario} url={feedUrl} />}
+            {drone && showForecast && <ForecastLayer scenario={scenario} forecast={forecast} simGrid={simGrid} />}
             {layers.routes && <RoutesLayer routes={routes} k={k} highlight={selTown} />}
             {layers.labels && <PlacesLayer scenario={scenario} k={k} />}
             {layers.resources && <StationsLayer stations={hello?.stations ?? []} k={k} />}
@@ -164,30 +186,56 @@ export default function IncidentMap(props: Props) {
         </div>
       )}
 
-      {/* Wind and layers, top right */}
+      {/* Basemap, wind and layers, top right */}
       <div className="absolute right-4 top-4 flex flex-col items-end gap-2">
-        <div className="relative">
-          <Floating className="flex items-center p-1">
-            <IconButton icon="layers" title="Map layers" active={layersOpen} onClick={() => setLayersOpen(!layersOpen)} />
-          </Floating>
-          {layersOpen && (
-            <Floating className="absolute right-0 top-11 z-20 w-56 p-2">
-              <div className="px-2 pb-1.5 pt-1 text-[11px] font-medium text-ink-3">Map layers</div>
-              {(Object.keys(LAYER_LABELS) as (keyof MapLayers)[]).map((key) => (
-                <label key={key} className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-ink hover:bg-hover">
-                  <input
-                    type="checkbox"
-                    checked={layers[key]}
-                    onChange={() => props.onLayers({ ...layers, [key]: !layers[key] })}
-                    className="h-3.5 w-3.5 accent-accent"
-                  />
-                  {LAYER_LABELS[key]}
-                </label>
-              ))}
-              <EnvelopeNote envelope={envelope} />
+        <div className="flex items-center gap-2">
+          {feedLive && (
+            <Floating className="p-1">
+              <span title="Basemap: the map, or the drone's live photo">
+                <Segmented<Basemap>
+                  value={basemap}
+                  options={[
+                    { value: "map", label: "Map" },
+                    { value: "drone", label: "Drone" },
+                  ]}
+                  onChange={setBasemap}
+                />
+              </span>
             </Floating>
           )}
+          <div className="relative">
+            <Floating className="flex items-center p-1">
+              <IconButton icon="layers" title="Map layers" active={layersOpen} onClick={() => setLayersOpen(!layersOpen)} />
+            </Floating>
+            {layersOpen && (
+              <Floating className="absolute right-0 top-11 z-20 w-56 p-2">
+                <div className="px-2 pb-1.5 pt-1 text-[11px] font-medium text-ink-3">Map layers</div>
+                {(Object.keys(LAYER_LABELS) as (keyof MapLayers)[]).map((key) => {
+                  const off = drone && BASEMAP_ONLY.includes(key);
+                  return (
+                    <label
+                      key={key}
+                      title={off ? "Not shown over the drone photo" : undefined}
+                      className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] ${off ? "text-ink-3" : "cursor-pointer text-ink hover:bg-hover"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={layers[key]}
+                        disabled={off}
+                        onChange={() => props.onLayers({ ...layers, [key]: !layers[key] })}
+                        className="h-3.5 w-3.5 accent-accent"
+                      />
+                      {LAYER_LABELS[key]}
+                    </label>
+                  );
+                })}
+              </Floating>
+            )}
+          </div>
         </div>
+        {basemap === "drone" && vision && vision.camera !== "off" && !feedLive && (
+          <Chip>{vision.camera === "no_signal" ? "Drone feed lost" : "Drone feed paused (board not in view)"} · showing the map</Chip>
+        )}
         <Floating className="flex flex-col p-1">
           <IconButton icon="plus" title="Zoom in" onClick={() => local.current?.zoomBy(1.6)} />
           <IconButton icon="minus" title="Zoom out" onClick={() => local.current?.zoomBy(1 / 1.6)} />
@@ -199,7 +247,7 @@ export default function IncidentMap(props: Props) {
 
       {/* Legend and cursor, bottom left */}
       <div className="pointer-events-none absolute bottom-4 left-4 flex flex-col items-start gap-2">
-        <Legend planning={planning && !!plan.grids} />
+        <Legend planning={planning && !!plan.grids} drone={drone} envelope={envelope} preview={!!forecast?.preview} />
         <div className="rounded-md bg-panel/90 px-2 py-1 text-[11px] text-ink-2 shadow-card tnum">
           {hover ? describeLocation(scenario, hover.x, hover.y) : "Drag to pan · scroll to zoom"}
         </div>
@@ -243,7 +291,8 @@ function WindRose({ speed, from }: { speed: number; from: number }) {
   );
 }
 
-function Legend({ planning }: { planning: boolean }) {
+function Legend(props: { planning: boolean; drone: boolean; envelope: ForecastEnvelope | null; preview: boolean }) {
+  const { planning, drone } = props;
   const [open, setOpen] = useState(true);
   return (
     <Floating className="pointer-events-auto w-52 overflow-hidden">
@@ -253,8 +302,19 @@ function Legend({ planning }: { planning: boolean }) {
       </button>
       {open && (
         <div className="space-y-1.5 px-3 pb-3 text-[11px] text-ink-2">
-          <Swatch fill="#e8451c" label="Active fire" />
-          <Swatch fill="#8a807b" label="Burned" />
+          {drone ? (
+            <div className="flex items-center gap-2">
+              <span className="flex h-3 w-4 items-center justify-center">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-crit" />
+              </span>
+              Live drone photo
+            </div>
+          ) : (
+            <>
+              <Swatch fill="#e8451c" label="Active fire" />
+              <Swatch fill="#8a807b" label="Burned" />
+            </>
+          )}
           {planning ? (
             <>
               <Swatch fill="#12b76a" label="Plan keeps fire out" />
@@ -262,8 +322,16 @@ function Legend({ planning }: { planning: boolean }) {
             </>
           ) : (
             <>
-              <Swatch fill="#f5a35f" line="#cc5412" label="Likely fire in 30 min" />
-              <Swatch fill="#fad38a" line="#cc850f" label="Likely fire in 60 min" />
+              <Swatch fill="#f5a35f" label="Likely fire in 30 min" />
+              <Swatch fill="#fad38a" label="Likely fire in 60 min" />
+              <p className="pl-6 text-[10px] leading-snug text-ink-3">Shaded: at least half the simulations burn there.</p>
+              <div className="flex items-center gap-2">
+                <span className="flex h-3 w-4 items-center">
+                  <span className="h-[2px] w-4 rounded bg-[#cc5412]" />
+                </span>
+                {props.preview ? "Outline: half the simulations" : "Calibrated outline"}
+              </div>
+              <EnvelopeNote envelope={props.envelope} preview={props.preview} />
             </>
           )}
           <div className="flex items-center gap-2 pt-0.5">
@@ -292,17 +360,29 @@ function Swatch({ fill, line, label }: { fill: string; line?: string; label: str
 /** How well the forecast outline keeps its promise (#12): the share of new
  * fire that recently fell outside it, against the target. Shown once the
  * engine has scored a few forecasts on this map. */
-function EnvelopeNote({ envelope }: { envelope: ForecastEnvelope | null }) {
-  if (!envelope || envelope.scored.every((n) => n < 3)) return null;
+function EnvelopeNote({ envelope, preview }: { envelope: ForecastEnvelope | null; preview: boolean }) {
+  if (preview)
+    return (
+      <p className="pl-6 text-[10px] leading-snug text-ink-3">
+        Quick preview. The calibrated outline returns when the full forecast lands.
+      </p>
+    );
+  if (!envelope || envelope.scored.every((n) => n < 3))
+    return (
+      <p className="pl-6 text-[10px] leading-snug text-ink-3">
+        Aims for 1 in 10 acres of new fire outside it; checked once forecasts come due.
+      </p>
+    );
   const pct = (x: number | null) => (x == null ? "–" : `${Math.round(x * 100)}%`);
   const parts = envelope.horizons_min.map((h, i) => `${pct(envelope.miss_recent[i])} at ${h} min`);
   const over = envelope.miss_recent.some((m) => m != null && m > envelope.target_miss + 0.05);
   return (
     <p
-      className={`mx-2 mt-1.5 border-t border-line pt-2 text-[11px] leading-snug ${over ? "text-warn" : "text-ink-3"}`}
-      title="The outline is calibrated online: each forecast is checked when its time comes, and the outline widens or tightens to keep the miss rate near the target."
+      className={`pl-6 text-[10px] leading-snug ${over ? "font-medium text-warn" : "text-ink-3"}`}
+      title="The outline is calibrated as the fire burns: each forecast is checked when its time comes, and the outline widens or tightens to keep the share of new fire outside it near the target. It widens after a wind shift, then tightens again."
     >
-      Forecast outline: {parts.join(", ")} of new fire fell outside it lately (target {pct(envelope.target_miss)}).
+      New fire outside it lately: {parts.join(", ")} (target {pct(envelope.target_miss)}).
+      {over && " Widening: the forecast was recently off."}
     </p>
   );
 }

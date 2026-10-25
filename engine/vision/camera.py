@@ -24,14 +24,20 @@ import numpy as np
 
 from protocol import CameraState, Token, VisionStatus
 from scenario import Scenario
+from vision import uvc
 from vision.calibration import BoardHomography
+from vision.geometry import Viewpoint
 from vision.markers import CORNER_IDS, Detection, detect, make_detector, token_type_for
-from vision.projector import PatternFinder, PatternProgress
+from vision.projector import DotFinder, DotSearch, PatternFinder, PatternProgress
 from vision.tracking import MarkerTracker, measure
 
 CAPTURE_SIZE = (1920, 1080)
 FEED_WIDTH = 960  # px, the console's camera feed
-FEED_HZ = 6
+ORTHO_WIDTH = 960  # px, the rectified top-down feed (board fills the frame)
+ORTHO_SHARPEN = 0.8  # unsharp-mask amount on the ortho feed; 0 turns it off
+ORTHO_SHARPEN_SIGMA = 1.2  # px
+ORTHO_JPEG_QUALITY = 85  # q70 smeared the fine contour lines; ~100 KB a frame
+FEED_HZ = 10
 FEED_JPEG_QUALITY = 70
 RETRY_S = 2.0
 FILE_FPS = 30  # pace for still images (and videos that don't say)
@@ -49,6 +55,7 @@ class Snapshot:
     feed_size: tuple[int, int] = (0, 0)
     # camera -> map from the latest frame, only if it saw all four corners.
     board: np.ndarray | None = None
+    camera: Viewpoint | None = None  # the camera's centre, with `board`
     pattern: PatternProgress | None = None  # while a projector pattern search runs
 
 
@@ -61,11 +68,13 @@ class CameraVision:
         self._fps = 0.0
         self._frame_size = (0, 0)
         self._markers_seen = 0
+        self._feed_rectified = False  # the latest feed JPEG is the orthophoto
         self._lock = threading.Lock()
         self._snap = Snapshot(status=self._status(CameraState.NO_SIGNAL))
-        self._want_pattern: int | None = None  # set from the main thread
-        self._finder: PatternFinder | None = None
+        self._want_pattern: int | DotSearch | None = None  # set from the main thread
+        self._finder: PatternFinder | DotFinder | None = None
         self._lock_gray: np.ndarray | None = None  # the latest frame that saw all four corners
+        self._ortho = SteadyOrtho(ORTHO_WIDTH)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="vision", daemon=True)
 
@@ -80,7 +89,7 @@ class CameraVision:
         with self._lock:
             return self._snap
 
-    def find_pattern(self, search: int | None) -> None:
+    def find_pattern(self, search: int | DotSearch | None) -> None:
         """Look for the projector's calibration pattern (Calibrator.finding).
         Meanwhile tokens and the board stay as they were: the pattern is
         projected over them."""
@@ -97,6 +106,8 @@ class CameraVision:
                 self._stop.wait(RETRY_S)
                 continue
             log.info("camera %r: open", self.source)
+            if self.source.isdigit():
+                uvc.apply(uvc.settings_from_env())  # opening reset them
             try:
                 self._loop(frames)
             finally:
@@ -121,7 +132,10 @@ class CameraVision:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
             search = self._want_pattern
             if search is not None:
-                if self._finder is None or self._finder.search != search:
+                if isinstance(search, DotSearch):
+                    if not isinstance(self._finder, DotFinder) or self._finder.request is not search:
+                        self._finder = DotFinder(search, background=self._lock_gray)
+                elif not isinstance(self._finder, PatternFinder) or self._finder.search != search:
                     # The calibrator starts the pattern only once it has a board
                     # lock with the projector black, so that lock's frame is
                     # the pattern's background.
@@ -131,6 +145,7 @@ class CameraVision:
                 if now >= next_feed:
                     next_feed = now + 1 / FEED_HZ
                     img = draw_pattern_overlay(frame, self._finder.last, progress, FEED_WIDTH)
+                    self._feed_rectified = False
                     feed = self._encode(img)
                 self._publish(state=CameraState.OK, feed=feed, pattern=progress)
                 continue
@@ -138,7 +153,7 @@ class CameraVision:
 
             detections = detect(self._detector, gray)
             self._markers_seen = len(detections)
-            locked = self._board.update(detections)
+            locked = self._board.update(detections, self._frame_size)
             if locked:
                 self._lock_gray = gray
             sightings = measure(detections, self._board) if self._board.cam_to_map is not None else {}
@@ -147,12 +162,22 @@ class CameraVision:
             feed = None
             if now >= next_feed:
                 next_feed = now + 1 / FEED_HZ
-                feed = self._encode(draw_overlay(frame, detections, self._board, tokens, FEED_WIDTH))
+                # Any solve, even one held from an earlier frame: a corner
+                # missed for a frame shouldn't flip the feed to the raw view.
+                # The rectified feed stays clean: the UI draws tokens and
+                # every other layer over it, in map coords.
+                self._feed_rectified = self._board.cam_to_map is not None
+                if self._feed_rectified:
+                    feed = self._encode(self._ortho.draw(frame, self._board, []), ORTHO_JPEG_QUALITY)
+                else:
+                    feed = self._encode(draw_overlay(frame, detections, self._board, tokens, FEED_WIDTH))
             board = self._board.cam_to_map.copy() if locked else None
-            self._publish(state=CameraState.OK, tokens=tokens, feed=feed, board=board)
+            self._publish(state=CameraState.OK, tokens=tokens, feed=feed, board=board,
+                          camera=self._board.camera if locked else None)
 
     def _publish(self, state: CameraState, tokens: list[Token] | None = None, feed: tuple[bytes, tuple[int, int]] | None = None,
-                 board: np.ndarray | None = None, pattern: PatternProgress | None = None) -> None:
+                 board: np.ndarray | None = None, camera: Viewpoint | None = None,
+                 pattern: PatternProgress | None = None) -> None:
         if state != CameraState.OK:
             self._fps = 0.0
             self._markers_seen = 0
@@ -168,6 +193,7 @@ class CameraVision:
                 feed_jpeg=feed[0] if feed else prev.feed_jpeg,
                 feed_size=feed[1] if feed else prev.feed_size,
                 board=board,
+                camera=camera,
                 pattern=pattern,
             )
 
@@ -181,10 +207,11 @@ class CameraVision:
             markers_seen=self._markers_seen,
             corners_seen=list(self._board.corners_seen),
             board_found=self._board.cam_to_map is not None,
+            feed_rectified=self._feed_rectified,
         )
 
-    def _encode(self, img: np.ndarray) -> tuple[bytes, tuple[int, int]]:
-        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, FEED_JPEG_QUALITY])
+    def _encode(self, img: np.ndarray, quality: int = FEED_JPEG_QUALITY) -> tuple[bytes, tuple[int, int]]:
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])
         return (buf.tobytes() if ok else b""), (img.shape[1], img.shape[0])
 
 
@@ -233,6 +260,67 @@ def draw_overlay(frame: np.ndarray, detections: list[Detection], board: BoardHom
     return img
 
 
+def draw_ortho(frame: np.ndarray, board: BoardHomography, tokens: list[Token], width: int,
+               table: np.ndarray | None = None) -> np.ndarray:
+    """A top-down orthophoto of the board: the camera frame rectified and
+    cropped to the map grid, terrain lean taken out, with placed tokens drawn
+    at their map positions. `table` is a prebuilt remap (SteadyOrtho) at this
+    width; otherwise it's built from `board`. Falls back to draw_overlay if
+    the board can't be rectified."""
+    out_h = round(width * board.height / board.width)
+    out_size = (width, out_h)
+    if table is None:
+        table = board.orthophoto_remap(out_size)
+    if table is None:
+        return draw_overlay(frame, [], board, tokens, width)
+    img = cv2.remap(frame, table[..., 0], table[..., 1], cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    # The board is only ~2.5 camera px per cell and the feed upsamples it ~1.5x,
+    # so edges come out soft; a light unsharp mask brings back the contours and
+    # labels (2.5x the edge detail on the real rig, under 1 ms).
+    if ORTHO_SHARPEN > 0:
+        blur = cv2.GaussianBlur(img, (0, 0), ORTHO_SHARPEN_SIGMA)
+        img = cv2.addWeighted(img, 1 + ORTHO_SHARPEN, blur, -ORTHO_SHARPEN, 0)
+
+    # Placed (debounced) tokens, at their smoothed map position.
+    if tokens:
+        pts = board.map_to_ortho(np.array([[t.x, t.y] for t in tokens], np.float64), out_size)
+        for p in pts:
+            cv2.circle(img, (round(p[0]), round(p[1])), 10, TOKEN_COLOR, 2, cv2.LINE_AA)
+    return img
+
+
+# How far (camera px) the board's outline must move before the feed re-warps.
+# Corner centres jitter ~0.4 px frame to frame and the camera pose by ~2 cells,
+# which re-warping every frame turns into a shimmer; a bumped board or camera
+# moves several px and gets through.
+ORTHO_DEADBAND_PX = 2.0
+
+
+class SteadyOrtho:
+    """The orthophoto feed with one warp held while the board stays put."""
+
+    def __init__(self, width: int) -> None:
+        self.width = width
+        self.table: np.ndarray | None = None
+        self.outline: np.ndarray | None = None  # board outline (camera px) the table was built from
+        self.rebuilds = 0
+
+    def update(self, board: BoardHomography) -> np.ndarray | None:
+        outline = board.map_outline_in_camera()
+        if outline is None:
+            return self.table
+        if self.table is None or np.abs(outline - self.outline).max() > ORTHO_DEADBAND_PX:
+            self.table = board.orthophoto_remap((self.width, round(self.width * board.height / board.width)))
+            self.outline = outline
+            self.rebuilds += 1
+        return self.table
+
+    def draw(self, frame: np.ndarray, board: BoardHomography, tokens: list[Token]) -> np.ndarray:
+        return draw_ortho(frame, board, tokens, self.width, self.update(board))
+
+
 PATTERN_COLOR = (255, 0, 255)
 
 
@@ -245,7 +333,7 @@ def draw_pattern_overlay(frame: np.ndarray, corners: np.ndarray | None, progress
     if corners is not None:
         for p in corners * scale:
             cv2.circle(img, (round(p[0]), round(p[1])), 3, PATTERN_COLOR, -1, cv2.LINE_AA)
-    label = f"pattern: {progress.corners} corners, frame {progress.frames}"
+    label = f"{'dots' if progress.dots else 'pattern'}: {progress.corners} found, frame {progress.frames}"
     cv2.putText(img, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA)
     cv2.putText(img, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, PATTERN_COLOR, 2, cv2.LINE_AA)
     return img
@@ -329,6 +417,8 @@ if __name__ == "__main__":
     frames = _open(src)
     if frames is None:
         sys.exit(f"can't open camera {src!r}")
+    if src.isdigit():
+        uvc.apply(uvc.settings_from_env())
     board = BoardHomography(scen)
     detector = make_detector()
     # A few frames first: webcams return dark frames while auto-exposure settles.
@@ -338,11 +428,20 @@ if __name__ == "__main__":
     if frame is None:
         sys.exit(f"camera {src!r} returned no frames")
     dets = detect(detector, cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
-    board.update(dets)
+    board.update(dets, (frame.shape[1], frame.shape[0]))
     print(f"{frame.shape[1]}x{frame.shape[0]}, markers {sorted(d.id for d in dets)}, corners {board.corners_seen}")
+    if board.camera is not None:
+        cam, cell = board.camera, board.surface.cell_mm
+        north = scen.terrain["model"]["height_mm"] - (cam.y - board.y0) * cell
+        print(f"  camera lens at about {(cam.x - board.x0) * cell:.0f} mm east, {north:.0f} mm north of the terrain's SW corner, "
+              f"{cam.h + scen.terrain['markers']['marker_top_z_mm']:.0f} mm up")
     if board.cam_to_map is not None:
         for i, s in measure(dets, board).items():
             print(f"  marker {i} ({token_type_for(i)}): map ({s.x:.1f}, {s.y:.1f}), angle {np.degrees(s.angle):.0f} deg")
     out = f"camera-{Path(src).stem}.jpg"
     cv2.imwrite(out, draw_overlay(frame, dets, board, [], frame.shape[1]))
     print(f"wrote {out}")
+    if board.cam_to_map is not None:
+        ortho = f"camera-{Path(src).stem}-ortho.jpg"
+        cv2.imwrite(ortho, draw_ortho(frame, board, [], ORTHO_WIDTH))
+        print(f"wrote {ortho} (top-down, terrain lean corrected)")
