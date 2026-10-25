@@ -274,6 +274,20 @@ The known gap: the replay burns about 1.5–1.7x the real area, because flanks s
 - **Paired what-ifs:** `forecast.rollout_paired(snapshot, n, ticks, variants)` runs a baseline plus K suppression variants (e.g. a crew at each candidate spot) in one batch, as `(K+1, n, H, W)`. Rollout i of every variant shares its random draws (`advance(..., group=K+1)`), so the difference between a variant and the baseline is the intervention's effect, not luck. Recommendations rely on this.
 - **Wind spread (optional):** `WindSpread(speed_frac, dir_deg)` gives each rollout its own wind (`advance(..., wind_rows=...)`). It's off for the live forecast (`forecast.runner.WIND_SPREAD = None`), and when it's on, `Forecast.wind_spread` records it.
 - The projector shows a translucent ghost with 50% and 90% contours at T+30 and T+60 sim-minutes.
+- **Calibrated burn envelope (#12, `engine/uq/conformal.py`).** The console draws the forecast's outline as an envelope that promises at most 10% of the ground that newly burns by T+30 / T+60 falls outside it. The raw contours can't promise that: they assume the wind and tokens hold, and miss 11–31% (`eval.run`, the 50% line).
+  - **How it holds:** each envelope shown is remembered and scored when its horizon passes, as burned area outside / burned area. An online conformal update (adaptive conformal inference, conformal risk control) moves one knob per horizon: the probability cutoff, then a margin of extra cells once the cutoff hits 1/N. The long-run miss stays near 10% even under shifts, after a short catch-up.
+  - **Measured:** step 0.1, `eval.run`, 4 episodes per schedule, missed share over the whole run:
+
+    | Wind | T+30 | T+60 |
+    |---|---|---|
+    | Steady | 9.3% | 8.8% |
+    | Shift | 10.5% | 12.0% |
+    | Gusty | 11.3% | 11.7% |
+
+    In gusty wind no fixed cutoff gets under 14%, while the envelope ends at a cutoff near 1/32 plus a 3-cell margin.
+  - **Per scenario:** the knob learns per scenario. A scenario switch restarts from `ENVELOPE_WARM`, because a new map is a new distribution and conformal promises only transfer within one. A map reset keeps what was learned.
+  - **Real units:** misses are counted in area, so the promise keeps its meaning across resolutions.
+  - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates. It covers the simulator's own uncertainty plus shifts in wind and tokens, not the model's error against real fires; that's what the replays (#15, #107) check.
 - **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
   - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
   - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
