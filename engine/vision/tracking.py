@@ -26,6 +26,8 @@ SMOOTHING = 0.35  # weight of each new sighting
 SNAP_CELLS = 3.0
 DEADBAND_CELLS = 0.1
 DEADBAND_RAD = math.radians(1.5)
+# A token's marker sits this far above the terrain under it.
+TOKEN_TOP_MM = 6.0
 
 
 @dataclass
@@ -36,13 +38,16 @@ class Sighting:
 
 
 def measure(detections: list[Detection], board: BoardHomography) -> dict[int, Sighting]:
-    """Token markers in this frame, in map coords. Needs a solved homography."""
+    """Token markers in this frame, in map coords of the ground under them.
+    Needs a solved homography."""
     out = {}
     for d in detections:
         if token_type_for(d.id) is None:
             continue
         tl, tr, br, bl = board.to_map(d.corners)
-        cx, cy = board.to_map(d.center[None])[0]
+        # The centre follows the line of sight down to the terrain; the angle
+        # doesn't change, since parallax only scales about the camera's foot.
+        cx, cy = board.to_surface(d.center[None], TOKEN_TOP_MM)[0]
         # The marker's +x edge direction. Map y points south, so atan2 gives
         # the angle clockwise from +x, which is Token's convention.
         vx, vy = (tr - tl) + (br - bl)

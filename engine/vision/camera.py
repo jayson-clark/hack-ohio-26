@@ -25,8 +25,9 @@ import numpy as np
 from protocol import CameraState, Token, VisionStatus
 from scenario import Scenario
 from vision.calibration import BoardHomography
+from vision.geometry import Viewpoint
 from vision.markers import CORNER_IDS, Detection, detect, make_detector, token_type_for
-from vision.projector import PatternFinder, PatternProgress
+from vision.projector import DotFinder, DotSearch, PatternFinder, PatternProgress
 from vision.tracking import MarkerTracker, measure
 
 CAPTURE_SIZE = (1920, 1080)
@@ -49,6 +50,7 @@ class Snapshot:
     feed_size: tuple[int, int] = (0, 0)
     # camera -> map from the latest frame, only if it saw all four corners.
     board: np.ndarray | None = None
+    camera: Viewpoint | None = None  # the camera's centre, with `board`
     pattern: PatternProgress | None = None  # while a projector pattern search runs
 
 
@@ -63,8 +65,8 @@ class CameraVision:
         self._markers_seen = 0
         self._lock = threading.Lock()
         self._snap = Snapshot(status=self._status(CameraState.NO_SIGNAL))
-        self._want_pattern: int | None = None  # set from the main thread
-        self._finder: PatternFinder | None = None
+        self._want_pattern: int | DotSearch | None = None  # set from the main thread
+        self._finder: PatternFinder | DotFinder | None = None
         self._lock_gray: np.ndarray | None = None  # the latest frame that saw all four corners
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="vision", daemon=True)
@@ -80,7 +82,7 @@ class CameraVision:
         with self._lock:
             return self._snap
 
-    def find_pattern(self, search: int | None) -> None:
+    def find_pattern(self, search: int | DotSearch | None) -> None:
         """Look for the projector's calibration pattern (Calibrator.finding).
         Meanwhile tokens and the board stay as they were: the pattern is
         projected over them."""
@@ -121,7 +123,10 @@ class CameraVision:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
             search = self._want_pattern
             if search is not None:
-                if self._finder is None or self._finder.search != search:
+                if isinstance(search, DotSearch):
+                    if not isinstance(self._finder, DotFinder) or self._finder.request is not search:
+                        self._finder = DotFinder(search, background=self._lock_gray)
+                elif not isinstance(self._finder, PatternFinder) or self._finder.search != search:
                     # The calibrator starts the pattern only once it has a board
                     # lock with the projector black, so that lock's frame is
                     # the pattern's background.
@@ -138,7 +143,7 @@ class CameraVision:
 
             detections = detect(self._detector, gray)
             self._markers_seen = len(detections)
-            locked = self._board.update(detections)
+            locked = self._board.update(detections, self._frame_size)
             if locked:
                 self._lock_gray = gray
             sightings = measure(detections, self._board) if self._board.cam_to_map is not None else {}
@@ -149,10 +154,12 @@ class CameraVision:
                 next_feed = now + 1 / FEED_HZ
                 feed = self._encode(draw_overlay(frame, detections, self._board, tokens, FEED_WIDTH))
             board = self._board.cam_to_map.copy() if locked else None
-            self._publish(state=CameraState.OK, tokens=tokens, feed=feed, board=board)
+            self._publish(state=CameraState.OK, tokens=tokens, feed=feed, board=board,
+                          camera=self._board.camera if locked else None)
 
     def _publish(self, state: CameraState, tokens: list[Token] | None = None, feed: tuple[bytes, tuple[int, int]] | None = None,
-                 board: np.ndarray | None = None, pattern: PatternProgress | None = None) -> None:
+                 board: np.ndarray | None = None, camera: Viewpoint | None = None,
+                 pattern: PatternProgress | None = None) -> None:
         if state != CameraState.OK:
             self._fps = 0.0
             self._markers_seen = 0
@@ -168,6 +175,7 @@ class CameraVision:
                 feed_jpeg=feed[0] if feed else prev.feed_jpeg,
                 feed_size=feed[1] if feed else prev.feed_size,
                 board=board,
+                camera=camera,
                 pattern=pattern,
             )
 
@@ -245,7 +253,7 @@ def draw_pattern_overlay(frame: np.ndarray, corners: np.ndarray | None, progress
     if corners is not None:
         for p in corners * scale:
             cv2.circle(img, (round(p[0]), round(p[1])), 3, PATTERN_COLOR, -1, cv2.LINE_AA)
-    label = f"pattern: {progress.corners} corners, frame {progress.frames}"
+    label = f"{'dots' if progress.dots else 'pattern'}: {progress.corners} found, frame {progress.frames}"
     cv2.putText(img, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA)
     cv2.putText(img, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, PATTERN_COLOR, 2, cv2.LINE_AA)
     return img
@@ -338,8 +346,13 @@ if __name__ == "__main__":
     if frame is None:
         sys.exit(f"camera {src!r} returned no frames")
     dets = detect(detector, cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
-    board.update(dets)
+    board.update(dets, (frame.shape[1], frame.shape[0]))
     print(f"{frame.shape[1]}x{frame.shape[0]}, markers {sorted(d.id for d in dets)}, corners {board.corners_seen}")
+    if board.camera is not None:
+        cam, cell = board.camera, board.surface.cell_mm
+        north = scen.terrain["model"]["height_mm"] - cam.y * cell
+        print(f"  camera lens at about {cam.x * cell:.0f} mm east, {north:.0f} mm north of the terrain's SW corner, "
+              f"{cam.h + scen.terrain['markers']['marker_top_z_mm']:.0f} mm up")
     if board.cam_to_map is not None:
         for i, s in measure(dets, board).items():
             print(f"  marker {i} ({token_type_for(i)}): map ({s.x:.1f}, {s.y:.1f}), angle {np.degrees(s.angle):.0f} deg")

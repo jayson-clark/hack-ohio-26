@@ -411,6 +411,10 @@ class Calibration(Model):
     # normalised: (0, 0) top-left, (1, 1) bottom-right, y down. What the
     # projector applies now (in review, the fit being reviewed). None: letterbox.
     map_to_proj: list[float] | None
+    # The projector lens for the shader's height correction: [x, y] map cells
+    # straight below it, then mm above the corner markers' plane. None: no
+    # correction (PROJECTOR_MM unset), the map is drawn flat.
+    projector: list[float] | None = None
     # PNG data URL of the pattern (black, then the ring), only in the pattern phase. The
     # projector stretches it to fill its whole window.
     pattern: str | None

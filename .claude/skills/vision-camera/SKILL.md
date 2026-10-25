@@ -21,7 +21,7 @@ Pipeline (all in `engine/vision/`, on its own thread): `camera.py` capture → `
 - "Show all four corners": the homography is solved only when all four corner markers are visible at once. After that it's kept while some are covered. A green map outline means locked this frame; orange means it's reusing an older solve.
 - Tokens detect but a marker never does, however you tune it: the print or the paper. On a sheet held in your hands, the corners curl, so a corner marker's border gets squashed on one side and it's rejected as a non-square. Lay the sheet flat, and check the border measures 1 cell (marker / 6) with a ruler. Don't loosen the detector: looser settings start reading IDs that aren't there.
 - A marker is outlined but no token appears: it has to sit inside the map grid and be seen for `APPEAR_FRAMES` frames in a row. Unknown IDs are drawn grey with `?`.
-- Positions slightly off on tall hills: parallax, because the homography is for the plane of the corner markers. Expected; see PLAN.md, Height parallax.
+- Positions off on tall hills: the height correction (PLAN.md, Height parallax) places the camera from the corner markers and an assumed focal length, and assumes tokens are `tracking.TOKEN_TOP_MM` tall. `uv run python -m vision.camera 0` prints the camera position it solved; compare with a tape. Synthetic flat renders (tests/test_vision.py) turn it off with `geometry.CAMERA_FOCAL = None`.
 - Washed out under projector light: rely on the white halos. Lower ambient light before you lower detection thresholds.
 
 Projector calibration (map → projector, the projected ring): see the calibrate-projector skill.

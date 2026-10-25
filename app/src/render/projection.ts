@@ -73,6 +73,10 @@ export interface Projection {
   setThreatened(towns: string[]): void;
   /** Projector calibration (row-major map -> projector), or null to letterbox. Flat views only. */
   setMapToProj(h: number[] | null): void;
+  /** The projector lens (Calibration.projector) for the height correction, or null. Flat views only. */
+  setLens(lens: number[] | null): void;
+  /** Draw the calibration check (grid and map border) on the terrain. */
+  setTestGrid(on: boolean): void;
   update(timeSec: number): void;
   dispose(): void;
 }
@@ -147,6 +151,8 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
       uRing: { value: HALO_RADIUS + 1.6 },
       uMapToProj: { value: new THREE.Matrix3() },
       uCalibrated: { value: 0 },
+      uLens: { value: new THREE.Vector4() },
+      uTestGrid: { value: 0 },
       uProjector: { value: new THREE.Vector3(0, 1500, 0) },
       uAmbient: { value: 0.07 },
       uTiles: {
@@ -248,6 +254,14 @@ export function createProjection(s: Scenario, opts: { draped: boolean }): Projec
     setMapToProj(h) {
       if (h) (u.uMapToProj.value as THREE.Matrix3).set(h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
       u.uCalibrated.value = h ? 1 : 0;
+    },
+
+    setLens(lens) {
+      (u.uLens.value as THREE.Vector4).set(lens?.[0] ?? 0, lens?.[1] ?? 0, lens?.[2] ?? 0, lens ? 1 : 0);
+    },
+
+    setTestGrid(on) {
+      u.uTestGrid.value = on ? 1 : 0;
     },
 
     update(timeSec) {
