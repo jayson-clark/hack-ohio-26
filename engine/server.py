@@ -97,8 +97,8 @@ from routing.tracker import RouteTracker
 from routing.roads import load_network
 from scenario import ASSETS, load_scenario
 from sim.effects import CREW_RADIUS, SuppressionSchedule, TokenEffects
-from sim.fire import BURNING, FUEL, SIM_MINUTES_PER_TICK, FireSim, Wind
-from uq.conformal import EnvelopeLedger
+from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
+from uq.conformal import ArrivalCalibrator, EnvelopeLedger
 from uq.mc import wilson
 from sim.dispatch import Dispatcher
 from sim.game import Game, GameTown
@@ -238,6 +238,10 @@ class Engine:
         # new distribution, so it starts again from the warm start.
         self.envelope = EnvelopeLedger(tuple(horizon_ticks(m) for m in HORIZONS_MIN), ENVELOPE_WARM, N_ROLLOUTS)
         self._envelope_dirty = False
+        # Calibrated time-to-impact ranges (#13), also per scenario, and the
+        # live first-burn tick of every cell that they're scored against.
+        self.eta_cal = ArrivalCalibrator(s.cell_size_m)
+        self._burn_tick = np.full((s.height, s.width), np.inf, np.float32)
         # The camera's homography is per scenario; stop the old capture thread
         # rather than leaving it running beside the new one.
         if self.camera is not None:
@@ -607,6 +611,8 @@ class Engine:
         """Put the fire out, drop everything derived from it, and tell the UI."""
         self.fire.reset()
         self.envelope.clear_pending()  # in-flight envelopes were about the old fire; keep what was learned
+        self.eta_cal.clear_pending()
+        self._burn_tick[:] = np.inf
         self.effects.reset()
         self._fire_epoch += 1
         self._forecast_started = -FORECAST_MIN_TICKS
@@ -711,7 +717,10 @@ class Engine:
             self._acting = self.dispatcher.update(tokens, self.fire.tick, self.fire.wind.speed_ms, closed)
             self.fire.set_suppression(self.effects.update(self._acting, self.fire.tick))
             self.fire.step()
-            if self.envelope.mature(self.fire.tick, self.fire.state >= BURNING):
+            lit = self.fire.state >= BURNING
+            self._burn_tick[lit & np.isinf(self._burn_tick)] = self.fire.tick
+            self.eta_cal.mature(self.fire.tick, self._burn_tick, SIM_MINUTES_PER_TICK)
+            if self.envelope.mature(self.fire.tick, lit):
                 self._envelope_dirty = True
             self.check_road_cuts()
             self.score_step(tokens)
@@ -758,8 +767,11 @@ class Engine:
             return
         self.latest_forecast = job.result()
         # Remember this forecast's envelopes, to score them when their horizons pass (#12).
+        # Judge them against the fire as it was when the forecast started: first_burn
+        # is 0 exactly where cells were already burning or burned at f.tick.
         f = self.latest_forecast
-        self.envelope.issue(f.tick, f.probability, self.fire.state >= BURNING, self.fire.state == FUEL)
+        lit_then = f.first_burn[0] == 0
+        self.envelope.issue(f.tick, f.probability, lit_then, ~lit_then)
         broadcast(self.clients, self.envelope_msg())
         if self._preview is not None and self._preview[0] <= self.latest_forecast.tick:
             self._preview = None  # Monte Carlo has caught up
@@ -1142,6 +1154,9 @@ class Engine:
             log.error("long forecast failed: %r", e)
             return
         self.long_forecast = job.result()
+        lf = self.long_forecast
+        self.eta_cal.issue(lf.tick, lf.first_burn, lf.first_burn[0] != 0, SIM_MINUTES_PER_TICK,
+                           int(round(lf.horizon_min / SIM_MINUTES_PER_TICK)))  # #13
         self.schedule_clock()
 
     def order_evacuation(self, town: str, ordered: bool) -> None:

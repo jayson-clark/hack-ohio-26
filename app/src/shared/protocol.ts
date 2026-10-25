@@ -343,6 +343,8 @@ export interface TownThreat {
   within_60: KofN | null;
   median_min: number | null;
   soonest_min: number | null;
+  eta_lo_min: number | null;
+  eta_hi_min: number | null;
   route_status: RouteStatus | null;
   exit: string | null;
   drive_min: number | null;
