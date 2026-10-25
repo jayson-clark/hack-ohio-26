@@ -46,6 +46,8 @@ const PATHS = {
   sound: "M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 010 6M19 6a8 8 0 010 12",
   mute: "M4 9v6h4l5 4V5L8 9zM17 9l4 6M21 9l-4 6",
   dot: "M12 13a1 1 0 100-2 1 1 0 000 2z",
+  sun: "M12 16a4 4 0 100-8 4 4 0 000 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+  moon: "M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z",
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -86,7 +88,7 @@ export function Icon({
 export function FlameMark({ size = 22 }: { size?: number }) {
   return (
     <span
-      className="flex items-center justify-center rounded-md bg-ink text-white"
+      className="flex items-center justify-center rounded-md bg-ink text-panel"
       style={{ width: size, height: size }}
     >
       <Icon name="flame" size={size * 0.62} strokeWidth={2} />
@@ -105,3 +107,4 @@ export const PauseIcon = () => <Icon name="pause" size={12} />;
 export const StepIcon = () => <Icon name="chevronRight" size={14} />;
 export const RefreshIcon = () => <Icon name="history" size={14} />;
 export const SoundIcon = ({ on }: { on: boolean }) => <Icon name={on ? "sound" : "mute"} size={15} />;
+export const ThemeIcon = ({ dark }: { dark: boolean }) => <Icon name={dark ? "moon" : "sun"} size={15} />;

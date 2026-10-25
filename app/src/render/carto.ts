@@ -18,6 +18,7 @@ export interface CartoStyle {
   terrain: boolean; // hillshade and elevation tint
   contours: boolean;
   forecast: boolean;
+  dark: boolean; // night palette for the dark UI (#143)
 }
 
 export interface CartoMap {
@@ -50,6 +51,7 @@ uniform float uTerrain;
 uniform float uContours;
 uniform float uForecast;
 uniform float uHasFire;
+uniform float uDark;
 
 float isoLines(float v, float px) {
   float d = abs(fract(v - 0.5) - 0.5) / max(fwidth(v), 1e-5);
@@ -71,15 +73,18 @@ vec3 terrain(vec2 uv) {
   vec3 n = normalize(vec3(-(hr - hl) * k, -(hs - hn) * k, 1.0));
   float shade = clamp(dot(n, normalize(vec3(-0.5, -0.55, 0.67))), 0.0, 1.0);
 
-  vec3 paper = vec3(0.957, 0.953, 0.937);
-  vec3 low = vec3(0.874, 0.906, 0.851);   // valley sage
-  vec3 high = vec3(0.945, 0.925, 0.878);  // ridge sand
+  vec3 paper = mix(vec3(0.957, 0.953, 0.937), vec3(0.090, 0.102, 0.122), uDark);
+  vec3 low = mix(vec3(0.874, 0.906, 0.851), vec3(0.106, 0.137, 0.125), uDark);   // valley sage
+  vec3 high = mix(vec3(0.945, 0.925, 0.878), vec3(0.184, 0.180, 0.165), uDark);  // ridge sand
   vec3 base = mix(low, high, smoothstep(0.0, 1.0, h));
   vec3 col = mix(paper, base * (0.78 + 0.3 * shade), uTerrain);
 
   float elev = uElevMin + h * uElevRange;
-  col *= 1.0 - 0.07 * isoLines(elev / 50.0, 1.0) * uContours;
-  col *= 1.0 - 0.15 * isoLines(elev / 250.0, 1.2) * uContours;
+  // Light lines on the dark map, and fainter: they stand out more there.
+  vec3 ink = vec3(uDark);
+  float c = uContours * (1.0 - 0.55 * uDark);
+  col = mix(col, ink, 0.07 * isoLines(elev / 50.0, 1.0) * c);
+  col = mix(col, ink, 0.15 * isoLines(elev / 250.0, 1.2) * c);
   return col;
 }
 
@@ -96,7 +101,7 @@ void main() {
       col = mix(col, vec3(0.80, 0.33, 0.07), edge(f.b, 0.5, 1.5) * 0.95 * out_);
     }
     float burned = smoothstep(0.35, 0.6, f.g);
-    col = mix(col, vec3(0.43, 0.38, 0.36), burned * 0.6);
+    col = mix(col, mix(vec3(0.43, 0.38, 0.36), vec3(0.24, 0.21, 0.20), uDark), burned * 0.6);
     float burning = smoothstep(0.28, 0.55, f.r);
     col = mix(col, vec3(0.91, 0.27, 0.11), burning * 0.95);
     col = mix(col, vec3(0.55, 0.1, 0.04), edge(f.r + f.g, 0.42, 1.6) * 0.9);
@@ -140,6 +145,7 @@ export function createCartoMap(s: Scenario): CartoMap {
       uContours: { value: 1 },
       uForecast: { value: 1 },
       uHasFire: { value: 0 },
+      uDark: { value: 0 },
     },
   });
   const u = material.uniforms;
@@ -183,6 +189,7 @@ export function createCartoMap(s: Scenario): CartoMap {
       u.uTerrain.value = +style.terrain;
       u.uContours.value = +style.contours;
       u.uForecast.value = +style.forecast;
+      u.uDark.value = +style.dark;
     },
 
     dispose() {

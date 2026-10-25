@@ -9,6 +9,7 @@ import { useEngine } from "../../shared/engine";
 import { compass, describeLocation } from "../../shared/places";
 import type { TokenType } from "../../shared/protocol";
 import type { Scenario } from "../../shared/scenario";
+import { useTheme } from "../../shared/theme";
 import { ORDER_STYLE } from "../../shared/tokens";
 import { addToken } from "../../shared/virtualTokens";
 import { Icon } from "../icons";
@@ -69,6 +70,7 @@ export default function IncidentMap(props: Props) {
   const { simGrid, forecast, routes, units, tokens, recommendations, hello, plan, scenario: live, score } = useEngine();
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [layersOpen, setLayersOpen] = useState(false);
+  const theme = useTheme();
   const local = props.handle;
   const planning = mode === "plan";
   const reach = hello?.crew_radius ?? 14;
@@ -90,7 +92,7 @@ export default function IncidentMap(props: Props) {
         scenario={scenario}
         simGrid={simGrid}
         forecast={forecast}
-        style={{ terrain: layers.terrain, contours: layers.contours, forecast: showForecast }}
+        style={{ terrain: layers.terrain, contours: layers.contours, forecast: showForecast, dark: theme === "dark" }}
         onClick={click}
         onHover={setHover}
         cursor={tool ? "crosshair" : undefined}
@@ -176,7 +178,7 @@ export default function IncidentMap(props: Props) {
                     type="checkbox"
                     checked={layers[key]}
                     onChange={() => props.onLayers({ ...layers, [key]: !layers[key] })}
-                    className="h-3.5 w-3.5 accent-[#1f4fd6]"
+                    className="h-3.5 w-3.5 accent-accent"
                   />
                   {LAYER_LABELS[key]}
                 </label>

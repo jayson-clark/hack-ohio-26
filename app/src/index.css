@@ -37,6 +37,7 @@
   --color-ok-soft: #ecfdf3;
   --color-ok-line: #abefc6;
   --color-fire: #e8461b;
+  --color-risky: #dc6803; /* a route that's still open but near the fire */
 
   /* Older names, still used by exercise control, mapped onto the palette above. */
   --color-surface-0: #eef0f3;
@@ -54,6 +55,63 @@
 
   --shadow-float: 0 1px 2px rgb(16 24 40 / 0.06), 0 8px 24px -4px rgb(16 24 40 / 0.14);
   --shadow-card: 0 1px 2px rgb(16 24 40 / 0.05);
+}
+
+/* Dark mode (#143): the same names, redefined. shared/theme.ts sets
+   data-theme on <html>; the map's basemap has its own dark palette in
+   render/carto.ts. Status and action colors are lifted so they still read on
+   dark surfaces, and the soft fills become low-alpha tints. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: #0b0d12;
+  --color-panel: #151820;
+  --color-sunken: #1b1f29;
+  --color-hover: #222733;
+  --color-line: #2a303c;
+  --color-line-strong: #3a4250;
+
+  --color-ink: #e9ecf2;
+  --color-ink-2: #a9b1c0;
+  --color-ink-3: #6f7889;
+
+  --color-accent: #4d7cff;
+  --color-accent-hover: #6b92ff;
+  --color-accent-soft: rgb(77 124 255 / 0.14);
+  --color-accent-line: rgb(77 124 255 / 0.38);
+
+  --color-crit: #f97066;
+  --color-crit-soft: rgb(249 112 102 / 0.12);
+  --color-crit-line: rgb(249 112 102 / 0.35);
+  --color-warn: #f79009;
+  --color-warn-soft: rgb(247 144 9 / 0.12);
+  --color-warn-line: rgb(247 144 9 / 0.35);
+  --color-ok: #32d583;
+  --color-ok-soft: rgb(50 213 131 / 0.12);
+  --color-ok-line: rgb(50 213 131 / 0.32);
+  --color-fire: #ff5a2a;
+  --color-risky: #fdb022;
+
+  --color-surface-0: #0b0d12;
+  --color-surface-1: #151820;
+  --color-surface-2: #1b1f29;
+  --color-surface-3: #222733;
+  --color-edge: #2a303c;
+  --color-edge-strong: #3a4250;
+  --color-fg: #e9ecf2;
+  --color-fg-muted: #a9b1c0;
+  --color-fg-subtle: #6f7889;
+  --color-ember-300: #4d7cff;
+  --color-ember-400: #6b92ff;
+  --color-ember-500: #4d7cff;
+
+  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -4px rgb(0 0 0 / 0.6);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #3a4250;
+  background-clip: padding-box;
 }
 
 html,
