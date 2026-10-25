@@ -162,9 +162,10 @@ def screen(snapshot, p30, towns, masks, emulator, eta=None, k: int = N_CANDIDATE
     base = from_snapshot(snapshot)
     batch = np.repeat(base[None], len(pool) + 1, axis=0)
     for i, (x, y) in enumerate(pool, start=1):
-        layer = crew_layer(w, h, x, y, t_on=_arrival(eta, x, y)[0])
+        layer = crew_layer(w, h, x, y, t_on=_arrival(eta, x, y)[0], wind_from=snapshot.wind.from_deg)
         for j, t in enumerate(SUP_TICKS):
-            np.maximum(batch[i, 11 + j], layer.level(t) * layer.footprint, out=batch[i, 11 + j])
+            if (g := layer.grid(t)) is not None:
+                np.maximum(batch[i, 11 + j], g, out=batch[i, 11 + j])
     p60 = np.concatenate([emulator.predict(batch[i : i + 16]) for i in range(0, len(batch), 16)])[:, 1]
     area = masks.reshape(len(towns), -1).sum(axis=1)
     pop = np.array([t.population for t in towns], np.float32)
@@ -204,7 +205,8 @@ def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[in
     the crew, then either the crew where it is (keep) or at the new spot."""
     h, w = snapshot.state.shape
     starts = starts or [0] * len(spots)
-    variants = [crew_layer(w, h, x, y, t_on=t0) for (x, y), t0 in zip(spots, starts)]
+    # Each crew cuts its line along the wind it arrives in (#99).
+    variants = [crew_layer(w, h, x, y, t_on=t0, wind_from=snapshot.wind.from_deg) for (x, y), t0 in zip(spots, starts)]
     if keep is not None:
         variants = [keep] + variants
     first = rollout_paired(snapshot, n, horizon, variants, seed=seed)
