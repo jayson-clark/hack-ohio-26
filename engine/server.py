@@ -980,6 +980,7 @@ class Engine:
             station=station, eta_min=r.eta_min,
             fire_arrival_min=r.fire_arrival_min, act_by_min=r.act_by_min,
             text=describe(r, acres_per_cell, from_place, station),
+            incident=self.incidents.of(r.x, r.y),  # the fire its spot is on, or nearest (#179)
         )
 
     def ask(self, question: str) -> None:
