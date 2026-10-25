@@ -12,7 +12,7 @@ Retrain (needed whenever the fire model changes, since it learned the old one):
 cd engine
 uv run python -m emulator.data --samples 6000 --out emulator/data/train          # ~45 min on 11 cores
 uv run python -m emulator.data --samples 400 --out emulator/data/test --seed 1 --with-32
-uv run --extra ml python -u -m emulator.train --epochs 12 > emulator/data/train.log   # ~25 min; tail -f the log
+uv run --extra ml python -u -m emulator.train > emulator/data/train.log   # 12 epochs, batch 16, ~15 min; tail -f the log
 uv run --extra ml python -m emulator.evaluate                                     # Brier, IoU, calibration, speed
 ```
 Commit the new `weights/fire_emulator.safetensors` and `.json` (training history). `emulator/data/` is gitignored.
@@ -20,6 +20,12 @@ Commit the new `weights/fire_emulator.safetensors` and `.json` (training history
 Device: training and `evaluate` print the device they use, and the `.json` records it under `trained_on`. `--device auto` (the default) picks MLX's GPU: Metal on Apple silicon, which is what PyTorch calls MPS, or CUDA on NVIDIA. With no GPU it falls back to the CPU, which is slow (`emulator/device.py`). `--device gpu` fails instead of falling back, and `--device cpu` forces the CPU.
 
 Training on an NVIDIA machine (e.g. a cluster) is optional. The repo is macOS-only, so the `ml` extra only installs on Apple silicon. On Linux, sync normally, run `uv pip install "mlx[cuda]"`, then `uv run --no-sync python -m emulator.train --device gpu`. The weights are plain safetensors, so they load on a Mac whichever GPU trained them.
+
+Training speed (#193): `BUILDERS` threads build batches ahead of the GPU and the step is compiled (`mx.compile`), so an epoch of 5,200 fires takes ~74 s at batch 16 (was ~125 s at batch 8). On maps bigger than `WINDOW` (256 cells), training uses a random 256 x 256 square holding the fire's 76-cell reach, so the 512 x 480 Paradise trains about as fast as today's maps. Inference still runs on the whole map. Inputs are rebuilt per batch rather than held in memory, since a 512 x 480 map's inputs would take tens of GB.
+- **Batch 16 is the sweet spot on an M2 Max.** Batch 32 took 264 s an epoch at full map size and learned less per epoch.
+- **Don't crop to many shapes.** MLX compiles kernels per input shape; 24 crop shapes never finished 100 steps in 10 min. One fixed `WINDOW` square plus the whole maps is a handful of shapes.
+- **Epochs:** the held-out Brier prints after each one. On the bigger maps each sample carries more cells, so start at 8 epochs and add more only if it's still falling.
+- **Map size barely matters.** On a map twice as wide and tall, predictions moved 0.006 on average (Brier +3%), so bigger maps need no special handling.
 
 Gotchas:
 - Don't run data generation, training and the test suite at once. They fight over CPU and GPU, and training slowed 10x (1.6 s/step instead of 0.16 s).
@@ -38,4 +44,11 @@ Baseline (#113, 5,754 training and 385 test fires):
 | IoU of the 50% area | 0.88 | 0.94 |
 | Time per forecast | 6 ms | ~0.6 s |
 
-Retrained with ember spotting (#118): Brier 0.0034 (32 rollouts: 0.0010), IoU of the 50% area 0.88 (0.94). Screening helps most after wind shifts: the top rec beat a random spot 23/32 vs 17/32 without screening. In steady wind it's within noise.
+Retrained with ember spotting (#118): Brier 0.0034 (32 rollouts: 0.0010), IoU of the 50% area 0.88 (0.94).
+
+Retrained at C2 0.3 with model noise in the labels, plus Marshall (#170; 5,600 training and 342 test fires):
+- **What changed in the data:** each label uses its own `C2` (`C2_RANGE` 0.22–0.4), a `P_H_SCALE` of 0.85–1.15, and per-rollout wind (`LABEL_WIND`) in `emulator/data.py`. The test set's `p32` stays at the nominal constants (what the engine shows).
+- **Brier against the hedged label:** emulator 0.0038, 32 rollouts 0.0039.
+- **Overlap with the engine's forecast:** 79% for the 50% outline. The preview's P ≥ 0.1 area is about 27% larger and its P ≥ 0.9 core about half the size.
+- **Expect those numbers to differ:** the emulator learns the hedged forecast, so it never matches the nominal Monte Carlo exactly.
+- **Timing:** data took 16 min, training 34 min (12 epochs, batch 8). Screening helps most after wind shifts: the top rec beat a random spot 23/32 vs 17/32 without screening. In steady wind it's within noise.

@@ -117,3 +117,33 @@ def test_two_hour_lookahead_keeps_the_chokepoint_and_says_when_to_act():
     assert best.benefit_lo > 0
     assert best.fire_arrival_min is not None and best.fire_arrival_min > 0
     assert best.act_by_min == round(best.fire_arrival_min - 5.0, 1)
+
+
+def _tired_at_gap(fade_at: int):
+    """The chokepoint world with a crew holding the gap, tiring from `fade_at`."""
+    from forecast.recommend import TiredCrew
+    from sim.effects import crew_layer
+
+    snap = chokepoint_snapshot()
+    keep = crew_layer(W, H, *GAP, ramped=1.0, wind_from=snap.wind.from_deg)
+    keep.fade_at = fade_at
+    return snap, TiredCrew("c1", *GAP, snap, keep, relief_at=15, relief_eta_min=15.0)
+
+
+def test_relieving_a_crew_that_tires_at_the_chokepoint_is_recommended():
+    """#178: the crew holding the only gap starts to tire now; a fresh crew
+    15 minutes out keeps the town safer, so it's a relieve card."""
+    from forecast.recommend import recommend_reliefs
+
+    _, crew = _tired_at_gap(fade_at=0)
+    [r] = recommend_reliefs([crew], [TOWN], seed=1, horizon=75)
+    assert r.relieve_id == "c1" and r.benefit_lo > 0 and r.eta_min == 15.0
+    assert r.act_by_min == -15.0  # it's tiring already: send relief now
+    assert describe(r, 2.18, station="Station 35").startswith("Relieving this crew with a fresh one from Station 35")
+
+
+def test_a_crew_that_stays_fresh_is_not_worth_relieving():
+    from forecast.recommend import recommend_reliefs
+
+    _, crew = _tired_at_gap(fade_at=500)  # fresh for the whole look-ahead
+    assert recommend_reliefs([crew], [TOWN], seed=1, horizon=75) == []

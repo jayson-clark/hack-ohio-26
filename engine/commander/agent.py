@@ -54,7 +54,7 @@ def has_server_fallback(model: str) -> bool:
     return not model.startswith("claude-haiku")
 
 SYSTEM = """You are the incident commander for a wildfire in {setting}. Operators ask you questions in the \
-console, typed or by push-to-talk, and read your answer there.
+console, typed, and read your answer there.
 
 How to answer:
 - Before stating any number, call a tool. Every figure you say must come from a tool result you got \

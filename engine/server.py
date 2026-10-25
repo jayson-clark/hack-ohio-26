@@ -6,6 +6,7 @@ windows are views that can connect and disconnect at any time.
 
 import asyncio
 import dataclasses
+import math
 import json
 import logging
 import os
@@ -24,7 +25,7 @@ from commander.briefings import BriefingQueue, ForecastWatcher, evacuate_text, r
 from commander.drafts import DraftDesk, set_known_names
 from commander.tools import CommanderTools
 from forecast.plan import PLAN_ROLLOUTS, PlanOutcome, evaluate_plan
-from forecast.recommend import PlacedCrew, Rec, Recommender, TownInfo, describe
+from forecast.recommend import REC_HORIZON_TICKS, PlacedCrew, Rec, Recommender, TiredCrew, TownInfo, describe
 from forecast.runner import (EVAC_HORIZON_MIN, HORIZONS_MIN, N_ROLLOUTS, Forecast, Forecaster, LongForecast,
                              LongForecaster, horizon_ticks)
 from protocol import (
@@ -836,6 +837,7 @@ class Engine:
         self._rec_started = tick = self.fire.tick
         epoch = self._fire_epoch
         snapshot = self.snapshot()
+        tired = self.tired_crews(snapshot, tick)
         if self.crews_left() == 0:
             # Every crew is out (#77): recommend moving one instead of adding one.
             active = self.game.active(self.tracker.tokens)
@@ -849,13 +851,37 @@ class Engine:
                 without = dataclasses.replace(snapshot, suppression=others.at(0), schedule=others)
                 eta = self.dispatcher.eta_from(t.x, t.y) if self.dispatcher.units else None
                 crews.append(PlacedCrew(t.id, t.x, t.y, without, keep, eta))
-            job = self.recommender.submit_moves(crews, f.probability[0], self.towns, seed=tick)
+            job = self.recommender.submit_moves(crews, f.probability[0], self.towns, seed=tick, tired=tired)
         else:
             eta = self.dispatcher.eta_grid(TokenType.CREW, self.fire.wind.speed_ms) if self.dispatcher.units else None
             job = self.recommender.submit(snapshot, f.probability[0], self.towns, seed=tick, eta=eta,
-                                          ahead=self.lookahead())
+                                          ahead=self.lookahead(), tired=tired)
         self._rec_job = job
         job.add_done_callback(lambda j: self.recommend_done(j, epoch, tick))
+
+    def tired_crews(self, snapshot, tick: int) -> list[TiredCrew]:
+        """Working crews that start to tire inside the recommendations'
+        look-ahead (#178), with no relief already on its way and a free crew
+        that could take over. Each is scored as "relieve this crew"."""
+        relieving = {u.relieving for u in self.dispatcher.units if u.relieving}
+        active = self.game.active(self.tracker.tokens)
+        tokens = {t.id: t for t in active}
+        starts = self.dispatcher.starts()
+        out = []
+        for u in self.dispatcher.units:
+            t = tokens.get(u.token_id) if u.token_id else None
+            if t is None or u.token_type != TokenType.CREW or u.status != "working" or t.id in relieving:
+                continue
+            [keep] = self.effects.schedule([t], tick, starts).layers  # this crew carrying on, tiring
+            if keep.fade_at is None or keep.fade_at >= REC_HORIZON_TICKS:
+                continue  # fresh for the whole look-ahead
+            _, eta_min = self.best_station(TokenType.CREW, t.x, t.y)
+            if eta_min is None:
+                continue  # no free crew to send
+            others = self.effects.schedule([o for o in active if o.id != t.id], tick, starts)
+            without = dataclasses.replace(snapshot, suppression=others.at(0), schedule=others)
+            out.append(TiredCrew(t.id, t.x, t.y, without, keep, int(math.ceil(eta_min / SIM_MINUTES_PER_TICK)), eta_min))
+        return out
 
     def lookahead(self, minutes: float = 90.0):
         """P(burn by now + `minutes`), float32 (H, W), from the evacuation
@@ -973,16 +999,19 @@ class Engine:
         moving = next((t for t in self.tracker.tokens if t.id == r.move_id), None) if r.move_id else None
         station = None
         if self.dispatcher.units:
-            if r.move_id:
+            if r.relieve_id:
+                station, _ = self.best_station(TokenType.CREW, r.x, r.y)  # where the fresh crew comes from
+            elif r.move_id:
                 unit = next((u for u in self.dispatcher.units if u.token_id == r.move_id), None)
                 station = unit.station.name if unit else None
             else:
                 station, _ = self.best_station(TokenType.CREW, r.x, r.y)
         return Recommendation(
             id=rec_id, token_type=TokenType.CREW, x=r.x, y=r.y,
-            action=RecAction.MOVE if r.move_id else RecAction.PLACE,
-            move_token=r.move_id, from_x=r.from_x, from_y=r.from_y,
-            auto=r.move_id is None or (moving is not None and moving.source == "virtual"),
+            action=RecAction.RELIEVE if r.relieve_id else RecAction.MOVE if r.move_id else RecAction.PLACE,
+            move_token=r.relieve_id or r.move_id, from_x=r.from_x, from_y=r.from_y,
+            # A relief sends a unit; the crew's token stays put, physical or not.
+            auto=r.relieve_id is not None or r.move_id is None or (moving is not None and moving.source == "virtual"),
             benefit=round(r.benefit, 2), benefit_lo=round(r.benefit_lo, 2), benefit_hi=round(r.benefit_hi, 2),
             confidence=r.confidence, acres_saved=round(r.cells_saved * acres_per_cell, 1),
             acres_saved_lo=round(r.cells_lo * acres_per_cell, 1), acres_saved_hi=round(r.cells_hi * acres_per_cell, 1),
