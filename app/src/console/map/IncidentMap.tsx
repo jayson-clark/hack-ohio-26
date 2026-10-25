@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useEngine } from "../../shared/engine";
 import { compass, describeLocation } from "../../shared/places";
-import type { TokenType } from "../../shared/protocol";
+import type { ForecastEnvelope, TokenType } from "../../shared/protocol";
 import type { Scenario } from "../../shared/scenario";
 import { useTheme } from "../../shared/theme";
 import { ORDER_STYLE } from "../../shared/tokens";
@@ -184,6 +184,7 @@ export default function IncidentMap(props: Props) {
                   {LAYER_LABELS[key]}
                 </label>
               ))}
+              <EnvelopeNote envelope={envelope} />
             </Floating>
           )}
         </div>
@@ -285,5 +286,23 @@ function Swatch({ fill, line, label }: { fill: string; line?: string; label: str
       <span className="h-3 w-4 rounded-sm" style={{ background: fill, boxShadow: line ? `inset 0 0 0 1.5px ${line}` : undefined }} />
       {label}
     </div>
+  );
+}
+
+/** How well the forecast outline keeps its promise (#12): the share of new
+ * fire that recently fell outside it, against the target. Shown once the
+ * engine has scored a few forecasts on this map. */
+function EnvelopeNote({ envelope }: { envelope: ForecastEnvelope | null }) {
+  if (!envelope || envelope.scored.every((n) => n < 3)) return null;
+  const pct = (x: number | null) => (x == null ? "–" : `${Math.round(x * 100)}%`);
+  const parts = envelope.horizons_min.map((h, i) => `${pct(envelope.miss_recent[i])} at ${h} min`);
+  const over = envelope.miss_recent.some((m) => m != null && m > envelope.target_miss + 0.05);
+  return (
+    <p
+      className={`mx-2 mt-1.5 border-t border-line pt-2 text-[11px] leading-snug ${over ? "text-warn" : "text-ink-3"}`}
+      title="The outline is calibrated online: each forecast is checked when its time comes, and the outline widens or tightens to keep the miss rate near the target."
+    >
+      Forecast outline: {parts.join(", ")} of new fire fell outside it lately (target {pct(envelope.target_miss)}).
+    </p>
   );
 }

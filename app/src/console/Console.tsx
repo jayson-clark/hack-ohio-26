@@ -20,6 +20,7 @@ import { useEngineScenario } from "../shared/scenario";
 import CommanderDock from "./CommanderDock";
 import Decisions, { useDecisions } from "./Decisions";
 import { DemoBar, useAutopilot, useDemoMode } from "./Demo";
+import DispatchDrafts from "./DispatchDrafts";
 import { EventAlerts } from "./EventLog";
 import { FlameMark, Icon, type IconName } from "./icons";
 import Inspector from "./Inspector";
@@ -92,6 +93,7 @@ export default function Console() {
   // decisions, so they don't count toward the badge.
   const items = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan });
   const decisions = over ? 0 : items.filter((i) => !i.status).length;
+  const pendingDrafts = useEngine().dispatchDrafts.filter((d) => d.status === "draft").length;
   // Demo mode (#158): the clock in the console, and an autopilot that takes
   // decisions on its own while the presenter talks.
   const demo = useDemoMode();
@@ -218,6 +220,9 @@ export default function Console() {
               <Situation towns={towns} />
               <Section title="Needs decision" count={decisions} className="mt-2">
                 <Decisions scenario={scenario} towns={towns} onSelect={select} onTryInPlan={tryInPlan} onReview={() => switchMode("review")} autopilot={autopilot} />
+              </Section>
+              <Section title="Drafts" count={pendingDrafts}>
+                <DispatchDrafts />
               </Section>
               <Section title="Towns" count={towns.length}>
                 <Towns towns={towns} selected={selection?.kind === "town" ? selection.name : null} onSelect={(name) => select({ kind: "town", name })} />

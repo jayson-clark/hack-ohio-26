@@ -11,7 +11,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Token } from "../shared/protocol";
 import { inMap } from "../shared/scenario";
 import { createMover, place, removeToken } from "../shared/virtualTokens";
-import { cornerHolders, makeBoard, makePuck, restingHeight, terrainGeometry, wallGeometry } from "./models";
+import { makeBoard, makePuck, restingHeight, terrainGeometry, wallGeometry } from "./models";
 import { createProjection, type Projection } from "./projection";
 import type { ViewProps } from "./ProjectionView";
 import { useProjectionSync } from "./useProjection";
@@ -65,9 +65,8 @@ export default function TableView(props: ViewProps & { camera: CameraCommand | n
     );
     table.rotation.x = -Math.PI / 2;
     table.position.y = -0.01;
-    const holders = cornerHolders(s, board);
     const pucks = new THREE.Group();
-    scene.add(terrain, walls, table, holders, pucks);
+    scene.add(terrain, walls, table, pucks);
 
     const cam = new THREE.PerspectiveCamera(35, 1, 5, span * 20);
     const presetPose = (p: CameraPreset) => {

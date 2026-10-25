@@ -23,6 +23,13 @@ Regenerate the real data with `engine/.venv/bin/python -I tools/campfire_to_asse
 
 The calibrated burn envelope (#12) is scored in the same run. Each horizon's `envelope_miss` (target 0.10), its second-half value and its final threshold/margin are in the calibration block. `--envelope-lr` tries other step sizes (0.1 is the default).
 
+Time-to-impact ranges (#13): do towns' calibrated "fire arrives in X–Y min (90%)" ranges hold?
+```sh
+cd engine && uv run python -m eval.arrival                     # ~15 min; coverage per schedule and lead-time bucket
+cd engine && uv run python -m eval.arrival --wind-spread 0.2,20 # with per-rollout wind variation in the forecasts
+```
+Run two settings in parallel at most: the episodes are CPU-heavy, and a wide spread is much slower.
+
 Early attack (does dropping crews on a new ignition still contain it?):
 ```sh
 cd engine && uv run python -m eval.early_attack            # ~10 s; no crews / instant / dispatched, at 3, 8, 13 m/s

@@ -253,9 +253,19 @@ The top recommendation's realized benefit fell from 985 to 708 (steady wind). It
 | IoU with the 7.1 h / 11.5 h perimeters | 0.54 / 0.63 | 0.55 / 0.64 |
 | Burned area vs the perimeters | 1.73x / 1.53x | 1.71x / 1.51x |
 
-The known gap: the replay burns about 1.5–1.7x the real area, because flanks spread too wide. A higher `C2` (0.3–0.4) fits the perimeters better (IoU 0.67/0.79, area 1.27x/1.12x). But it also starves backing and flank spread at every wind: at 3–8 m/s fires came out under half the size, and instant attack contained them again. One extreme-wind event isn't enough evidence for that, so `C2` stays at 0.22 until a second fire (Marshall, #107) agrees.
+That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x the real area because the flanks spread too wide. `C2` is now 0.3 (see "Choosing C2" below), which brings the perimeters to IoU 0.66/0.78 at 1.32x/1.16x the area.
 
-**Marshall Fire** (`cd engine && uv run python -m eval.marshall`, #107): a second real fire, grass into suburb under a steady 15–20 m/s westerly, scored against the NASA FEDS perimeter at 2.5 h and the WFIGS final perimeter. It has no timed per-house observations. It agrees with the Camp Fire: every top result of the search has `C2` 0.4, which matches the 2.5 h area (0.9–1.0x, IoU ~0.39), where 0.22 burns 4–5x too much. At every setting, though, the sim keeps running east through Louisville to the map edge where the real fire stopped, so the final perimeter is a fuel and structure question (suburbs burn like grass here), not a wind one. The open question is how to narrow strong-wind fires without starving moderate ones, for example a floor on backing and flank spread. Under the measured wind (`--measured`: NCAR Mesa Lab's 5-min record in the foothills, 11–19 m/s from about 245° through the afternoon, gusts to 40 m/s, #141) the verdict holds: 0.22 burns 1.9–4x the real 2.5 h area at any speed scale, while 0.3 at 0.8x the station's speed (IoU 0.46, area 1.09x) and 0.4 at 1x (IoU 0.41, area 0.85x) fit. NOAA's airport record downwind (KBJC) saw only 5–9 m/s from shifting directions, so the foothill station is the one that represents the fire's wind. Suburban fuel is per scenario (#144): Boulder County's irrigated suburbs burn at residential 0.25 and commercial 0.3, while Paradise's forested lots keep 0.9 (its replay needs 0.6 or more). Under the measured wind that takes the best Marshall final perimeter from IoU 0.19 at 2.7x the area to IoU 0.38 at 0.84x (C2 0.4), and from 5.2x to 4.4x at today's 0.22. What's left is shape: the sim misses the real fire's north-west and south flanks, the flank spread that a backing/flank floor would add.
+**Marshall Fire** (`cd engine && uv run python -m eval.marshall`, #107): a second real fire, grass into suburb under a steady 15–20 m/s westerly, scored against the NASA FEDS perimeter at 2.5 h and the WFIGS final perimeter. It has no timed per-house observations. It agrees with the Camp Fire: every top result of the search has `C2` 0.4, which matches the 2.5 h area (0.9–1.0x, IoU ~0.39), where 0.22 burns 4–5x too much. At every setting, though, the sim keeps running east through Louisville to the map edge where the real fire stopped, so the final perimeter is a fuel and structure question (suburbs burn like grass here), not a wind one. Under the measured wind (`--measured`: NCAR Mesa Lab's 5-min record in the foothills, 11–19 m/s from about 245° through the afternoon, gusts to 40 m/s, #141) the verdict holds: 0.22 burns 1.9–4x the real 2.5 h area at any speed scale, while 0.3 at 0.8x the station's speed (IoU 0.46, area 1.09x) and 0.4 at 1x (IoU 0.41, area 0.85x) fit. NOAA's airport record downwind (KBJC) saw only 5–9 m/s from shifting directions, so the foothill station is the one that represents the fire's wind. Suburban fuel is per scenario (#144): Boulder County's irrigated suburbs burn at residential 0.25 and commercial 0.3, while Paradise's forested lots keep 0.9 (its replay needs 0.6 or more). Under the measured wind that takes the best Marshall final perimeter from IoU 0.19 at 2.7x the area to IoU 0.38 at 0.84x (C2 0.4), and from 5.2x to 4.4x at 0.22. What's left is shape: the sim misses the real fire's north-west and south flanks.
+
+**Choosing C2.** Both fires want a narrower head than 0.22, but a higher `C2` also slows backing and flank spread at every wind, so ordinary-wind fires shrink. The sweep scored `C2` 0.22/0.3/0.4 against both replays (Marshall under the measured wind) and `eval.early_attack` (Paradise, 8 ignitions × 2 seeds, 3 h, NE wind). It also tried a floor on the wind factor, so flanking and backing never drop below a fraction of calm spread:
+
+| `C2` | Camp IoU 7.1 h / 11.5 h (area) | Marshall 2.5 h IoU (area), 0.8x wind | No-crew acres at 3 / 8 / 13 m/s (burned out alone at 8 m/s) |
+|---|---|---|---|
+| 0.22 | 0.55 / 0.63 (1.73x / 1.53x) | 0.38 (1.81x) | 5,095 / 6,287 / 21,864 (12%) |
+| **0.3** | **0.66 / 0.78 (1.32x / 1.16x)** | **0.45 (1.01x)** | **2,579 / 2,646 / 11,057 (25%)** |
+| 0.4 | 0.68 / 0.80 (1.14x / 1.01x) | 0.41 (0.50x) | 883 / 831 / 4,925 (62%) |
+
+`C2` is 0.3: close to 0.4 on the Camp Fire, the best Marshall fit, and fires on a moderate day still grow. At 0.4 most fires at 3–8 m/s burn out by themselves, which real timber fires don't. The floor (0.3, 0.5 or 0.7 of calm spread) made both replays worse at every `C2`: Camp IoU fell to 0.38–0.54 and Marshall's 2.5 h area rose to 1.4–3.6x, because it widens the flanks of strong-wind fires too. So there's no floor.
 
 - **Cell states:** `unburnable`, `fuel`, `burning`, `burned`. A burning cell burns for k ticks, giving the fire front visible thickness.
 - **Layers:** `heightmap` (→ slope), `fuel_type`, `fuel_density`, `suppression`, `roads`, `towns`.
@@ -287,7 +297,24 @@ The known gap: the replay burns about 1.5–1.7x the real area, because flanks s
     In gusty wind no fixed cutoff gets under 14%, while the envelope ends at a cutoff near 1/32 plus a 3-cell margin.
   - **Per scenario:** the knob learns per scenario. A scenario switch restarts from `ENVELOPE_WARM`, because a new map is a new distribution and conformal promises only transfer within one. A map reset keeps what was learned.
   - **Real units:** misses are counted in area, so the promise keeps its meaning across resolutions.
-  - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates. It covers the simulator's own uncertainty plus shifts in wind and tokens, not the model's error against real fires; that's what the replays (#15, #107) check.
+  - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates.
+- **Calibrated time-to-impact ranges (#13, `ArrivalCalibrator` in `engine/uq/conformal.py`).** Each threatened town shows "fire likely arrives in 25–40 min (90%)".
+  - **The range:** the long forecast's 5–95% arrival, widened or narrowed by an online conformal correction (CQR) per lead-time bucket (<30, 30–120, >120 min).
+  - **Calibration units:** towns catch fire too rarely to calibrate on, so the units are town-sized disks (radius 8 cells) dropped on unburned ground. Each is scored, like a town, by the first time fire touches it. Single cells held their own 90% but transferred badly to towns.
+  - **Censoring:** a disk the forecast never sees burn scores as the smallest miss it could be, which can only make the ranges too narrow.
+  - **Measured** (`eval.arrival`, Paradise, 4 episodes per schedule, 4 h forecasts), calibrated coverage of real town arrivals:
+
+    | Wind | Calibrated | Raw |
+    |---|---|---|
+    | Steady | **89%** | 93% |
+    | Wind shift | **56%** | 47% |
+    | Gusty | **75%** | 34% |
+
+  - **Known limit: an unforecast wind shift.** Every range issued before it is wrong at once, and the correction only learns afterwards.
+    - Per-rollout wind spread (±20%, ±20°) lifted the shift case to 68%, but gave half as many towns a range and dropped steady to 79%. Wider spread left almost no town bounded. The long forecast stays without spread.
+    - The real fix is a wind forecast (e.g. HRRR), not more statistics.
+  - **Where it shows:** `TownThreat.eta_lo_min` / `eta_hi_min` (null when too few simulations reach the town to bound it), the threat cards and inspector, and the commander's town table.
+  - **Per scenario:** the calibrator learns per scenario. A reset clears in-flight forecasts and keeps what was learned. It covers the simulator's own uncertainty plus shifts in wind and tokens, not the model's error against real fires; that's what the replays (#15, #107) check.
 - **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
   - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
   - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
@@ -324,6 +351,12 @@ Fire tools (WFDSS/FSPro, Technosylva) forecast the fire, alerting tools (Genasys
 - **Caveat:** the intervals are sampling uncertainty under a held wind. After a wind shift, the 2-hour predicted benefit overstates the realized benefit about 3.4x (849 vs 252 in `eval.run --schedules shift`; about 2x at 1 h). In steady wind it's calibrated (1,641 vs 1,549). Conformal calibration (#12/#13) is the planned correction.
 
 ### Incident commander (LLM)
+
+**Drafted orders and alerts (#132, `engine/commander/drafts.py`).** When the operator sends a unit or orders a town out, the engine drafts the message for the people who act on it. The drafts sit under Decisions in Monitor, where the operator sends, edits or dismisses each one. Nothing is delivered anywhere: "send" records a `draft_sent` event for the after-action review.
+- **Unit orders:** a radio-style order with where, how soon, the task, the wind and embers, and the escape route.
+- **Evacuation alerts:** a public alert in English and Spanish, within the 360-character limit of a Wireless Emergency Alert. Cancelling drops an unsent alert, or drafts a "lifted" notice if one went out.
+- **Briefings:** on request.
+- **Templates first, Claude second:** every draft starts as a template filled from engine facts, so it works without a key. With a key, Haiku rewrites unit orders and briefings from the same facts. The rewrite is kept only if it finished and every number and named place comes from those facts. Alerts stay templated, because public wording and its Spanish must match exactly.
 
 The LLM gets **tools**, not a raw state dump, so its answers come from real simulation calls:
 

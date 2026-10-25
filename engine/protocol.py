@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 22
+PROTOCOL_VERSION = 25
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -213,6 +213,7 @@ class EventKind(StrEnum):
     UNIT_BLOCKED = "unit_blocked"  # burning roads keep a ground unit from getting through
     TANKERS_GROUNDED = "tankers_grounded"  # too windy to fly
     EVACUATE_NOW = "evacuate_now"  # a town's latest safe order time has come (#121)
+    DRAFT_SENT = "draft_sent"  # the operator sent a drafted order or alert (#132); text is what was sent
 
 
 class Event(Model):
@@ -305,6 +306,7 @@ class UnitInfo(Model):
     y: float
     eta_min: float | None  # sim minutes until it arrives, while en route
     path: list[list[float]]  # its route, origin to target, while en route
+    line: list[list[float]]  # a working crew's cut line so far, as its two ends (#159); empty if none
 
 
 class Units(Model):
@@ -331,6 +333,28 @@ class ForecastEnvelope(Model):
     miss_recent: list[float | None]  # mean miss over the last ~20 scored forecasts
     miss_overall: list[float | None]  # since the scenario loaded
     scored: list[int]
+
+
+class Draft(Model):
+    """A drafted dispatch order, evacuation alert or briefing (#132). Nothing
+    is delivered anywhere: the operator approves, edits or dismisses it."""
+
+    id: str
+    kind: Literal["unit_order", "evac_alert", "briefing"]
+    subject: str  # the unit id, or the town for an alert
+    status: Literal["draft", "sent", "dismissed"]
+    text: str
+    text_es: str | None  # Spanish version of an evacuation alert
+    source: Literal["template", "llm", "operator"]
+    grounded: bool  # every number and place in it came from the engine's facts
+    tick: int
+    sent_tick: int | None
+
+
+class Drafts(Model):
+    type: Literal["drafts"] = "drafts"
+    tick: int
+    drafts: list[Draft]
 
 
 class Recommendations(Model):
@@ -490,6 +514,11 @@ class TownThreat(Model):
     within_60: KofN | None
     median_min: float | None  # median minutes until fire, if at least half the simulations reach it
     soonest_min: float | None  # 10th-percentile minutes until fire ("could be as soon as"), if that many reach it
+    # Calibrated 90% range for when fire reaches the town (#13): the long
+    # forecast's 5-95% arrival, corrected online so it holds about 90% of the
+    # time. eta_hi_min is None when too few simulations reach the town to bound it.
+    eta_lo_min: float | None
+    eta_hi_min: float | None
     route_status: RouteStatus | None  # None when the scenario has no roads
     exit: str | None  # the safe zone the route leads to
     drive_min: float | None
@@ -550,7 +579,7 @@ class PlanResult(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          Transcript, Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope],
+          Transcript, Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope, Drafts],
     Field(discriminator="type"),
 ]
 
@@ -654,6 +683,21 @@ class AcceptRecommendation(Model):
     id: str
 
 
+class DraftAction(Model):
+    """Send, dismiss or edit a draft (#132). `text` is the edited text."""
+
+    type: Literal["draft_action"] = "draft_action"
+    id: str
+    action: Literal["send", "dismiss", "edit"]
+    text: str | None = None
+
+
+class RequestBriefing(Model):
+    """Draft a situation briefing now (#132)."""
+
+    type: Literal["request_briefing"] = "request_briefing"
+
+
 class OrderEvacuation(Model):
     """Order a town out (or take the order back)."""
 
@@ -712,6 +756,8 @@ ClientMessage = Annotated[
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
         OrderEvacuation,
+        DraftAction,
+        RequestBriefing,
         PttStart,
         PttStop,
         CalibrationStep,

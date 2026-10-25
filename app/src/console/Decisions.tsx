@@ -138,7 +138,7 @@ export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props):
         title: `Order ${t.name} to evacuate`,
         detail: (
           <>
-            <span className="font-medium text-ink">{th.fire_inside ? "Fire is in town." : `Fire could arrive in ${aboutMinutes(th.soonest_min ?? 60)}.`}</span>{" "}
+            <span className="font-medium text-ink">{th.fire_inside ? "Fire is in town." : arrivalText(th)}</span>{" "}
             {Math.round(share * 100)}% of simulations reach it within the hour. The order clock is still running its long forecast.
           </>
         ),
@@ -287,4 +287,13 @@ function RecLine({ rec }: { rec: Recommendation }) {
       {rec.confidence !== "high" && <span className="text-warn"> Rough estimate: the range is wide.</span>}
     </>
   );
+}
+
+/** When fire could reach a town: the calibrated 90% range when the engine has
+ * one (#13), else the hour forecast's 10th percentile. */
+function arrivalText(th: { soonest_min: number | null; eta_lo_min: number | null; eta_hi_min: number | null }): string {
+  if (th.eta_lo_min != null && th.eta_hi_min != null)
+    return `Fire likely arrives in ${aboutMinutes(th.eta_lo_min)}–${aboutMinutes(th.eta_hi_min)} (90%).`;
+  if (th.eta_lo_min != null) return `Fire could arrive in ${aboutMinutes(th.eta_lo_min)} or later.`;
+  return `Fire could arrive in ${aboutMinutes(th.soonest_min ?? 60)}.`;
 }

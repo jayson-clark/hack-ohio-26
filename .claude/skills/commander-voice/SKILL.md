@@ -13,6 +13,12 @@ Code: `engine/commander/` (`tools.py` simulation tools, `agent.py` Claude loop a
 - The eval asks independent questions, so it can't catch follow-up problems. History keeps only question and answer text; without the system prompt's "don't revisit earlier answers" rule, follow-ups retract earlier figures as unsourced (#153). After a prompt change, also ask a chain of 3–4 follow-ups through one `Commander`, with no `on_sentence`, as the server does.
 - An answer with `grounded: false` never happens on purpose. The guard retries once, then falls back to templates. If answers keep falling back, check the engine log for `ungrounded numbers`.
 
+## Drafted orders and alerts (#132)
+- `commander/drafts.py` (`DraftDesk`). Triggers: a dispatch "sent" event (`flush_dispatch`), `order_evacuation` (on or off), and `request_briefing`. The console shows them in Monitor under Decisions (`console/DispatchDrafts.tsx`).
+- To try it: `make engine` (so `.env` loads the key), start a round, place a crew, order a town out. Unit orders show `source: llm` when Claude's rewrite passed, else `template`.
+- A rewrite is rejected if it was cut off (`stop_reason` isn't `end_turn`), has a number not in the facts, or names a known place, town or station the facts don't (`grounded_in`, names set per scenario by `Engine._name_drafts`). The template then stands.
+- Alerts are never rewritten. Keep both templates within 360 characters (`WEA_MAX`).
+
 ## No text-to-speech
 In-app TTS (the console's Web Speech voice and macOS `say`) was removed in #138. The commander's output is the `commander_message` text (answers and briefings). If speech is wanted, feed those messages to an external TTS.
 
