@@ -57,10 +57,12 @@ The voice should be one person, one take, in a quiet room. Music, if any, stays 
 
 The same moment from two sides: the real table on a phone, next to what the overhead camera made of it. Take F starts with a slate for this: the projector flashes its test grid for one second while the fire is paused. The grid is bright cyan, so it's obvious in both the phone video and the camera view on screen.
 
-1. Phone on a tripod, landscape, 60 fps if it has it, framed on the whole table. Dim the room until the projection reads well on the phone. No handheld moves.
-2. Start the phone recording, then run `make demo-video TAKES=F`. Stay out of the frame and off the mouse and keyboard until it ends.
-3. In the editor, line the two clips up on the first frame of the grid flash, then cut the slate off both.
-4. Use the phone clip for 2:17–2:33 and the closing push-in (a slow digital push-in on the wide shot is fine).
+Two ways to get it:
+
+- **Through Recordly (synced for you).** Connect the phone as a Continuity Camera and turn on Recordly's webcam (launch window → webcam → the phone). Take F then records it on the same clock as the screen, saved beside the recording as `…-webcam.mp4` (mirrored; 640×480 over Continuity Camera). Turn the webcam inset off in the export, and build the side-by-side with `tools/demo_video/split.py` (see its docstring). Start with the phone already still: the first take's phone moved through the slate.
+- **On the phone (sharper).** Record 4K in the Camera app, start it before `make demo-video TAKES=F`, and in the editor line the clips up on the first frame of the grid flash, then cut the slate off both.
+
+Either way: a tripod, landscape, the print filling as much of the frame as you can, the room dim enough for the projection to read, and nobody in frame or on the mouse and keyboard until the take ends. Use the phone for 2:17–2:33 and the closing push-in (a slow digital push-in on a wide shot is fine). Cut the take to its slots rather than speeding it up: the burned-in 0.5× badge would be wrong at any other speed.
 
 ## Footage
 

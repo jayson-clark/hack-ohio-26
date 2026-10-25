@@ -296,6 +296,11 @@ def parse(path: Path) -> Take:
             cmd, rest = words[0], words[1:]
             pos, kw = opts(rest)
             if cmd == "engine":
+                if rest[:1] == ["send"]:
+                    try:
+                        json.loads(" ".join(rest[1:]))
+                    except ValueError:
+                        raise TakeError("engine send needs JSON in single quotes, e.g. engine send '{\"type\":\"reset\"}'") from None
                 (block.items if block else take.setup).append(("engine", rest))
             elif cmd == "window":
                 if pos[0] not in WINDOWS:
@@ -445,6 +450,14 @@ def editor_ready(rec: Recordly, video: str) -> dict:
     raise TakeError("the Recordly editor didn't load the recording")
 
 
+def scene_times(st: dict, own: list[dict]) -> list[dict]:
+    """Recordly's scene times, or ours when it reports them unavailable."""
+    if isinstance(st["scenes"], list) and len(st["scenes"]) == len(own):
+        return st["scenes"]
+    print(f"   scenes: Recordly has none ({st['scenes'].get('unavailable', '?') if isinstance(st['scenes'], dict) else 'count differs'}); using the runner's clock")
+    return own
+
+
 def place_zooms_and_captions(rec: Recordly, video: str, zooms: list, cues: list[dict]) -> None:
     """Make the take's zooms and captions the only ones. On a busy machine
     Recordly's own suggestions (auto zooms, an empty caption) can land after
@@ -479,14 +492,21 @@ def run_take(rec: Recordly, take: Take, rehearse: bool, out_dir: Path) -> None:
         engine(item[1])
 
     recording = False
+    # Our own scene times, in ms from the start of capture, for when Recordly
+    # has no activity log to give them (it loses it if the app restarts).
+    t0, own = 0.0, []
     try:
         for block in take.blocks:
             if block.kind == "scene" and not recording and not rehearse:
                 rec.call("start_recording", countdownSeconds=0, scenes=take.scenes)
-                recording = True
+                recording, t0 = True, time.monotonic()
             print(f"   {block.kind}: {block.title}" if block.title else f"   {block.kind}")
+            start = time.monotonic()
             run_items(rec, block, wins, cur)
-    except TakeError:
+            if block.kind == "scene" and recording:
+                own.append({"startMs": (start - t0) * 1000, "endMs": (time.monotonic() - t0) * 1000})
+    except BaseException:
+        # Any failure, not only a TakeError, or Recordly keeps recording.
         if recording:
             rec.call("cancel_recording")
         raise
@@ -512,10 +532,10 @@ def run_take(rec: Recordly, take: Take, rehearse: bool, out_dir: Path) -> None:
 
     # Trim first, then place everything on the trimmed timeline's scene times.
     if take.trim:
-        scenes, dur = st["scenes"], st["durationMs"]
+        scenes, dur = scene_times(st, own), st["durationMs"]
         rec.call("edit_timeline", op="trim", clipIndex=0, startMs=resolve(take.trim[0], scenes, dur), endMs=resolve(take.trim[1], scenes, dur))
         st = editor_ready(rec, video)
-    scenes, dur = st["scenes"], st["durationMs"]
+    scenes, dur = scene_times(st, own), st["durationMs"]
     span = lambda it: (resolve(it["start"], scenes, dur), resolve(it["end"], scenes, dur))
     zooms = [(*span(z), z) for z in take.zooms]
     cues = [{"startMs": a, "endMs": b, "text": c["text"]} for c in take.captions for a, b in [span(c)]]
