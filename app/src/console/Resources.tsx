@@ -101,7 +101,7 @@ export default function Resources({
                     </span>
                     {u?.status === "working" && u.fatigue > 0 && (
                       <span className="mt-1 block">
-                        <Meter value={1 - u.fatigue / 2} tone="warn" />
+                        <Meter value={1 - u.fatigue} tone="warn" />
                       </span>
                     )}
                   </span>

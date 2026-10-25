@@ -318,7 +318,7 @@ function OrderDetail({ token: t, scenario, onClose, onFocus }: Props & { token: 
                 {orderText(u)}
                 {u.status === "working" && u.token_type === "crew" && (
                   <div className="mt-2">
-                    <Meter value={1 - u.fatigue / 2} tone={u.fatigue > 0 ? "warn" : "ok"} />
+                    <Meter value={1 - u.fatigue} tone={u.fatigue > 0 ? "warn" : "ok"} />
                     <div className="mt-1 text-[11px] text-ink-3">
                       {u.fatigue > 0 ? "Past its shift: send a fresh crew to take over the line." : "Fresh: full strength for its first 4 h on the line."}
                     </div>
