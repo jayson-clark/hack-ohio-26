@@ -1,8 +1,9 @@
 // How dispatch (#104, engine side in #106) reads in the console (#109): a unit's
 // status as a label and colour, and what an order token is waiting for.
 
-import type { Token, UnitInfo, UnitStatus } from "./protocol";
+import type { Recommendation, Token, UnitInfo, UnitStatus } from "./protocol";
 import { formatSimMinutes } from "./round";
+import { ORDER_STYLE } from "./tokens";
 
 export const UNIT_STATUS: Record<UnitStatus, { label: string; color: string }> = {
   available: { label: "Available", color: "#9aa1ab" },
@@ -25,7 +26,12 @@ export function orderText(u: UnitInfo): string {
     case "en_route":
       return u.eta_min != null ? `arrives in ${formatSimMinutes(u.eta_min)}` : "en route";
     case "working":
-      return "on scene";
+      // A crew past its shift fades until relieved (#178).
+      return u.fatigue > 0 ? `on scene, tiring (${Math.round((1 - u.fatigue / 2) * 100)}% strength)` : "on scene";
+    case "reloading":
+      return u.ready_in_min != null ? `refilling at base, out again in ${formatSimMinutes(u.ready_in_min)}` : "refilling at base";
+    case "resting":
+      return u.ready_in_min != null ? `resting, free in ${formatSimMinutes(u.ready_in_min)}` : "resting";
     case "blocked":
       return "no open road in, retrying";
     case "grounded":
@@ -35,4 +41,14 @@ export function orderText(u: UnitInfo): string {
     default:
       return "waiting for a unit";
   }
+}
+
+/** How a recommendation card names its action: place, move or relieve (#178). */
+export function recVerb(r: Recommendation): string {
+  return r.action === "move" ? "Move a crew" : r.action === "relieve" ? "Relieve the crew" : ORDER_STYLE[r.token_type].verb;
+}
+
+/** The card's button label for the same action. */
+export function recButton(r: Recommendation): string {
+  return r.action === "move" ? "Move crew" : r.action === "relieve" ? "Relieve crew" : "Dispatch";
 }

@@ -5,13 +5,12 @@
 // details in the inspector.
 
 import type { ReactNode } from "react";
-import { orderText } from "../shared/dispatch";
+import { orderText, recButton, recVerb } from "../shared/dispatch";
 import { acceptRecommendation, orderEvacuation, useEngine } from "../shared/engine";
 import { aboutMinutes, describeLocation } from "../shared/places";
 import { END_REASON_TEXT, formatSimMinutes, headline } from "../shared/round";
 import type { Recommendation } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
-import { ORDER_STYLE } from "../shared/tokens";
 import { AutopilotCountdown, type AutopilotState } from "./Demo";
 import { Icon, type IconName } from "./icons";
 import { minutesUntil, type Selection, type TownView } from "./model";
@@ -163,14 +162,14 @@ export function useDecisions({ scenario, towns, onSelect, onTryInPlan }: Props):
       tone: "info",
       icon: "bulb",
       rank: 3 + i * 0.01,
-      title: `${r.action === "move" ? "Move a crew" : ORDER_STYLE[r.token_type].verb} ${describeLocation(scenario, r.x, r.y)}${onFire(r.incident)}`,
+      title: `${recVerb(r)} ${describeLocation(scenario, r.x, r.y)}${onFire(r.incident)}`,
       detail: <RecLine rec={r} />,
       select: { kind: "rec", id: r.id, x: r.x, y: r.y },
       auto: r.auto ? () => acceptRecommendation(r.id) : undefined,
       actions: (
         <>
           <Button size="sm" variant="primary" disabled={!r.auto} title={r.auto ? undefined : "A crew on the table: move it by hand"} onClick={() => { acceptRecommendation(r.id); onSelect(null); }}>
-            {r.action === "move" ? "Move crew" : "Dispatch"}
+            {recButton(r)}
           </Button>
           <Button size="sm" onClick={() => onTryInPlan(r)}>
             Try in plan
