@@ -22,7 +22,7 @@ scene "Open Paradise: the evacuation clock"
   move 1488,712                 # rest on Order evacuation, off the numbers
   hold 6
 
-zoom 1@2..1@end at=0.72,0.38
-zoom 2@1..end at=0.80,0.62
+zoom 1@2..1@end depth=3 at=0.67,0.39
+zoom 2@1..end depth=3 at=0.73,0.61
 label "0.5× · 5 sim-min/s" 1@1.5..end
 export A-see-it.mp4

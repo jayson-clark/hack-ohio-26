@@ -27,9 +27,9 @@ scene "Review the outcome"
   move 200,400 ms=1000
   hold 7
 
-zoom 1@6..1@end at=0.22,0.40
-zoom 3@0.5..end at=0.22,0.32
+zoom 1@6..1@end depth=3 at=0.28,0.41
+zoom 3@0.5..end depth=3 at=0.28,0.34
 label "0.5× · 5 sim-min/s" 1@1..2@0
 label "4× · 40 sim-min/s" 2@0..2@end
-label "Autopilot on" 1@1..2@0 at=79,10.5
+label "Autopilot on" 1@1..2@0 at=79,7.5
 export E-autopilot-review.mp4

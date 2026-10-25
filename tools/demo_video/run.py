@@ -33,13 +33,18 @@ CONSOLE_URL = os.environ.get("DEMO_CONSOLE_URL", "http://localhost:1420/?view=co
 OUT_DIR = Path(os.environ.get("DEMO_OUT_DIR", "~/Movies/fireline-demo")).expanduser()
 WINDOW_TITLE = "Fireline"
 TITLEBAR_PT = 28  # a Chrome app window's title bar, cropped out of the video
-# The frame around the window: dark, a little padding, barely rounded.
-LOOK = {"wallpaper": "#0e1113", "padding": 6, "borderRadius": 1.5, "shadowIntensity": 0.5}
-# No motion blur on zooms (it smears the map's text), and a smaller cursor so
-# it covers less of what it points at.
-MOTION = {"zoomMotionBlur": 0, "cursorSize": 2.0}
-# A label's plate (the sim-speed badge): top right of the frame, in percent.
-LABEL_AT, LABEL_SIZE, LABEL_PLATE, LABEL_FONT = (79.0, 4.0), (18.0, 5.5), "#0e1113", 26
+# The frame around the window: a wallpaper with room around the window, so a
+# wide shot looks like a Mac screenshot and the zooms have somewhere to go.
+# padding is damped by Recordly (0-100 -> 0-20% a side); borderRadius is a
+# percent of the shorter side. A take can change any of these with `look`.
+LOOK = {"wallpaper": "/wallpapers/sequoia-blue-orange.jpg", "padding": 30, "borderRadius": 1.2, "shadowIntensity": 0.8, "backgroundBlur": 0}
+# No motion blur on zooms (it smears the map's text), a smaller cursor so it
+# covers less of what it points at, and slower zooms so they read as camera
+# moves rather than cuts.
+MOTION = {"zoomMotionBlur": 0, "cursorSize": 2.0, "zoomInDurationMs": 900}
+# A label's plate (the sim-speed badge): top right of the frame, in percent,
+# in the wallpaper's margin above the window when zoomed out.
+LABEL_AT, LABEL_SIZE, LABEL_PLATE, LABEL_FONT = (79.0, 1.0), (18.0, 5.5), "#0e1113", 26
 
 
 class TakeError(Exception):
@@ -192,6 +197,7 @@ class Take:
     setup: list = field(default_factory=list)  # engine commands before the first block
     blocks: list[Block] = field(default_factory=list)
     zooms: list[dict] = field(default_factory=list)
+    look: dict = field(default_factory=dict)  # overrides LOOK for this take
     labels: list[dict] = field(default_factory=list)
     captions: list[dict] = field(default_factory=list)
     cards: list[dict] = field(default_factory=list)
@@ -233,6 +239,15 @@ def step(cmd: str, rest: list[str]) -> dict:
     ms = lambda s: int(float(s) * 1000)
     if cmd in ("click", "move"):
         s = {"action": cmd, **point_or_target(pos[0], kw)}
+        if "ms" in kw:
+            s["durationMs"] = int(kw["ms"])
+        return s
+    if cmd == "drag":
+        # drag <from> <to>: each end a window point or an element's text.
+        s = {"action": "drag"}
+        for end, arg in (("from", pos[0]), ("to", pos[1])):
+            p = point_or_target(arg, kw)
+            s.update({f"{end}X": p["x"], f"{end}Y": p["y"]} if "x" in p else {end: p["target"]})
         if "ms" in kw:
             s["durationMs"] = int(kw["ms"])
         return s
@@ -284,7 +299,13 @@ def parse(path: Path) -> Take:
             elif cmd == "zoom":
                 start, end = pos[0].split("..")
                 at = [float(v) for v in kw.get("at", "0.5,0.5").split(",")]
-                take.zooms.append({"start": start, "end": end, "depth": int(kw.get("depth", 2)), "focus": {"cx": at[0], "cy": at[1]}})
+                # follow: the camera tracks the pointer instead of holding `at`.
+                take.zooms.append({"start": start, "end": end, "depth": int(kw.get("depth", 2)), "focus": {"cx": at[0], "cy": at[1]},
+                                   "mode": "auto" if "follow" in pos[1:] else "manual"})
+                block = None
+            elif cmd == "look":
+                # look wallpaper=/wallpapers/tahoe-dark.jpg padding=20
+                take.look.update({k: v if k == "wallpaper" else float(v) for k, v in kw.items()})
                 block = None
             elif cmd in ("label", "caption"):
                 start, end = pos[1].split("..")
@@ -424,7 +445,7 @@ def run_take(rec: Recordly, take: Take, rehearse: bool, out_dir: Path) -> None:
     sw, sh = screen["width"], screen["height"]
     x, y = win["x"] - screen["x"], win["y"] - screen["y"] + TITLEBAR_PT
     crop = {"x": x / sw, "y": y / sh, "width": min(win["width"], sw - x) / sw, "height": min(win["height"] - TITLEBAR_PT, sh - y) / sh}
-    rec.call("set_look", op="set", fields={**LOOK, "crop": crop})
+    rec.call("set_look", op="set", fields={**LOOK, **take.look, "crop": crop})
     rec.call("set_look", op="motion", fields=MOTION)
 
     # Trim first, then place everything on the trimmed timeline's scene times.
@@ -436,7 +457,7 @@ def run_take(rec: Recordly, take: Take, rehearse: bool, out_dir: Path) -> None:
     span = lambda it: (resolve(it["start"], scenes, dur), resolve(it["end"], scenes, dur))
     for z in take.zooms:
         a, b = span(z)
-        rec.call("edit_zoom", op="add", startMs=a, endMs=b, depth=z["depth"], focus=z["focus"])
+        rec.call("edit_zoom", op="add", startMs=a, endMs=b, depth=z["depth"], focus=z["focus"], mode=z["mode"])
     for lb in take.labels:
         # Pinned to the output frame, so a zoom can't crop it.
         a, b = span(lb)
