@@ -352,6 +352,12 @@ Fire tools (WFDSS/FSPro, Technosylva) forecast the fire, alerting tools (Genasys
 
 ### Incident commander (LLM)
 
+**Drafted orders and alerts (#132, `engine/commander/drafts.py`).** When the operator sends a unit or orders a town out, the engine drafts the message for the people who act on it. The drafts sit under Decisions in Monitor, where the operator sends, edits or dismisses each one. Nothing is delivered anywhere: "send" records a `draft_sent` event for the after-action review.
+- **Unit orders:** a radio-style order with where, how soon, the task, the wind and embers, and the escape route.
+- **Evacuation alerts:** a public alert in English and Spanish, within the 360-character limit of a Wireless Emergency Alert. Cancelling drops an unsent alert, or drafts a "lifted" notice if one went out.
+- **Briefings:** on request.
+- **Templates first, Claude second:** every draft starts as a template filled from engine facts, so it works without a key. With a key, Haiku rewrites unit orders and briefings from the same facts. The rewrite is kept only if it finished and every number and named place comes from those facts. Alerts stay templated, because public wording and its Spanish must match exactly.
+
 The LLM gets **tools**, not a raw state dump, so its answers come from real simulation calls:
 
 | Tool | Returns |

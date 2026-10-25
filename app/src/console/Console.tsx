@@ -19,6 +19,7 @@ import { formatSimMinutes } from "../shared/round";
 import { useEngineScenario } from "../shared/scenario";
 import CommanderDock from "./CommanderDock";
 import Decisions, { useDecisions } from "./Decisions";
+import DispatchDrafts from "./DispatchDrafts";
 import { EventAlerts } from "./EventLog";
 import { FlameMark, Icon, type IconName } from "./icons";
 import Inspector from "./Inspector";
@@ -91,6 +92,7 @@ export default function Console() {
   // decisions, so they don't count toward the badge.
   const pending = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan }).filter((i) => !i.status).length;
   const decisions = over ? 0 : pending;
+  const pendingDrafts = useEngine().dispatchDrafts.filter((d) => d.status === "draft").length;
 
   // Keys: 1-4 pick an order tool, Esc goes back to selecting (then closes the
   // inspector), M/P/R switch modes, and holding Space talks to the commander.
@@ -211,6 +213,9 @@ export default function Console() {
               <Situation towns={towns} />
               <Section title="Needs decision" count={decisions} className="mt-2">
                 <Decisions scenario={scenario} towns={towns} onSelect={select} onTryInPlan={tryInPlan} onReview={() => switchMode("review")} />
+              </Section>
+              <Section title="Drafts" count={pendingDrafts}>
+                <DispatchDrafts />
               </Section>
               <Section title="Towns" count={towns.length}>
                 <Towns towns={towns} selected={selection?.kind === "town" ? selection.name : null} onSelect={(name) => select({ kind: "town", name })} />

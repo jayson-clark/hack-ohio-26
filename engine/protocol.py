@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 24
+PROTOCOL_VERSION = 25
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -213,6 +213,7 @@ class EventKind(StrEnum):
     UNIT_BLOCKED = "unit_blocked"  # burning roads keep a ground unit from getting through
     TANKERS_GROUNDED = "tankers_grounded"  # too windy to fly
     EVACUATE_NOW = "evacuate_now"  # a town's latest safe order time has come (#121)
+    DRAFT_SENT = "draft_sent"  # the operator sent a drafted order or alert (#132); text is what was sent
 
 
 class Event(Model):
@@ -332,6 +333,28 @@ class ForecastEnvelope(Model):
     miss_recent: list[float | None]  # mean miss over the last ~20 scored forecasts
     miss_overall: list[float | None]  # since the scenario loaded
     scored: list[int]
+
+
+class Draft(Model):
+    """A drafted dispatch order, evacuation alert or briefing (#132). Nothing
+    is delivered anywhere: the operator approves, edits or dismisses it."""
+
+    id: str
+    kind: Literal["unit_order", "evac_alert", "briefing"]
+    subject: str  # the unit id, or the town for an alert
+    status: Literal["draft", "sent", "dismissed"]
+    text: str
+    text_es: str | None  # Spanish version of an evacuation alert
+    source: Literal["template", "llm", "operator"]
+    grounded: bool  # every number and place in it came from the engine's facts
+    tick: int
+    sent_tick: int | None
+
+
+class Drafts(Model):
+    type: Literal["drafts"] = "drafts"
+    tick: int
+    drafts: list[Draft]
 
 
 class Recommendations(Model):
@@ -556,7 +579,7 @@ class PlanResult(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          Transcript, Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope],
+          Transcript, Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope, Drafts],
     Field(discriminator="type"),
 ]
 
@@ -660,6 +683,21 @@ class AcceptRecommendation(Model):
     id: str
 
 
+class DraftAction(Model):
+    """Send, dismiss or edit a draft (#132). `text` is the edited text."""
+
+    type: Literal["draft_action"] = "draft_action"
+    id: str
+    action: Literal["send", "dismiss", "edit"]
+    text: str | None = None
+
+
+class RequestBriefing(Model):
+    """Draft a situation briefing now (#132)."""
+
+    type: Literal["request_briefing"] = "request_briefing"
+
+
 class OrderEvacuation(Model):
     """Order a town out (or take the order back)."""
 
@@ -718,6 +756,8 @@ ClientMessage = Annotated[
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
         OrderEvacuation,
+        DraftAction,
+        RequestBriefing,
         PttStart,
         PttStop,
         CalibrationStep,

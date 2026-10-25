@@ -15,6 +15,7 @@ export const EVENT_STYLE: Record<EventKind, { label: string; color: string; aler
   unit_blocked: { label: "Unit blocked", color: "#ef4444", alert: true },
   tankers_grounded: { label: "Grounded", color: "#fb923c", alert: true },
   evacuate_now: { label: "Evacuate", color: "#ff6b2c", alert: true },
+  draft_sent: { label: "Sent", color: "#4ade80", alert: false },
 };
 
 /** Towns under threat now: the last threatened/safe event per town decides. */

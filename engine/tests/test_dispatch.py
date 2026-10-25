@@ -74,7 +74,7 @@ def test_nearest_unit_goes_and_the_token_acts_only_on_arrival(router):
     assert arrive == math.ceil(TURNOUT_MIN + router.ground_eta(38, 10, 36, 10)[0])
     assert step(d, [crew], arrive - 1) == set()
     assert step(d, [crew], arrive) == {"c1"}
-    assert [e.kind for e in d.take_events()] == ["arrived"]
+    assert [e.kind for e in d.take_events()] == ["sent", "arrived"]  # sent drafts an order (#132)
 
 
 def test_out_of_units_means_the_token_waits_and_removal_frees_one(router):

@@ -22,6 +22,7 @@ import numpy as np
 from commander.agent import Commander
 from commander.briefings import BriefingQueue, ForecastWatcher, evacuate_text, round_summary
 from commander.listen import Listener, vocabulary_prompt
+from commander.drafts import DraftDesk, set_known_names
 from commander.listen import speakable
 from commander.tools import CommanderTools
 from forecast.plan import PLAN_ROLLOUTS, PlanOutcome, evaluate_plan
@@ -35,6 +36,7 @@ from protocol import (
     CommanderKind,
     CommanderMessage,
     CommanderQuery,
+    DraftAction,
     CameraState,
     EndRound,
     EvacStatus,
@@ -53,6 +55,7 @@ from protocol import (
     PlanTown,
     PttStart,
     PttStop,
+    RequestBriefing,
     Reset,
     ResourceUse,
     RoundPhase,
@@ -224,6 +227,9 @@ class Engine:
         self.watcher = ForecastWatcher()
         self.briefings = BriefingQueue()
         self.commander = Commander(self.tools)
+        # Drafted dispatch orders and evacuation alerts for the operator (#132).
+        self.drafts = DraftDesk()
+        self._name_drafts()
         self._query_task: asyncio.Task | None = None
 
     def load(self, name: str) -> None:
@@ -458,6 +464,7 @@ class Engine:
                 await ws.send(self.clock_msg())
             await ws.send(self.recs_msg())
             await ws.send(self.envelope_msg())
+            await ws.send(self.drafts.message(self.fire.tick))
             await ws.send(self.units_msg())
             await ws.send(self.situation_msg())
             if self.recent_events:
@@ -523,6 +530,10 @@ class Engine:
                 self.accept_recommendation(msg.id)
             case OrderEvacuation():
                 self.order_evacuation(msg.town, msg.ordered)
+            case DraftAction():
+                self.draft_action(msg)
+            case RequestBriefing():
+                self._new_draft(self.drafts.briefing(self))
             case EvaluatePlan():
                 self._plan_latest = msg.id
                 asyncio.create_task(self.evaluate_plan(msg))
@@ -583,6 +594,9 @@ class Engine:
         # load() already reset the route tracker (held routes belong to the old graph).
         self._routes_tick = 0
         self.tools.on_scenario()
+        self.drafts.clear()  # orders and alerts were about the old map
+        self._name_drafts()
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
         self._sent_inactive = []
         self._sent_token_version = -1
         self.recent_events.clear()
@@ -611,6 +625,7 @@ class Engine:
         """Put the fire out, drop everything derived from it, and tell the UI."""
         self.fire.reset()
         self.envelope.clear_pending()  # in-flight envelopes were about the old fire; keep what was learned
+        self.drafts.clear()
         self.eta_cal.clear_pending()
         self._burn_tick[:] = np.inf
         self.effects.reset()
@@ -855,12 +870,19 @@ class Engine:
         return Units(tick=tick, units=units).model_dump_json()
 
     def flush_dispatch(self) -> None:
-        """Send dispatch events (arrived, blocked, grounded) and unit positions."""
+        """Send dispatch events (arrived, blocked, grounded) and unit positions,
+        and draft an order for every unit just sent (#132)."""
         kinds = {"arrived": EventKind.UNIT_ARRIVED, "blocked": EventKind.UNIT_BLOCKED,
                  "grounded": EventKind.TANKERS_GROUNDED}
-        events = [Event(kind=kinds[e.kind], tick=self.fire.tick, town=None, text=e.text)
-                  for e in self.dispatcher.take_events()]
+        events, sent = [], []
+        for e in self.dispatcher.take_events():
+            if e.kind == "sent":
+                sent.append(e.unit)
+            else:
+                events.append(Event(kind=kinds[e.kind], tick=self.fire.tick, town=None, text=e.text))
         self.broadcast_events(events)
+        for unit in sent:
+            self._new_draft(self.drafts.unit_order(self, unit))
         sig = tuple((u.id, u.status, u.token_id, u.arrive_tick) for u in self.dispatcher.units)
         # Units go out again while they move and while crews' lines grow (#159).
         moving = any(u.status == "en_route" for u in self.dispatcher.units) or self.effects.line_growing(self.fire.tick)
@@ -1163,11 +1185,45 @@ class Engine:
         """Order a town out (from now), or take the order back."""
         if not any(t.name == town for t in self.towns):
             return
+        changed = (town in self.evac_orders) != ordered
         if ordered:
             self.evac_orders.setdefault(town, self.fire.tick)
         else:
             self.evac_orders.pop(town, None)
         self.schedule_clock()
+        if changed:  # draft the public alert, or take back an unsent one (#132)
+            d = self.drafts.evacuation(self, town, ordered)
+            if d is not None:
+                self._new_draft(d)
+            else:
+                broadcast(self.clients, self.drafts.message(self.fire.tick))
+
+    # --- drafts (#132) ------------------------------------------------------
+
+    def _name_drafts(self) -> None:
+        """Names a Claude rewrite may only use when its facts do (per scenario)."""
+        names = [p.name for p in self.scenario.places] + [t.name for t in self.towns]
+        names += [s.name for s in self.stations]
+        if self.roads is not None:
+            names += [z.name for z in self.roads.safe_zones]
+        set_known_names(names)
+
+    def _new_draft(self, d) -> None:
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
+        asyncio.create_task(self._polish_draft(d))
+
+    async def _polish_draft(self, d) -> None:
+        if await self.drafts.polish(d, self.commander.client, self.commander.model):
+            broadcast(self.clients, self.drafts.message(self.fire.tick))
+
+    def draft_action(self, msg: DraftAction) -> None:
+        sent = self.drafts.act(msg.id, msg.action, msg.text, self.fire.tick)
+        if sent is not None:
+            kind = {"unit_order": "Order", "evac_alert": "Alert", "briefing": "Briefing"}[sent.kind]
+            self.broadcast_events([Event(kind=EventKind.DRAFT_SENT, tick=self.fire.tick,
+                                         town=sent.subject if sent.kind == "evac_alert" else None,
+                                         text=f"{kind} sent: {sent.text}")])
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
 
     def evac_flows(self) -> dict[str, float]:
         """People a sim minute leaving each ordered town whose cars are moving."""
