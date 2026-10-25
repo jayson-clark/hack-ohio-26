@@ -130,6 +130,26 @@ def _town_arrivals(first_burn: np.ndarray, masks: np.ndarray, elapsed: float) ->
     return np.maximum(out - elapsed, 0.0)
 
 
+def threat_incident(incidents, first_burn: np.ndarray | None, arrivals: np.ndarray | None, mask: np.ndarray,
+                    burnt: np.ndarray) -> str | None:
+    """Which incident threatens a town (#179): the one already inside it, or
+    the one whose fire reaches it first in the median simulation. That run's
+    first cell inside the town shows which side the fire comes from, and the
+    nearest incident to that cell is the one coming (IncidentTracker.of)."""
+    if burnt[mask].any():
+        ys, xs = np.nonzero(burnt & mask)
+        return incidents.of(float(xs[0]) + 0.5, float(ys[0]) + 0.5)
+    if first_burn is None or arrivals is None:
+        return None
+    reached = np.flatnonzero(np.isfinite(arrivals))
+    if len(reached) == 0:
+        return None
+    median_run = reached[np.argsort(arrivals[reached], kind="stable")[len(reached) // 2]]
+    fb = np.where(mask, first_burn[median_run], np.inf)
+    y, x = np.unravel_index(int(np.argmin(fb)), fb.shape)
+    return incidents.of(float(x) + 0.5, float(y) + 0.5)
+
+
 def _masks(towns: list[TownInfo], h: int, w: int) -> np.ndarray:
     cy, cx = np.mgrid[:h, :w].astype(np.float32) + 0.5
     return np.stack([np.hypot(cx - t.x, cy - t.y) <= t.radius for t in towns])
@@ -299,6 +319,8 @@ class CommanderTools:
                 route_status=None if r is None else r.status,
                 exit=None if r is None else r.safe_zone,
                 drive_min=None if r is None or r.safe_zone is None else round(r.eta_min, 1),
+                incident=threat_incident(e.incidents, None if f is None else f.first_burn,
+                                         None if arrivals is None else arrivals[:, i], self.masks[i], burnt),
             ))
         return out
 
