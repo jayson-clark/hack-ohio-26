@@ -244,6 +244,8 @@ p_slope = exp(a · slope_angle)                 # uphill spreads faster, downhil
 
 The top recommendation's realized benefit fell from 985 to 708 (steady wind). It still beats a random front spot 19 of 32 times, and its prediction stays calibrated (689 predicted).
 
+At `C2` 0.3 (#170), most comparisons are ties: in 15–20 of about 30 cases per wind schedule neither spot changes the outcome, because narrower fires reach towns less often. Where they differ, the top recommendation wins 31 of 36 (steady 12 of 13, shift 9 of 10, gusty 10 of 13). `eval.run` now reports ties separately.
+
 **Ember spotting.** In wind over `SPOT_MIN_WIND` (9 m/s), burning cells throw embers downwind (`_spot` in `engine/sim/fire.py`). Each ember flies an exponential distance (mean 12 cells, about 1.1 km, at 10 m/s, capped at 6.6 km) and lights fuel where it lands, less so under suppression. That lets a wind-driven fire outrun the one-cell-per-tick limit, as the Camp Fire did. Calm and moderate days are unchanged, and ember draws are shared across paired what-ifs.
 
 **Checked against the real Camp Fire (#15).** `eval.campfire` replays the 2018 fire from its NIST origin near Pulga, with a 19 m/s ENE wind easing to 6 m/s by the afternoon. It scores the replay against real data in `assets/scenarios/paradise/real/`:
@@ -290,15 +292,16 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
 - The console map and the Camera view show the forecast at T+30 and T+60 sim-minutes (the projector's translucent ghost with 50% and 90% contours is behind `?overlays=1`).
 - **Calibrated burn envelope (#12, `engine/uq/conformal.py`).** The console draws the forecast's outline as an envelope that promises at most 10% of the ground that newly burns by T+30 / T+60 falls outside it. The raw contours can't promise that: they assume the wind and tokens hold, and miss 11–31% (`eval.run`, the 50% line).
   - **How it holds:** each envelope shown is remembered and scored when its horizon passes, as burned area outside / burned area. An online conformal update (adaptive conformal inference, conformal risk control) moves one knob per horizon: the probability cutoff, then a margin of extra cells once the cutoff hits 1/N. The long-run miss stays near 10% even under shifts, after a short catch-up.
-  - **Measured:** step 0.1, `eval.run`, 4 episodes per schedule, missed share over the whole run:
+  - **Measured:** step 0.1, `eval.run`, 4 episodes per schedule (83–96 scored forecasts), missed share over the whole run, at `C2` 0.3 (#170; at 0.22 it was 9.3/8.8%, 10.5/12.0% and 11.3/11.7%):
 
     | Wind | T+30 | T+60 |
     |---|---|---|
-    | Steady | 9.3% | 8.8% |
-    | Shift | 10.5% | 12.0% |
-    | Gusty | 11.3% | 11.7% |
+    | Steady | 10.9% | 11.0% |
+    | Shift | 11.7% | 13.0% |
+    | Gusty | 12.3% | 12.1% |
 
-    In gusty wind no fixed cutoff gets under 14%, while the envelope ends at a cutoff near 1/32 plus a 3-cell margin.
+    In gusty wind and after shifts the envelope ends at a cutoff near 1/32 plus a 1–5-cell margin; in steady wind near 0.11 with no margin.
+  - **What is guaranteed:** online ACI gives a finite-sample bound on the running average, for any sequence of data, but nothing per forecast. Each update moves θ by `lr × (miss − α)`, so the sum telescopes: average miss ≤ α + (θ_0 − θ_min) / (lr × T), as long as the widest envelope (cutoff 1/32 plus `MAX_MARGIN`) itself misses at most α. With the T+30 warm start that's 10% + 3.7/T, so the measured 11–13% at T ≈ 90 is within it. Split conformal's per-prediction guarantee would need exchangeable data, which wind shifts and player actions rule out.
   - **Per scenario:** the knob learns per scenario. A scenario switch restarts from `ENVELOPE_WARM`, because a new map is a new distribution and conformal promises only transfer within one. A map reset keeps what was learned.
   - **Real units:** misses are counted in area, so the promise keeps its meaning across resolutions.
   - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates.
@@ -310,9 +313,11 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
 
     | Wind | Calibrated | Raw |
     |---|---|---|
-    | Steady | **89%** | 93% |
-    | Wind shift | **56%** | 47% |
-    | Gusty | **75%** | 34% |
+    | Steady | **98%** | 95% |
+    | Wind shift | **70%** | 35% |
+    | Gusty | **72%** | 42% |
+
+    That's at `C2` 0.3 (#170), with 40–55 town ranges per schedule. At 0.22 it was 89%, 56% and 75%. The same ACI bound holds for the disks' miss rate per bucket (no clipping, so it holds unconditionally); town coverage is the empirical check that towns behave like disks.
 
   - **Known limit: an unforecast wind shift.** Every range issued before it is wrong at once, and the correction only learns afterwards.
     - Per-rollout wind spread (±20%, ±20°) lifted the shift case to 68%, but gave half as many towns a range and dropped steady to 79%. Wider spread left almost no town bounded. The long forecast stays without spread.
@@ -320,11 +325,12 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
   - **Where it shows:** `TownThreat.eta_lo_min` / `eta_hi_min` (null when too few simulations reach the town to bound it), the threat cards and inspector, and the commander's town table.
   - **Per scenario:** the calibrator learns per scenario. A reset clears in-flight forecasts and keeps what was learned. It covers the simulator's own uncertainty plus shifts in wind and tokens, not the model's error against real fires; that's what the replays (#15, #107) check.
 - **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
-  - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
+  - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On 342 held-out fires its Brier score against the 64-rollout label is 0.0038, slightly better than the engine's 32-run forecast (0.0039), and in every probability bin the mean prediction is within 0.003 of the label.
+  - **It hedges over model error (#170).** Each training label uses its own `C2` (0.22–0.4, the range the Camp and Marshall replays support), a ×0.85–1.15 spread rate, and per-run wind (±20% speed, ±15°), while the inputs stay nominal. So a preview is less sure than the Monte Carlo forecast that replaces it: its P ≥ 0.1 area is about 27% larger and its P ≥ 0.9 core about half the size, and its 50% outline overlaps the engine's by 79%.
   - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
   - **Screening:** recommendations take 48 front spots, keep the emulator's best 8 for the paired Monte Carlo, and only Monte Carlo numbers are shown. It helps most after a wind shift. Over two measurements of 32 cases each, the top recommendation's realized benefit went from 159/163 to 173/181 after a shift, and it beat a random spot 19 and 23 times out of 32 (15 and 17 without screening). In steady wind it was within noise: 708 → 780, then 702 → 690.
   - **Not used for decisions:** routing, alerts and the commander never use it.
-  - **How it was trained:** about 5,750 random fires on paradise and valley, labelled by 64-rollout forecasts of the current fire model (ember spotting included, #118). It's retrained whenever the fire model changes; see the `fire-emulator` skill.
+  - **How it was trained:** about 5,600 random fires on Paradise (65%) and Marshall (35%), labelled by 64-rollout forecasts of the current fire model with the model noise above (ember spotting, crew lines and suburban fuel included). It's retrained whenever the fire model changes; see the `fire-emulator` skill.
 
 ### Evacuation routing
 
