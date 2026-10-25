@@ -9,9 +9,9 @@ from sim.fire import BURNED, BURNING, FireLayers, FireSim, Wind
 
 
 def burning_sim():
-    sim = FireSim(load_scenario("valley"), seed=0)
+    sim = FireSim(load_scenario("paradise"), seed=0)
     sim.set_wind(Wind(9, 300))
-    sim.ignite(80, 60, radius=3)
+    sim.ignite(150, 100, radius=3)
     for _ in range(15):
         sim.step()
     return sim
@@ -96,6 +96,50 @@ def test_engine_previews_until_monte_carlo_catches_up():
         finally:
             e.forecaster.shutdown()
             e.long_forecaster.shutdown()
+            e.recommender.shutdown()
+
+    asyncio.run(go())
+
+
+def test_real_emulator_previews_on_every_scenario():
+    """The trained emulator through the live engine (needs the ml extra and
+    weights): previews work on every scenario in assets/, after switching
+    to it, since MLX runs on the engine's own emulator thread."""
+    import asyncio
+
+    import pytest
+
+    pytest.importorskip("mlx.core")
+    from emulator.model import WEIGHTS
+    from scenario import ASSETS
+    from server import PREVIEW_MIN_TICKS, Engine
+
+    scenarios = sorted(d.name for d in ASSETS.iterdir() if (d / "terrain.json").exists())
+
+    if not WEIGHTS.exists():
+        pytest.skip("no trained weights")
+
+    async def go():
+        e = Engine()
+        try:
+            assert e.emulator is not None
+            for name in scenarios:
+                e.switch_scenario(name)
+                e.fire.ignite(*(e.game.ignition or (e.scenario.width / 2, e.scenario.height / 2)))
+                e._ignitions += 1
+                for _ in range(15):
+                    e.step_fire()
+                e.tick += PREVIEW_MIN_TICKS
+                e.maybe_preview()
+                await e._preview_job
+                await asyncio.sleep(0)
+                assert e._preview is not None, name
+                tick, grids = e._preview
+                assert grids.shape == (2, e.scenario.height, e.scenario.width)
+                assert (grids[1] >= grids[0] - 1e-6).all()  # T+60 covers at least T+30
+                assert (grids[:, e.fire.state >= 2] == 1).all()  # burning and burned stay certain
+        finally:
+            e.forecaster.shutdown()
             e.recommender.shutdown()
 
     asyncio.run(go())
