@@ -1,11 +1,13 @@
-// Geometry for the virtual table: the printed terrain block, token pucks and
-// corner marker holders, all in millimetres. Axes: x east, y up, z south,
+// Geometry for the virtual table: the printed terrain block and token pucks,
+// all in millimetres. The table stands in for the world the operator sees,
+// not the hardware, so it leaves out the ArUco corner holders and marker
+// patterns the physical build uses for calibration. Axes: x east, y up, z south,
 // origin at the board's center on the table surface.
 
 import * as THREE from "three";
 import { elevationAt, modelZ, type Scenario } from "../shared/scenario";
 import type { TokenType } from "../shared/protocol";
-import { TOKEN_RADIUS, TOKEN_STYLE, TOKEN_TYPES } from "../shared/tokens";
+import { TOKEN_RADIUS, TOKEN_STYLE } from "../shared/tokens";
 
 export const PUCK_HEIGHT_MM = 7;
 
@@ -92,55 +94,6 @@ export function wallGeometry(s: Scenario, board: Board): THREE.BufferGeometry {
   return geo;
 }
 
-// --- Markers ---------------------------------------------------------------
-
-/** A marker-like 6×6 bit pattern with a black border. Looks the part; not real ArUco IDs. */
-export function markerTexture(seed: number): THREE.CanvasTexture {
-  const n = 8; // 6 data bits + border, plus a white quiet zone around
-  const px = 16;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = (n + 2) * px;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#f4f4f2";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#111";
-  ctx.fillRect(px, px, n * px, n * px);
-  let state = (seed + 1) * 2654435761;
-  ctx.fillStyle = "#f4f4f2";
-  for (let j = 0; j < n - 2; j++) {
-    for (let i = 0; i < n - 2; i++) {
-      state = (state * 1103515245 + 12345) >>> 0;
-      if ((state >>> 16) & 1) ctx.fillRect((i + 2) * px, (j + 2) * px, px, px);
-    }
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.magFilter = THREE.NearestFilter;
-  return tex;
-}
-
-export function cornerHolders(s: Scenario, board: Board): THREE.Group {
-  const group = new THREE.Group();
-  const { marker_size_mm: size, marker_top_z_mm: top } = s.info.markers;
-  const pla = new THREE.MeshStandardMaterial({ color: "#cfcfca", roughness: 0.85 });
-  s.info.markers.corners.forEach((c, i) => {
-    const [mx, my] = c.center_mm;
-    // Board frame is x east, y north from the south-west corner.
-    const bx = mx - board.widthMm / 2;
-    const bz = board.heightMm / 2 - my;
-    const holder = new THREE.Mesh(new THREE.BoxGeometry(size + 6, top, size + 6), pla);
-    holder.position.set(bx, top / 2, bz);
-    const face = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size),
-      new THREE.MeshStandardMaterial({ map: markerTexture(100 + i), roughness: 0.6 }),
-    );
-    face.rotation.x = -Math.PI / 2;
-    face.position.set(bx, top + 0.05, bz);
-    group.add(holder, face);
-  });
-  return group;
-}
-
 // --- Token pucks -----------------------------------------------------------
 
 const puckMaterials = new Map<TokenType, THREE.Material[]>();
@@ -149,7 +102,7 @@ function materialsFor(type: TokenType): THREE.Material[] {
   let mats = puckMaterials.get(type);
   if (!mats) {
     const side = new THREE.MeshStandardMaterial({ color: TOKEN_STYLE[type].color, roughness: 0.55 });
-    const top = new THREE.MeshStandardMaterial({ map: markerTexture(TOKEN_TYPES.indexOf(type)), roughness: 0.5 });
+    const top = new THREE.MeshStandardMaterial({ color: TOKEN_STYLE[type].color, roughness: 0.4 });
     mats = [side, top, side];
     puckMaterials.set(type, mats);
   }
