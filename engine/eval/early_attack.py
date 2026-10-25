@@ -45,6 +45,7 @@ def episode(scen, router, stations, ign, wind, policy, seed, ticks) -> tuple[flo
     sim.set_wind(wind)
     sim.ignite(*ign, radius=2)
     effects = TokenEffects(scen.width, scen.height)
+    effects.set_wind(wind.from_deg)
     tokens = [] if policy == "none" else crews_at(*ign)
     disp = Dispatcher(stations if policy == "dispatched" else [], router)
     for t in range(ticks):

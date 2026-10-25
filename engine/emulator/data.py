@@ -60,7 +60,7 @@ def _front(state: np.ndarray, rng) -> tuple[float, float] | None:
     return float(xs[i]) + 0.5, float(ys[i]) + 0.5
 
 
-def _schedule(state, w, h, rng) -> SuppressionSchedule:
+def _schedule(state, w, h, rng, wind_from: float) -> SuppressionSchedule:
     """Random tokens around the fire: crews, a firebreak, a wet patch."""
     effects = TokenEffects(w, h)
     static = np.zeros((h, w), np.float32)
@@ -72,9 +72,9 @@ def _schedule(state, w, h, rng) -> SuppressionSchedule:
         ang, dist = rng.uniform(0, 2 * math.pi), rng.uniform(3, 25)
         x, y = spot[0] + dist * math.cos(ang), spot[1] + dist * math.sin(ang)
         if rng.random() < 0.5:  # still on its way
-            layers.append(crew_layer(w, h, x, y, t_on=int(rng.integers(1, 40))))
+            layers.append(crew_layer(w, h, x, y, t_on=int(rng.integers(1, 40)), wind_from=wind_from))
         else:  # already digging in
-            layers.append(crew_layer(w, h, x, y, ramped=float(rng.uniform(0, 1))))
+            layers.append(crew_layer(w, h, x, y, ramped=float(rng.uniform(0, 1)), wind_from=wind_from))
     if rng.random() < 0.25 and (spot := _front(state, rng)) is not None:
         tok = Token(id="fb", token_type=TokenType.FIREBREAK, x=spot[0] + rng.uniform(-12, 12),
                     y=spot[1] + rng.uniform(-12, 12), angle=float(rng.uniform(0, math.pi)), source=TokenSource.VIRTUAL)
@@ -110,7 +110,7 @@ def sample(seed: int, with_32: bool = False) -> dict | None:
     if not (sim.state == BURNING).any():
         return None
     h, w = sim.state.shape
-    sched = _schedule(sim.state, w, h, rng)
+    sched = _schedule(sim.state, w, h, rng, wind.from_deg)
     snap = replace(sim.snapshot(), suppression=sched.at(0), schedule=sched)
     label = run_forecast(snap, n=LABEL_ROLLOUTS, seed=int(rng.integers(1 << 31))).probability
     out = {

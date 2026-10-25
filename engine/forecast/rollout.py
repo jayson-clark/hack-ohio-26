@@ -107,8 +107,8 @@ def rollout_paired(
         sup[0] = base
         for i, v in enumerate(variants, start=1):
             if hasattr(v, "level"):
-                lvl = v.level(dt)
-                sup[i] = np.maximum(base, lvl * v.footprint) if lvl > 0 else base
+                g = v.grid(dt)
+                sup[i] = np.maximum(base, g) if g is not None else base
             elif hasattr(v, "at"):
                 np.maximum(base, v.at(dt), out=sup[i])
             else:

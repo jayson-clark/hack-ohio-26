@@ -272,6 +272,7 @@ class Engine:
         ] if self.roads else []
         self.game = Game(s, game_towns)
         self.fire.set_wind(self.game.wind)
+        self.effects.set_wind(self.game.wind.from_deg)
         # The evacuation clock (#121): orders given (town -> sim tick), the long
         # forecast it reads, and the latest clock. Computed once here with no
         # forecast, which also builds the graph's caches before any thread does.
@@ -493,6 +494,7 @@ class Engine:
                 # The map reset keeps whatever wind exercise control last set;
                 # a round starts from the scenario's own.
                 self.fire.set_wind(self.game.wind)
+                self.effects.set_wind(self.game.wind.from_deg)
                 self.reset_map()
                 if (ig := self.game.ignition) is not None:
                     self.fire.ignite(*ig)
@@ -531,6 +533,7 @@ class Engine:
                 broadcast(self.clients, self.calibration_msg())
             case SetWind():
                 self.fire.set_wind(Wind(speed_ms=msg.speed_ms, from_deg=msg.from_deg % 360))
+                self.effects.set_wind(msg.from_deg % 360)
                 broadcast(self.clients, self.state_msg())
         # Push token changes immediately rather than waiting for the next tick,
         # so dragging feels responsive.
