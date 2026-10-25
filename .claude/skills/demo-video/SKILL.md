@@ -3,9 +3,11 @@ name: demo-video
 description: Re-record, edit or add the demo video's console takes (tools/demo_video/*.take, make demo-video), or record new console footage with Recordly. Use when asked to redo a demo segment, change what a take shows or zooms on, or fix a take that fails.
 ---
 
-The takes and their command language are in `tools/demo_video/README.md`. Read it first. The 3-minute script and shot flow the takes serve is `tools/demo_video/SCRIPT.md`; keep the two in step when a take's content changes.
+The takes and their command language are in `tools/demo_video/README.md`. Read it first. The script the takes serve is `tools/demo_video/SCRIPT_v3.md` (A, B1, B2, F, G; the older `SCRIPT.md` also uses C, D, E); keep the two in step when a take's content changes.
 
 - Prereqs: `make engine`, `make web`, and the Recordly app open with "Let agents use the mouse and keyboard" on. The runner finds Recordly through its entry in `~/.claude.json` (or `RECORDLY_MCP_URL`/`RECORDLY_MCP_TOKEN`).
+- Record with `EMULATOR=off` and `FIRE_SEED=7` in `.env` (the fire is the same every take, and doesn't die out early), and restart the engine before G: the legend's miss rates carry over between rounds.
+- Recordly isn't the public build: it's a source build of `github.com/deepak982/Recordly` branch `feature/mcp-control` (`npm install`, `npm run dev`, then Settings → Advanced → AI agent control, Copy setup command). Board workflow [36] has the steps.
 - Change a take: edit its `.take` file, run `--check`, then `--rehearse <take>` (drives the UI, records nothing), then `make demo-video TAKES=<take>`.
 - To see an export without opening it: the Recordly editor still holds the last take, so its `render_preview` shows frames (no ffmpeg on this Mac).
 - Find a click target: Recordly's `find_elements` (or a `perform` dry run) lists what's clickable. Text targets beat coordinates; coordinates are window points for the 1668×1084 Chrome app window.

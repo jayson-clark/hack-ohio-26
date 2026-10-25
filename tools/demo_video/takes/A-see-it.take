@@ -7,24 +7,28 @@ prep
   reload                        # clears selection, zoom, plan, dock and autopilot
   waitfor "Fit the whole map" timeout=15
   click "Fit the whole map"
-  move 1150,560
+  move 860,1000                 # parked below the fire, off everything
 
 scene "Fire spreads from Pulga with forecast bands at 0.5x"
   hold 2.5                      # wide: the whole console, to get bearings
   key period                    # resume
-  move 1200,560 ms=1500
-  hold 11
-  move 900,640
-  hold 1.5
+  move 900,700 ms=1500          # between Paradise and the fire
+  hold 12.5
 
 scene "Open Paradise: the evacuation clock"
   click "Paradise" index=1      # the map label (0 is the header)
-  hold 2.5
-  move 1488,712                 # rest on Order evacuation, off the numbers
-  hold 6
+  hold 0.4
+  # Selecting a town zooms the map to its evacuation zone, which for Paradise
+  # is all the map shows. Refit so the fire coming at it is in frame.
+  click "Fit the whole map"
+  move 780,750                  # rest between Paradise and the fire, off the numbers
+  hold 7
 
-# The fire, Pulga, Concow and Magalia; then pan to Paradise's inspector.
-zoom 1@3..2@0.8 depth=4 at=0.71,0.40
-zoom 2@0.8..end depth=4 at=0.71,0.42
+# The fire and every town in its way, Paradise included; then a small pan up
+# so Paradise's whole inspector (header to Order evacuation) is in frame
+# beside the fire. Depth 4 can't fit the inspector: it's 0.59 of the
+# window's height and reaches its right edge.
+zoom 1@3..2@1 depth=3 at=0.64,0.47
+zoom 2@1..end depth=3 at=0.64,0.38
 label "0.5× · 5 sim-min/s" 1@2.5..end
 export A-see-it.mp4

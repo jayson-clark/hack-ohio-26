@@ -29,7 +29,7 @@ One command per line; `#` starts a comment. Quote text with spaces.
 | `engine fresh <speed> [paused]` | Remove every virtual token, reset, set the speed and start the round at the Camp Fire origin |
 | `engine advance <minutes>` | Run the fire this many sim-minutes, then pause |
 | `engine speed <x>` / `engine pause` / `engine resume` | |
-| `engine send <json>` | Any client message, e.g. `engine send {"type":"set_wind","speed_ms":12,"from_deg":90}` |
+| `engine send <json>` | Any client message, e.g. `engine send '{"type":"set_wind","speed_ms":12,"from_deg":90}'` (single quotes, or the line's quoting eats the JSON's) |
 
 **Windows.** `window console` or `window control` (exercise control) picks the window the steps drive. The first one named is where the take starts; inside a block it cuts to the other window mid-take. Both are Chrome app windows, opened if missing and moved onto the console's bounds, so the crop holds across the cut. `reload` reloads whichever window is being driven.
 
@@ -100,4 +100,7 @@ What reads well (see `SCRIPT.md`):
 - Move sliders with `drag`, not a click and arrow keys: with keys the thumb jumps while the pointer sits still. Thumb x for a value is about `36 + 308 × fraction` in the Plan panel at 1668 wide; check the value with `--rehearse`.
 - Recordly's `type` has dropped letters in this window. Prefer clicking the commander's suggestion buttons.
 - A tiling window manager (AeroSpace here) moves the window when Recordly takes focus at the start of a take, so the first frames slid against the crop. The runner floats the window with `aerospace layout floating` when AeroSpace is installed. With another tiler, float the Chrome app window by hand.
+- Record with `FIRE_SEED=7` in `.env`: without a seed the real fire dies out early in some rounds, and with one every take starts from the same fire, which is what the zooms and click points were aimed on.
+- The calibrated outline's miss rates carry over between rounds on a map, so restart the engine before a take that reads them (G); a previous round's wind shift leaves the legend orange.
+- Recordly caps one `hold` or `waitfor` at 30 s. Split longer ones.
 - Above 1× the Paradise fire outruns every decision. Most takes run at 0.25–0.5×.

@@ -14,12 +14,12 @@ scene "Order Pulga's evacuation from the queue"
   waitfor "Order evacuation" timeout=20
   hold 2.5                      # read the card
   click "Order evacuation" role=button index=0
-  hold 2.5                      # the queue re-sorts
-  move 188,968                  # the "Pulga is evacuating" card
-  hold 3
+  move 560,620                  # off the queue, so the re-sort reads
+  hold 4.5                      # the queue re-sorts
 
-# Close on the queue's first card to read it, then pan down to Pulga evacuating.
-zoom 1@1..1@end-4 depth=5 at=0.19,0.36
-zoom 1@end-4..end depth=4 at=0.29,0.74
+# Close on the top of the queue: read Pulga's card, order it, and watch the
+# queue re-sort with Paradise on top. Where Pulga's "evacuating" card lands
+# depends on the queue, so the take doesn't pan to it.
+zoom 1@1..end depth=5 at=0.19,0.42
 label "0.25× · 2.5 sim-min/s" 1@1.5..end
 export B1-order-evacuation.mp4

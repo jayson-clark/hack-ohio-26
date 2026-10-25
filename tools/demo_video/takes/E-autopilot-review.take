@@ -21,6 +21,7 @@ scene "4x: let the incident play out"
   click "4×" role=button
   move 1100,560 ms=1200
   waitfor "Exercise over" timeout=30
+  waitfor "Exercise over" timeout=30   # Recordly caps one wait at 30 s
   hold 1
 
 scene "Review the outcome"

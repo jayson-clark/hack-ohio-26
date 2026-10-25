@@ -118,6 +118,10 @@ PORT = int(os.environ.get("ENGINE_PORT", "8765"))
 SCENARIO = os.environ.get("SCENARIO", "paradise")
 CAMERA = os.environ.get("CAMERA", "")  # see vision/camera.py; empty = virtual table only
 PROJECTOR_MM = os.environ.get("PROJECTOR_MM", "")  # see vision/geometry.py; empty = no height correction
+# Seeds the real fire so every round plays out the same until someone acts:
+# for recording the demo, where a fire that dies out early ruins a take.
+# Empty = a fresh fire each round.
+FIRE_SEED = int(os.environ["FIRE_SEED"]) if os.environ.get("FIRE_SEED") else None
 # Any web page open in a browser can connect to ws://localhost, so only the
 # app's own pages may: Vite in dev (and Tauri dev, which loads it) and the
 # built Tauri app. Comma-separated, to add e.g. a LAN address.
@@ -261,7 +265,7 @@ class Engine:
         # Another scenario keeps the rig's camera -> projector and re-derives
         # the map part once the camera sees the new board.
         self.calibrator = Calibrator(s, projector=projector_from_env(PROJECTOR_MM, s))
-        self.fire = FireSim(s)
+        self.fire = FireSim(s, seed=FIRE_SEED)
         self.effects = TokenEffects(s.width, s.height)
         self.incidents = IncidentTracker(s)  # several fires on one map (#179)
         self._inc_env_tick: int | None = None
