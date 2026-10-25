@@ -1,0 +1,41 @@
+# The calibrated outline (#12, #213) for SCRIPT_v3's 0:40 beat: a town's
+# calibrated arrival range, the legend's live miss rate, then a wind shift
+# at T+80 to 10 m/s from the ESE, which drives the fire at Concow and Magalia
+# (eval.run's westerly shift drives it off the map's east edge). The misses
+# climb past the 10% target (to about 32% at 60 min), the legend turns orange
+# ("Widening") and the outline widens until the misses fall back, about 35 s
+# at 0.5x. Record with EMULATOR=off and FIRE_SEED=7, which these points were
+# aimed on, and restart the engine first: the miss rates carry over from
+# earlier rounds on the map, so a previous take's shift leaves it orange.
+engine fresh 0.5 paused
+engine advance 80
+
+prep
+  reload
+  waitfor "Fit the whole map" timeout=15
+  click "Fit the whole map"
+  move 860,1000                 # parked below the fire, off everything
+
+scene "Paused: a town's calibrated range and the outline's miss rate"
+  hold 2.5                      # wide
+  hold 4                        # Concow's label: "Fire in 1h 08m–1h 34m"
+  hold 5                        # the legend: misses lately against the 10% target
+
+scene "The wind swings to come from the ESE: misses jump, the outline widens"
+  engine send '{"type":"set_wind","speed_ms":10,"from_deg":110}'
+  key period                    # resume
+  hold 19
+  hold 19                       # Recordly caps one hold at 30 s
+
+# Concow's label beside the fire, then the legend. In scene 2, wide enough for
+# the wind badge, the fire and the legend; close on the legend while the
+# misses climb (about T+110 to T+210); wide again as the outline catches up.
+zoom 1@2.5..1@6.5 depth=5 at=0.72,0.52
+zoom 1@6.5..2@0.5 depth=5 at=0.30,0.83
+zoom 2@0.5..2@6 depth=2 at=0.57,0.55
+zoom 2@6..2@27 depth=5 at=0.30,0.83
+zoom 2@27..end depth=2 at=0.57,0.55
+label "Paused" 1@0..2@0.3
+label "0.5× · 5 sim-min/s" 2@0.3..end
+label "Wind shift: NE → ESE, 10 m/s" 2@0..2@8 at=79,7.5
+export G-calibration-wind-shift.mp4

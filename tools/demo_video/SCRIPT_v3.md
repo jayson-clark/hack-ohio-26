@@ -11,7 +11,7 @@ A rework of the #206 script around four things: the simulation, honest uncertain
 | **0:00–0:10** Cold open | Take A·1: fire leaves Pulga, forecast bands growing | "November 8th, 2018. A fire near Pulga, California, reaches Paradise in about eighty minutes. Paradise needed eight hours to evacuate." | Caption only |
 | **0:10–0:16** Title | Title card | "This is Fireline: decisions ahead of the fire, and honest about what it doesn't know." | **Fireline** |
 | **0:16–0:40** The simulation | Take A·1 wide, then 2.2× on the bands. Insert: Camp Fire replay overlay, sim vs the real NIFC/FEDS perimeters | "Underneath is a fire model on real terrain, fuel and roads, at 94-metre cells, with embers that jump ahead in strong wind. We didn't tune it by eye: we replayed two real fires. On the Marshall Fire it matches the burned area at two and a half hours. On the Camp Fire it gets the direction and the towns right, but burns about twice the real area, and we'll show you how the software copes with that." | "Camp Fire IoU 0.39 / 0.53, ~2× the real area", "Marshall 2.5 h area 1.01×" |
-| **0:40–1:20** Honest uncertainty | Take A·2 / B2: a recommendation card reading "in 24 of 32 simulations", the forecast outline, then the layers menu showing "Forecast outline: X% fell outside lately (target 10%)" at 3.5× | "Every number comes from running the fire forward 32 times: not a language model, not a learned shortcut. So we show it as a count, like 24 of 32 simulations, and a crew card only appears when even the pessimistic end of its range helps. But simulations are wrong in ways a count can't see: the wind shifts. So the forecast outline is calibrated as the fire burns, checking every past forecast against what actually burned. It aims for one acre in ten outside it, and the console shows how well that's holding right now. When the wind shifts, you watch that number jump, and the outline widen to catch up." | "24 of 32 → likely 61–85%", "Target: 10% outside · measured 11–13% (steady, shift, gusty)" |
+| **0:40–1:20** Honest uncertainty | Take B1's close-up of Pulga's evacuation card ("the last car gets out first in 17 of 32 simulations"; crew cards count 16 paired runs), then take G: a town label's calibrated range ("Fire in 1h 07m–1h 37m"), the map legend's "Calibrated outline: new fire outside it lately … (target 10%)" at 3.5×, and a wind shift turning it orange ("Widening") as the outline widens | "Every number comes from running the fire forward 32 times: not a language model, not a learned shortcut. So we show it as a count, like 17 of 32 simulations, and a crew card only appears when even the pessimistic end of its range helps. But simulations are wrong in ways a count can't see: the wind shifts. So the forecast outline is calibrated as the fire burns, checking every past forecast against what actually burned. It aims for one acre in ten outside it, and the console shows how well that's holding right now. When the wind shifts, you watch that number jump, and the outline widen to catch up." | "17 of 32 simulations", "Target: 10% outside · measured 11–13% (steady, shift, gusty)" |
 | **1:20–1:35** Saying what we don't know | Card: three short lines over the console | "We're upfront about the limits. Our replay of the Camp Fire burns about twice the real area. Town arrival ranges hold more than nine times in ten in steady wind, but only about two in three right after a shift, because we don't forecast the wind. There's no fuel moisture model, and fire doesn't spread house to house." | "Camp Fire replay ~2× the area", "Steady wind 95% · after a shift 67%", "No wind forecast · no fuel moisture · no house-to-house spread" |
 | **1:35–1:50** Decide | Take B1 then B2: order evacuation, dispatch the recommended crew | "Within those limits, every decision lands in one queue, most urgent first. Order an evacuation, and the alert is drafted. Dispatch a crew, and the forecast credits it from the moment it arrives." | Badge: 0.25× |
 | **1:50–2:20** The table as a drone | Table wide (projector shows only ground and fire), then hard cut to the console's Camera view: the camera's top-down picture with the map layers over it. A hand places a crew token; the console picks it up | "On a real fire, the operator sees it from a drone. Our stand-in is a 3D print of the real terrain. The projector paints only what a drone would see, ground and fire. The camera overhead is the drone: it corrects for the terrain's height, straightens the view into a top-down map, and spots units on the ground, so the software works from what it sees, not what we tell it." | Lower third: "Physical table = drone footage stand-in" |
@@ -24,7 +24,7 @@ About 410 words of voiceover, roughly 2:55 at 140 words a minute. Trim the 1:35 
 
 - **Simulation before uncertainty:** the replay numbers earn the right to talk about limits; they show we measured the model before trusting it.
 - **Uncertainty gets the most time (55 s):** it's what separates us from a pretty fire animation. The beat to land is the live miss-rate readout: a forecast that grades itself in front of the operator.
-- **The limits slide is deliberate.** Saying "70% after a wind shift" on camera is more credible than a perfect number.
+- **The limits slide is deliberate.** Saying "67% after a wind shift" on camera is more credible than a perfect number.
 - **The table is framed as a drone, not a gimmick** (board decision [17]): the projector draws only ground and fire, and the camera does the seeing.
 - **The board is about distributed velocity,** with two real examples from the board's history: the C2 question in [60] and the map extension handoff in [196].
 
@@ -32,10 +32,9 @@ About 410 words of voiceover, roughly 2:55 at 140 words a minute. Trim the 1:35 
 
 0. **Record with `EMULATOR=off` in `.env`** (#213). The engine log should say 'fire emulator switched off'. The emulator's weights predate the map extension and fuel fix, and with it off every frame is Monte Carlo with the calibrated outline.
 1. **Console:**
-   - existing takes A, B1, B2;
-   - a new 3.5× insert of the layers menu with the outline's miss rate visible;
-   - ideally a wind-shift take where the miss rate rises and the outline widens.
-2. **Calibration close-ups (PR #213 merged first):**
+   - takes A, B1, B2, re-recorded on current main;
+   - take G (`G-calibration-wind-shift.take`): the legend's miss rate at 3.5×, a town's calibrated range, and a wind shift where the miss rate rises and the outline widens.
+2. **Calibration close-ups** (all in take G):
    - the map legend: 'Calibrated outline' with its live miss rate underneath (it turns orange and says 'Widening' after a wind shift);
    - a town label on the map showing the calibrated range ('Fire in 25–40 min');
    - optional insert: `docs/images/calibration/envelope_maps.png` (PR #210), the outline before, just after and an hour after a wind shift.
@@ -50,8 +49,9 @@ About 410 words of voiceover, roughly 2:55 at 140 words a minute. Trim the 1:35 
 
 - [x] Camp Fire replay re-measured on the 512x480 map with rebuilt truth files: IoU 0.39 / 0.53, 2.2x / 1.7x the area, C2 stays 0.3 (board [258]).
 - [x] Envelope miss on the new maps: 10.9% steady, 11.7 / 12.6% shift, 12.4 / 12.2% gusty (T+30 / T+60).
-- [ ] Arrival-range coverage (98% / 70%) and Marshall 1.01x on the extended maps: re-measuring now.
-- [ ] #213 merged (simulator-only toggle, legend, calibrated town labels) before recording.
+- [x] Arrival-range coverage (95% steady / 67% after a shift) and Marshall 1.01x re-measured on the extended maps.
+- [x] #213 merged (simulator-only toggle, legend, calibrated town labels).
+- [x] Record with `FIRE_SEED=7` too: the real fire otherwise dies out early in some rounds, and with a seed every take starts from the same fire.
 - [ ] PR and knowledge counts on the day.
 - [x] The outline's miss rate is in the map legend now (#213), not only the layers menu.
 - [ ] The narrator, decided by the team.

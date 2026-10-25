@@ -24,7 +24,7 @@ scene "Add the recommended crews and a dozer line"
   click "Add recommended"
   hold 1.5
   click "Dozer line" role=button
-  click 1198,514                # between the fire and Concow
+  click 1191,470                # west of the fire's tip, between crews 1 and 2
   key escape
   move 1300,900
   waitfor "Saves" timeout=30
