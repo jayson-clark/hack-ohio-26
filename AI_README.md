@@ -164,13 +164,13 @@ The raw forecast assumes the wind and the crews stay as they are. Players change
   ![Miss rate against the 10% target, and the outline's knob](docs/images/calibration/envelope_miss.png)
 
   The miss rate (dots per scored forecast, line for the last-20 average the console shows) spikes about an hour after the shift, and only then does the knob drop to 1/32 and add margin cells. Over this one fire it averages 8.4% at T+30 and 12.2% at T+60. That's the price of a guarantee on the running average with an hour's delay in learning: the outline lags a shift on the way out and stays wide for a while on the way back. Read a wide line next to a tight fill as "the forecast was recently wrong, so give it room", not as a bigger fire.
-- **Measured** at `C2` 0.3 (`eval.run`, 4 episodes per wind schedule, 83–96 scored forecasts each; missed share over the whole run):
+- **Measured** at `C2` 0.3 on the extended Paradise map, simulator only (`eval.run`, 4 episodes per wind schedule, 83–96 scored forecasts each; missed share over the whole run):
 
   | Wind | T+30 | T+60 |
   |---|---|---|
-  | Steady | 10.9% | 11.0% |
-  | Wind shift | 11.7% | 13.0% |
-  | Gusty | 12.3% | 12.1% |
+  | Steady | 10.9% | 10.9% |
+  | Wind shift | 11.7% | 12.6% |
+  | Gusty | 12.4% | 12.2% |
 
   All are inside the finite-sample bound below (about 10% + 3.7/T, so up to about 14% at these T). They sit 1–3 points over target because each run starts from the warm start and spends its first forecasts catching up.
 - **Per scenario:** the knob is learned per scenario and restarts from `ENVELOPE_WARM` when the scenario changes.
@@ -180,7 +180,7 @@ The raw forecast assumes the wind and the crews stay as they are. Players change
 - **Correction:** a learned correction Q per lead-time bucket (under 30 min, 30–120 min, over 120 min) widens or narrows it to `[lo − Q, hi + Q]`.
 - **Calibration units:** towns burn too rarely to learn from, so Q is learned on town-sized disks (8-cell radius) dropped on unburned ground and scored like towns. The bound below applies to those disks; that towns behave like them is an assumption, which the measured town coverage checks.
 - **On screen:** "fire likely arrives in 25–40 min (90%)". There is no range (null) when too few simulations reach the town to bound it. That means "probably not within the forecast", not "never".
-- **Measured coverage** of real town arrivals (target 90%, `eval.arrival`, 40–55 town ranges per schedule) at `C2` 0.3: steady wind 98% (median width 38 min), gusty 72% (143 min), wind shift 70% (138 min).
+- **Measured coverage** of real town arrivals (target 90%, `eval.arrival`, 40–55 town ranges per schedule) on the extended map: steady wind 95% (median width 36 min), gusty 65% (164 min), wind shift 67% (63 min).
 - **Wind shifts:** treat ranges issued just before a shift as stale. They learn only after the shift, and the fix for that is a real wind forecast, not more statistics.
 
 **The guarantee, precisely.** Split conformal prediction gives a finite-sample guarantee for each new prediction, P(covered) ≥ 90%, but only if the calibration data and the new case are exchangeable. A fire under shifting wind and player actions isn't, so the console uses the online (ACI) form instead. That trades the per-prediction guarantee for a deterministic one on the running average, with no assumption about the data at all:
@@ -197,10 +197,10 @@ The raw forecast assumes the wind and the crews stay as they are. Players change
 
 ### 3. "Is the simulator right about real fires?": model error
 Layers 1 and 2 measure the simulator against itself plus changes in wind and crews. Whether the simulator matches real fire behaviour is checked separately:
-- **Real-fire replays:** the Camp Fire and Marshall Fire replays score the model against real perimeters and timed observations. `C2` 0.3 gives Camp IoU 0.66 / 0.78 and Marshall 2.5 h IoU 0.45 at 1.0× the real area.
+- **Real-fire replays:** the Camp Fire and Marshall Fire replays score the model against real perimeters and timed observations. On the full 512x480 map, the Camp Fire replay overlaps the real perimeters at IoU 0.35 / 0.46 and burns about twice the real area (the earlier 0.66 / 0.78 was inside a smaller map whose edges hid the over-burn). It still gets the direction and the threatened towns right: the evacuation clock flags all 4 towns the real fire reached, before the real deadline. Marshall's 2.5 h outline matches the real area (IoU 0.45, 1.01×).
 - **Emulator training:** the emulator's labels average over plausible model constants, so its previews hedge over this error.
 - **Known gaps:**
-  - no fuel moisture or humidity model;
+  - no fuel moisture or humidity model, the likely reason the Camp Fire replay over-burns the foothills about 2×;
   - suburbs burn like fuel, with no house-to-house spread, so Marshall overshoots past where the real fire stopped;
   - no wind forecast, so the wind is assumed to hold unless the operator asks a what-if.
 
