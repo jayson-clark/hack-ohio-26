@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 23
+PROTOCOL_VERSION = 24
 
 
 # --- Binary frames ---------------------------------------------------------
