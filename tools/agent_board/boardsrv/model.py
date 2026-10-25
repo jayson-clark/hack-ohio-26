@@ -93,10 +93,11 @@ def paths_overlap(a, b):
 
 
 class Board:
-    def __init__(self, db, bus, token=""):
+    def __init__(self, db, bus, token="", repo=""):
         self.db = db
         self.bus = bus
         self.token = token
+        self.repo = repo  # "owner/name", for links in the UI
         self.q, self.q1, self.ex = db.q, db.q1, db.ex
 
     def publish(self, kind, data):
@@ -760,6 +761,7 @@ class Board:
             "tags": self.tags(),
             "github": {**gh, "updated_at": gh_at} if gh else None,
             "kinds": {"entries": ENTRY_KINDS, "messages": MESSAGE_KINDS},
+            "repo": self.repo,
             "now": now(),
         }
 

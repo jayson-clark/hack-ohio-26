@@ -47,7 +47,7 @@ TOKEN = os.environ.get("BOARD_TOKEN", "")
 
 
 def make_server(db_path=DB_PATH, host=HOST, port=PORT, token=TOKEN):
-    board = Board(DB(db_path), Bus(), token=token)
+    board = Board(DB(db_path), Bus(), token=token, repo=github.REPO)
     handler = type("BoardHandler", (Handler,), {"board": board})
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
