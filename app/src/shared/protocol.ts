@@ -16,7 +16,8 @@ export type EngineMessage =
   | Situation
   | PlanResult
   | Calibration
-  | ForecastEnvelope;
+  | ForecastEnvelope
+  | Drafts;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -31,7 +32,8 @@ export type EventKind =
   | "unit_arrived"
   | "unit_blocked"
   | "tankers_grounded"
-  | "evacuate_now";
+  | "evacuate_now"
+  | "draft_sent";
 export type RecAction = "place" | "move";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
@@ -56,6 +58,8 @@ export type ClientMessage =
   | StepOnce
   | CommanderQuery
   | OrderEvacuation
+  | DraftAction
+  | RequestBriefing
   | PttStart
   | PttStop
   | CalibrationStep
@@ -282,6 +286,7 @@ export interface UnitInfo {
   y: number;
   eta_min: number | null;
   path: number[][];
+  line: number[][];
 }
 /**
  * When each town has to be ordered out (#121): fire arrival from a long
@@ -342,6 +347,8 @@ export interface TownThreat {
   within_60: KofN | null;
   median_min: number | null;
   soonest_min: number | null;
+  eta_lo_min: number | null;
+  eta_hi_min: number | null;
   route_status: RouteStatus | null;
   exit: string | null;
   drive_min: number | null;
@@ -429,6 +436,27 @@ export interface ForecastEnvelope {
   miss_recent: (number | null)[];
   miss_overall: (number | null)[];
   scored: number[];
+}
+export interface Drafts {
+  type: "drafts";
+  tick: number;
+  drafts: Draft[];
+}
+/**
+ * A drafted dispatch order, evacuation alert or briefing (#132). Nothing
+ * is delivered anywhere: the operator approves, edits or dismisses it.
+ */
+export interface Draft {
+  id: string;
+  kind: "unit_order" | "evac_alert" | "briefing";
+  subject: string;
+  status: "draft" | "sent" | "dismissed";
+  text: string;
+  text_es: string | null;
+  source: "template" | "llm" | "operator";
+  grounded: boolean;
+  tick: number;
+  sent_tick: number | null;
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
@@ -529,6 +557,21 @@ export interface OrderEvacuation {
   type: "order_evacuation";
   town: string;
   ordered: boolean;
+}
+/**
+ * Send, dismiss or edit a draft (#132). `text` is the edited text.
+ */
+export interface DraftAction {
+  type: "draft_action";
+  id: string;
+  action: "send" | "dismiss" | "edit";
+  text: string | null;
+}
+/**
+ * Draft a situation briefing now (#132).
+ */
+export interface RequestBriefing {
+  type: "request_briefing";
 }
 /**
  * Push-to-talk pressed: the engine starts recording and the commander stops talking.

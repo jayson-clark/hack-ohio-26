@@ -273,6 +273,24 @@ class TokenEffects:
                 del d[gone]
         return SuppressionSchedule(static, layers)
 
+    def line_of(self, token_id: str, tick: int) -> list[list[float]]:
+        """The two ends of the line the crew on `token_id` has cut by `tick`
+        (#159), in map coords, or [] if it hasn't started one."""
+        c = self._crews.get(token_id)
+        if c is None or c.wind_from is None:
+            return []
+        reach = min(LINE_LENGTH / 2, LINE_RATE * (tick - c.since - CREW_RAMP_TICKS))
+        if reach <= 0:
+            return []
+        b = math.radians(c.wind_from)
+        ux, uy = math.sin(b) * reach, -math.cos(b) * reach
+        return [[round(c.x - ux, 2), round(c.y - uy, 2)], [round(c.x + ux, 2), round(c.y + uy, 2)]]
+
+    def line_growing(self, tick: int) -> bool:
+        """True while any crew's line is still being cut, so the map keeps up."""
+        return any(c.wind_from is not None and tick - c.since < CREW_RAMP_TICKS + LINE_LENGTH / 2 / LINE_RATE
+                   for c in self._crews.values())
+
     def water_ready_in(self, tick: int) -> dict[str, int]:
         """Ticks until each water token can drop again (0 = ready once moved),
         for the console's cooldown display."""

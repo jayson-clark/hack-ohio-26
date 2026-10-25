@@ -17,7 +17,7 @@ Gotchas:
 - Speed also changes the forecast: `SIM_MINUTES_PER_TICK` and the horizons in `engine/forecast/runner.py` assume a fire moving at most one cell per tick.
 - `HOLD_P` decides how much partial suppression (crews, wet patches) weakens against intense spread. Raise it and crews hold head fire again; lower it and they only hold backing fire. Check with `uv run python -m eval.early_attack` (model-eval skill).
 - Spotting (`SPOT_*`) only runs above `SPOT_MIN_WIND` (9 m/s). Check changes against the real Camp Fire: `uv run python -m eval.campfire` (one replay, ~3 s) or `--search` (432 settings in parallel, ~4 min). Its observations are upper bounds ("fire was here by then"), so only lateness counts as an error, and overburning shows up in the perimeter IoU and area ratio.
-- Changing `C2` changes every wind, not just the head: at 0.4 the Camp Fire perimeters fit better, but fires at 3–8 m/s starved. Run `eval.early_attack` and the Camp Fire replay together before changing it.
+- Changing `C2` changes every wind, not just the head. It's 0.3, chosen against the Camp Fire replay, Marshall (`eval.marshall --measured`) and `eval.early_attack` together (PLAN.md, "Choosing C2"). At 0.4 fires at 3–8 m/s starve; a floor on flank and backing spread was tried and made both replays worse. Run all three before changing it.
 - The learned emulator (fire-emulator skill) has to be retrained after any change here.
 - `SLOPE_A` is per degree of real slope (metres, not the print's relief). Paradise's canyon walls hit 25–40°, so small changes matter a lot downhill.
 - `rollout` timing grows with the fire's bounding box. Check `rollout(snapshot, 32, 60)` on a large fire stays well under a second.

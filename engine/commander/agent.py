@@ -53,8 +53,8 @@ def has_server_fallback(model: str) -> bool:
     parameter would do nothing), so a Haiku refusal falls back to templates."""
     return not model.startswith("claude-haiku")
 
-SYSTEM = """You are the incident commander for a wildfire on a projected terrain table: the Camp Fire country \
-around Paradise, California. Crew bosses ask you questions out loud, and your answer is spoken back to them.
+SYSTEM = """You are the incident commander for a wildfire in {setting}. Operators ask you questions in the \
+console, typed or by push-to-talk, and read your answer there.
 
 How to answer:
 - Before stating any number, call a tool. Every figure you say must come from a tool result you got \
@@ -83,7 +83,23 @@ TOOLS = [{**t, "strict": True} for t in TOOL_SPECS]
 # Requests render tools, then system, then messages. Both of the first two are
 # identical on every call, so a breakpoint at the end of the system prompt
 # caches them together. Nothing volatile (time, tick, state) goes in either.
-SYSTEM_BLOCKS = [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}]
+def system_blocks(setting: str) -> list[dict]:
+    """The system prompt for one scenario, behind a cache breakpoint. It
+    changes only when the scenario does, so the prompt cache still holds
+    between questions (one miss per scenario switch, #157)."""
+    return [{"type": "text", "text": SYSTEM.format(setting=setting), "cache_control": {"type": "ephemeral"}}]
+
+
+def scenario_setting(engine) -> str:
+    """Where the fire is, for the prompt: game.json's "setting" if the
+    scenario has one, else its towns. Never another scenario's place."""
+    setting = engine.game.config.get("setting") if getattr(engine, "game", None) else None
+    if setting:
+        return setting
+    towns = [t.name for t in getattr(engine, "towns", [])]
+    if towns:
+        return "the country around " + (", ".join(towns[:-1]) + " and " + towns[-1] if len(towns) > 1 else towns[0])
+    return f"the {engine.scenario.name} scenario"
 
 
 class Answer:
@@ -208,7 +224,7 @@ class Commander:
         async with self.client.beta.messages.stream(
             model=self.model,
             max_tokens=MAX_TOKENS,
-            system=SYSTEM_BLOCKS,
+            system=system_blocks(scenario_setting(self.tools.e)),
             tools=TOOLS,
             messages=messages,
             output_config={"effort": self.effort},

@@ -67,3 +67,20 @@ def test_crew_layer_matches_a_placed_crew():
     layer = crew_layer(W, H, X, Y, wind_from=45.0)
     for dt in (CREW_RAMP_TICKS + 10, CREW_RAMP_TICKS + 100):
         np.testing.assert_array_equal(layer.grid(dt) >= 1.0, fx.update([_crew()], dt) >= 1.0)
+
+
+def test_line_of_gives_the_ends_the_map_draws():
+    """The units message carries the line cut so far (#159): nothing while
+    digging in, then two ends either side of the crew, along the wind."""
+    fx = TokenEffects(W, H)
+    fx.set_wind(0.0)  # from the north: the line runs north-south
+    fx.update([_crew()], 0)
+    assert fx.line_of("c", CREW_RAMP_TICKS) == []
+    (x1, y1), (x2, y2) = fx.line_of("c", CREW_RAMP_TICKS + 20)
+    assert x1 == x2 == X and abs((y1 + y2) / 2 - Y) < 1e-6
+    assert abs(abs(y2 - y1) - 2 * LINE_RATE * 20) < 1e-6
+    assert fx.line_growing(CREW_RAMP_TICKS + 20)
+    (_, y1), (_, y2) = fx.line_of("c", 10_000)
+    assert abs(abs(y2 - y1) - LINE_LENGTH) < 1e-6
+    assert not fx.line_growing(10_000)
+    assert fx.line_of("nobody", 100) == []

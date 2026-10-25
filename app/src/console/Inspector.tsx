@@ -109,7 +109,15 @@ function TownDetail({ town: t, scenario, onClose, onFocus }: { town: TownView; s
         <Fact
           label="Fire could arrive"
           tone={t.tone === "neutral" ? undefined : t.tone}
-          value={th?.fire_inside ? "In town now" : th?.soonest_min != null ? `${aboutMinutes(th.soonest_min)}` : "Not within 1 h"}
+          value={
+            th?.fire_inside
+              ? "In town now"
+              : th?.eta_lo_min != null && th.eta_hi_min != null
+                ? `${aboutMinutes(th.eta_lo_min)}–${aboutMinutes(th.eta_hi_min)} (90%)`
+                : th?.soonest_min != null
+                  ? `${aboutMinutes(th.soonest_min)}`
+                  : "Not within 1 h"
+          }
         />
         <Fact label="Likely arrival" value={th?.median_min != null ? aboutMinutes(th.median_min) : "—"} />
       </div>

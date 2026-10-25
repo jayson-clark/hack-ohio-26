@@ -22,6 +22,7 @@ import numpy as np
 from commander.agent import Commander
 from commander.briefings import BriefingQueue, ForecastWatcher, evacuate_text, round_summary
 from commander.listen import Listener, vocabulary_prompt
+from commander.drafts import DraftDesk, set_known_names
 from commander.listen import speakable
 from commander.tools import CommanderTools
 from forecast.plan import PLAN_ROLLOUTS, PlanOutcome, evaluate_plan
@@ -35,6 +36,7 @@ from protocol import (
     CommanderKind,
     CommanderMessage,
     CommanderQuery,
+    DraftAction,
     CameraState,
     EndRound,
     EvacStatus,
@@ -53,6 +55,7 @@ from protocol import (
     PlanTown,
     PttStart,
     PttStop,
+    RequestBriefing,
     Reset,
     ResourceUse,
     RoundPhase,
@@ -97,8 +100,8 @@ from routing.tracker import RouteTracker
 from routing.roads import load_network
 from scenario import ASSETS, load_scenario
 from sim.effects import CREW_RADIUS, SuppressionSchedule, TokenEffects
-from sim.fire import BURNING, FUEL, SIM_MINUTES_PER_TICK, FireSim, Wind
-from uq.conformal import EnvelopeLedger
+from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
+from uq.conformal import ArrivalCalibrator, EnvelopeLedger
 from uq.mc import wilson
 from sim.dispatch import Dispatcher
 from sim.game import Game, GameTown
@@ -224,6 +227,9 @@ class Engine:
         self.watcher = ForecastWatcher()
         self.briefings = BriefingQueue()
         self.commander = Commander(self.tools)
+        # Drafted dispatch orders and evacuation alerts for the operator (#132).
+        self.drafts = DraftDesk()
+        self._name_drafts()
         self._query_task: asyncio.Task | None = None
 
     def load(self, name: str) -> None:
@@ -238,6 +244,10 @@ class Engine:
         # new distribution, so it starts again from the warm start.
         self.envelope = EnvelopeLedger(tuple(horizon_ticks(m) for m in HORIZONS_MIN), ENVELOPE_WARM, N_ROLLOUTS)
         self._envelope_dirty = False
+        # Calibrated time-to-impact ranges (#13), also per scenario, and the
+        # live first-burn tick of every cell that they're scored against.
+        self.eta_cal = ArrivalCalibrator(s.cell_size_m)
+        self._burn_tick = np.full((s.height, s.width), np.inf, np.float32)
         # The camera's homography is per scenario; stop the old capture thread
         # rather than leaving it running beside the new one.
         if self.camera is not None:
@@ -454,6 +464,7 @@ class Engine:
                 await ws.send(self.clock_msg())
             await ws.send(self.recs_msg())
             await ws.send(self.envelope_msg())
+            await ws.send(self.drafts.message(self.fire.tick))
             await ws.send(self.units_msg())
             await ws.send(self.situation_msg())
             if self.recent_events:
@@ -519,6 +530,10 @@ class Engine:
                 self.accept_recommendation(msg.id)
             case OrderEvacuation():
                 self.order_evacuation(msg.town, msg.ordered)
+            case DraftAction():
+                self.draft_action(msg)
+            case RequestBriefing():
+                self._new_draft(self.drafts.briefing(self))
             case EvaluatePlan():
                 self._plan_latest = msg.id
                 asyncio.create_task(self.evaluate_plan(msg))
@@ -579,6 +594,9 @@ class Engine:
         # load() already reset the route tracker (held routes belong to the old graph).
         self._routes_tick = 0
         self.tools.on_scenario()
+        self.drafts.clear()  # orders and alerts were about the old map
+        self._name_drafts()
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
         self._sent_inactive = []
         self._sent_token_version = -1
         self.recent_events.clear()
@@ -607,6 +625,9 @@ class Engine:
         """Put the fire out, drop everything derived from it, and tell the UI."""
         self.fire.reset()
         self.envelope.clear_pending()  # in-flight envelopes were about the old fire; keep what was learned
+        self.drafts.clear()
+        self.eta_cal.clear_pending()
+        self._burn_tick[:] = np.inf
         self.effects.reset()
         self._fire_epoch += 1
         self._forecast_started = -FORECAST_MIN_TICKS
@@ -711,7 +732,10 @@ class Engine:
             self._acting = self.dispatcher.update(tokens, self.fire.tick, self.fire.wind.speed_ms, closed)
             self.fire.set_suppression(self.effects.update(self._acting, self.fire.tick))
             self.fire.step()
-            if self.envelope.mature(self.fire.tick, self.fire.state >= BURNING):
+            lit = self.fire.state >= BURNING
+            self._burn_tick[lit & np.isinf(self._burn_tick)] = self.fire.tick
+            self.eta_cal.mature(self.fire.tick, self._burn_tick, SIM_MINUTES_PER_TICK)
+            if self.envelope.mature(self.fire.tick, lit):
                 self._envelope_dirty = True
             self.check_road_cuts()
             self.score_step(tokens)
@@ -758,8 +782,11 @@ class Engine:
             return
         self.latest_forecast = job.result()
         # Remember this forecast's envelopes, to score them when their horizons pass (#12).
+        # Judge them against the fire as it was when the forecast started: first_burn
+        # is 0 exactly where cells were already burning or burned at f.tick.
         f = self.latest_forecast
-        self.envelope.issue(f.tick, f.probability, self.fire.state >= BURNING, self.fire.state == FUEL)
+        lit_then = f.first_burn[0] == 0
+        self.envelope.issue(f.tick, f.probability, lit_then, ~lit_then)
         broadcast(self.clients, self.envelope_msg())
         if self._preview is not None and self._preview[0] <= self.latest_forecast.tick:
             self._preview = None  # Monte Carlo has caught up
@@ -838,18 +865,27 @@ class Engine:
                 token_id=u.token_id, x=round(float(x), 2), y=round(float(y), 2),
                 eta_min=round((u.arrive_tick - tick) * mpt, 1) if u.status == "en_route" else None,
                 path=u.path if u.status == "en_route" else [],
+                line=self.effects.line_of(u.token_id, tick) if u.status == "working" and u.token_id else [],
             ))
         return Units(tick=tick, units=units).model_dump_json()
 
     def flush_dispatch(self) -> None:
-        """Send dispatch events (arrived, blocked, grounded) and unit positions."""
+        """Send dispatch events (arrived, blocked, grounded) and unit positions,
+        and draft an order for every unit just sent (#132)."""
         kinds = {"arrived": EventKind.UNIT_ARRIVED, "blocked": EventKind.UNIT_BLOCKED,
                  "grounded": EventKind.TANKERS_GROUNDED}
-        events = [Event(kind=kinds[e.kind], tick=self.fire.tick, town=None, text=e.text)
-                  for e in self.dispatcher.take_events()]
+        events, sent = [], []
+        for e in self.dispatcher.take_events():
+            if e.kind == "sent":
+                sent.append(e.unit)
+            else:
+                events.append(Event(kind=kinds[e.kind], tick=self.fire.tick, town=None, text=e.text))
         self.broadcast_events(events)
+        for unit in sent:
+            self._new_draft(self.drafts.unit_order(self, unit))
         sig = tuple((u.id, u.status, u.token_id, u.arrive_tick) for u in self.dispatcher.units)
-        moving = any(u.status == "en_route" for u in self.dispatcher.units)
+        # Units go out again while they move and while crews' lines grow (#159).
+        moving = any(u.status == "en_route" for u in self.dispatcher.units) or self.effects.line_growing(self.fire.tick)
         if sig != self._units_sig or (moving and self.tick % 3 == 0):
             self._units_sig = sig
             broadcast(self.clients, self.units_msg())
@@ -1140,17 +1176,54 @@ class Engine:
             log.error("long forecast failed: %r", e)
             return
         self.long_forecast = job.result()
+        lf = self.long_forecast
+        self.eta_cal.issue(lf.tick, lf.first_burn, lf.first_burn[0] != 0, SIM_MINUTES_PER_TICK,
+                           int(round(lf.horizon_min / SIM_MINUTES_PER_TICK)))  # #13
         self.schedule_clock()
 
     def order_evacuation(self, town: str, ordered: bool) -> None:
         """Order a town out (from now), or take the order back."""
         if not any(t.name == town for t in self.towns):
             return
+        changed = (town in self.evac_orders) != ordered
         if ordered:
             self.evac_orders.setdefault(town, self.fire.tick)
         else:
             self.evac_orders.pop(town, None)
         self.schedule_clock()
+        if changed:  # draft the public alert, or take back an unsent one (#132)
+            d = self.drafts.evacuation(self, town, ordered)
+            if d is not None:
+                self._new_draft(d)
+            else:
+                broadcast(self.clients, self.drafts.message(self.fire.tick))
+
+    # --- drafts (#132) ------------------------------------------------------
+
+    def _name_drafts(self) -> None:
+        """Names a Claude rewrite may only use when its facts do (per scenario)."""
+        names = [p.name for p in self.scenario.places] + [t.name for t in self.towns]
+        names += [s.name for s in self.stations]
+        if self.roads is not None:
+            names += [z.name for z in self.roads.safe_zones]
+        set_known_names(names)
+
+    def _new_draft(self, d) -> None:
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
+        asyncio.create_task(self._polish_draft(d))
+
+    async def _polish_draft(self, d) -> None:
+        if await self.drafts.polish(d, self.commander.client, self.commander.model):
+            broadcast(self.clients, self.drafts.message(self.fire.tick))
+
+    def draft_action(self, msg: DraftAction) -> None:
+        sent = self.drafts.act(msg.id, msg.action, msg.text, self.fire.tick)
+        if sent is not None:
+            kind = {"unit_order": "Order", "evac_alert": "Alert", "briefing": "Briefing"}[sent.kind]
+            self.broadcast_events([Event(kind=EventKind.DRAFT_SENT, tick=self.fire.tick,
+                                         town=sent.subject if sent.kind == "evac_alert" else None,
+                                         text=f"{kind} sent: {sent.text}")])
+        broadcast(self.clients, self.drafts.message(self.fire.tick))
 
     def evac_flows(self) -> dict[str, float]:
         """People a sim minute leaving each ordered town whose cars are moving."""

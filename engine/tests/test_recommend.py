@@ -37,9 +37,9 @@ TOWN = TownInfo("Eastville", 80, 32, 8, 1000)
 def test_chokepoint_ranks_first_and_saves_the_town():
     snap = chokepoint_snapshot()
     f = run_forecast(snap, n=16, seed=0)
-    # An hour's look-ahead: long enough for the fire to reach the town, short
+    # 75 minutes' look-ahead: long enough for the fire to reach the town, short
     # enough that one crew at the gap can keep it out.
-    recs = recommend(snap, f.probability[0], [TOWN], k=8, n=12, seed=3, horizon=60)
+    recs = recommend(snap, f.probability[0], [TOWN], k=8, n=12, seed=3, horizon=75)
     assert recs, "expected at least one helpful placement"
     best = recs[0]
     assert math.hypot(best.x - GAP[0], best.y - GAP[1]) < 8, best
