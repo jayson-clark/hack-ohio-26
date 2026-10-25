@@ -38,4 +38,11 @@ Baseline (#113, 5,754 training and 385 test fires):
 | IoU of the 50% area | 0.88 | 0.94 |
 | Time per forecast | 6 ms | ~0.6 s |
 
-Retrained with ember spotting (#118): Brier 0.0034 (32 rollouts: 0.0010), IoU of the 50% area 0.88 (0.94). Screening helps most after wind shifts: the top rec beat a random spot 23/32 vs 17/32 without screening. In steady wind it's within noise.
+Retrained with ember spotting (#118): Brier 0.0034 (32 rollouts: 0.0010), IoU of the 50% area 0.88 (0.94).
+
+Retrained at C2 0.3 with model noise in the labels, plus Marshall (#170; 5,600 training and 342 test fires):
+- **What changed in the data:** each label uses its own `C2` (`C2_RANGE` 0.22–0.4), a `P_H_SCALE` of 0.85–1.15, and per-rollout wind (`LABEL_WIND`) in `emulator/data.py`. The test set's `p32` stays at the nominal constants (what the engine shows).
+- **Brier against the hedged label:** emulator 0.0038, 32 rollouts 0.0039.
+- **Overlap with the engine's forecast:** 79% for the 50% outline. The preview's P ≥ 0.1 area is about 27% larger and its P ≥ 0.9 core about half the size.
+- **Expect those numbers to differ:** the emulator learns the hedged forecast, so it never matches the nominal Monte Carlo exactly.
+- **Timing:** data took 16 min, training 34 min (12 epochs, batch 8). Screening helps most after wind shifts: the top rec beat a random spot 23/32 vs 17/32 without screening. In steady wind it's within noise.

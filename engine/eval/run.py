@@ -408,7 +408,9 @@ def summarize(results: dict[str, Results]) -> dict:
             "realized_benefit_top_rec": mean(rc.rec_realized),
             "realized_benefit_random_front_spot": mean(rc.random_realized),
             "predicted_benefit_top_rec": mean(rc.predicted),
-            "top_rec_beats_random": f"{sum(a > b for a, b in zip(rc.rec_realized, rc.random_realized))} of {len(rc.rec_realized)}",
+            # Ties (often both 0: neither spot changes the outcome) are counted apart.
+            "top_rec_beats_random": f"{sum(a > b for a, b in zip(rc.rec_realized, rc.random_realized))} of {len(rc.rec_realized)}"
+                                    f" ({sum(a == b for a, b in zip(rc.rec_realized, rc.random_realized))} ties)",
         }
         out[sched] = {"episodes": r.episodes, "seconds": round(r.seconds, 1), "calibration": cal,
                       "arrival": arrival, "routing": routing, "recommendations": recs}

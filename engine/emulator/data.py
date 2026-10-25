@@ -9,9 +9,13 @@ Each sample is a random situation:
   in), maybe a firebreak and a wet patch.
 
 It's labelled with run_forecast at LABEL_ROLLOUTS (more than the live 32,
-so the labels are less noisy than what the engine shows). The forecast's
-wind spread is included, so the emulator learns the forecast the engine
-actually draws.
+so the labels are less noisy than what the engine shows). The label also
+carries model uncertainty, since the fire model is only a fit to two real
+fires: each sample's forecast uses its own wind steering (C2_RANGE) and spread
+rate (P_H_SCALE), and each rollout its own wind (LABEL_WIND). The inputs stay
+nominal, so the emulator learns a forecast that hedges over those errors
+rather than copying one exact setting. The fire up to the snapshot runs at
+the nominal constants.
 
     cd engine && uv run python -m emulator.data --samples 6000 --out emulator/data/train
     cd engine && uv run python -m emulator.data --samples 400 --out emulator/data/test --seed 1 --with-32
@@ -31,16 +35,23 @@ from pathlib import Path
 import numpy as np
 
 from emulator.features import HORIZONS, SUP_TICKS
+from forecast.rollout import WindSpread
 from forecast.runner import run_forecast
 from protocol import Token, TokenSource, TokenType
 from scenario import load_scenario
 from sim.effects import WATER_RADIUS, SuppressionSchedule, TimedLayer, TokenEffects, crew_layer, soft_disk
+import sim.fire as fire_model
 from sim.fire import BURNING, FUEL, FireSim, Wind
 
-# Real scenarios only; add marshall (#107) once it lands, then retrain.
-SCENARIOS = {"paradise": 1.0}
+# Real scenarios only. Marshall's map is smaller and mostly grass and suburb.
+SCENARIOS = {"paradise": 0.65, "marshall": 0.35}
 LABEL_ROLLOUTS = 64
 SHARD = 100  # samples per file
+# Model uncertainty in the labels. The Camp Fire and Marshall replays fit C2
+# between 0.22 and 0.4 (PLAN.md, "Choosing C2"); P_H is a guess of +/-15%.
+C2_RANGE = (0.22, 0.4)
+P_H_SCALE = (0.85, 1.15)
+LABEL_WIND = WindSpread()  # each rollout's wind: +/-20% speed, +/-15 deg
 
 _cache: dict = {}
 
@@ -112,7 +123,8 @@ def sample(seed: int, with_32: bool = False) -> dict | None:
     h, w = sim.state.shape
     sched = _schedule(sim.state, w, h, rng, wind.from_deg)
     snap = replace(sim.snapshot(), suppression=sched.at(0), schedule=sched)
-    label = run_forecast(snap, n=LABEL_ROLLOUTS, seed=int(rng.integers(1 << 31))).probability
+    c2, ph = float(rng.uniform(*C2_RANGE)), float(rng.uniform(*P_H_SCALE))
+    label = _label(snap, c2, ph, int(rng.integers(1 << 31)))
     out = {
         "scenario": name,
         "state": snap.state.astype(np.uint8),
@@ -120,10 +132,23 @@ def sample(seed: int, with_32: bool = False) -> dict | None:
         "wind": np.array([wind.speed_ms, wind.from_deg], np.float32),
         "sup": np.round(np.stack([sched.at(t) for t in SUP_TICKS]) * 255).astype(np.uint8),
         "label": np.round(label * 255).astype(np.uint8),
+        "model": np.array([c2, ph], np.float32),  # the label's C2 and P_H scale
     }
     if with_32:  # what the live engine shows, to compare the emulator with
         out["p32"] = np.round(run_forecast(snap, seed=int(rng.integers(1 << 31))).probability * 255).astype(np.uint8)
     return out
+
+
+def _label(snap, c2: float, ph: float, seed: int) -> np.ndarray:
+    """The forecast under one draw of the model's constants (P_H scales the
+    precomputed spread layers; C2 is read when wind factors are computed)."""
+    noisy = replace(snap, layers=replace(snap.layers, spread=snap.layers.spread * np.float32(ph)))
+    nominal = fire_model.C2
+    fire_model.C2 = c2
+    try:
+        return run_forecast(noisy, n=LABEL_ROLLOUTS, seed=seed, wind_spread=LABEL_WIND).probability
+    finally:
+        fire_model.C2 = nominal
 
 
 def _shard(args) -> str | None:
@@ -150,7 +175,7 @@ def load(paths) -> list[dict]:
         z = np.load(p)
         for i in range(int(z["n"])):
             row = {"scenario": str(z["scenario"][i])}
-            for key in ("state", "burn_left", "wind", "sup", "label", "p32"):
+            for key in ("state", "burn_left", "wind", "sup", "label", "p32", "model"):
                 if f"{key}_{i}" in z:
                     row[key] = z[f"{key}_{i}"]
             out.append(row)
