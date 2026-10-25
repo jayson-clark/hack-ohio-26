@@ -155,7 +155,7 @@ The operator console is the product. Exercise control and the projector exist fo
 
 ### Operator console (`app/src/console/`)
 
-For an incident manager or planning chief. It answers three questions: what's happening, what needs a decision, and what each option would do. It never plays the world: no igniting, no setting the wind, no clock controls.
+For an incident manager or planning chief. It answers three questions: what's happening, what needs a decision, and what each option would do. It never plays the world: no igniting, no setting the wind, no clock controls. The one exception is demo mode (#158), hidden unless the console is opened with `?demo=1` or Shift+D is pressed: a bar over the map with pause, step and sim speed, and an Autopilot that takes the top decision (dispatch a recommended crew, order a due evacuation) after a countdown shown on its card. It's for recording the video and live judging.
 
 **Design (#130).** A light, map-first operations UI, deliberately unlike the projector's glowing art. The incident map fills the window, with pan and zoom, and draws with its own quiet shader (`render/carto.ts`: light hillshade, faint contours, the burned area in warm gray, active fire in red-orange with a crisp perimeter, the forecast as two translucent bands). Towns, routes, stations, units, orders, recommendations and labels are vector overlays (`console/map/layers.tsx`), so they stay sharp at any zoom. Around it: a top bar (incident, status, clock, modes), the mode's sidebar on the left, an inspector on the right for whatever is selected (a town's fire arrival and evacuation clock, a recommendation's effect with ranges, an order's unit), and the commander docked in the map's corner. Tokens live in `index.css`: neutral surfaces, one blue accent for actions, status colors only for status. `console/model.ts` joins the town board with the evacuation clock so every view agrees on a town's risk.
 
@@ -479,7 +479,7 @@ Virtual table mode means nobody is blocked waiting for hardware.
 
 ## Demo Script
 
-Judging is virtual, so the demo is a recorded video. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record with exercise control on a second screen (or off-camera) and Autopilot on where clicking every card would drag.
+Judging is virtual, so the demo is a recorded video. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record the console with `?demo=1`: start the fire from exercise control off-camera, slow the clock to show a feature, speed it up to let the fire run, and turn on Autopilot where clicking every card would drag. The Camp Fire scenario outruns any operator above 1× (10 sim-minutes a second), so most of the video runs at 0.25–0.5×.
 
 1. Open on the table under the projector, a fire starting at the Camp Fire origin: "this is what a drone sees."
 2. Cut to the operator console, Monitor. The decision queue fills: Concow likely to see fire in about 40 minutes, evacuate via Highway 70; crew recommendations with stations and ETAs. The town board shows every town's time until fire, with ranges.

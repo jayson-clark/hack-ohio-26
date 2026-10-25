@@ -12,6 +12,7 @@ import { END_REASON_TEXT, formatSimMinutes, headline } from "../shared/round";
 import type { Recommendation } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { ORDER_STYLE } from "../shared/tokens";
+import { AutopilotCountdown, type AutopilotState } from "./Demo";
 import { Icon, type IconName } from "./icons";
 import { minutesUntil, type Selection, type TownView } from "./model";
 import { Button, Empty, TONE, type Tone } from "./ui";
@@ -27,6 +28,8 @@ interface Item {
   actions: ReactNode;
   /** A heads-up shown in the queue but not counted as a decision. */
   status?: boolean;
+  /** What demo mode's autopilot does for this card (#158). */
+  auto?: () => void;
 }
 
 // Before the order clock's long forecast lands, a town gets an evacuation card
@@ -40,6 +43,8 @@ interface Props {
   onTryInPlan: (rec: Recommendation) => void;
   /** Opens Review; offered once the exercise is over. */
   onReview?: () => void;
+  /** Demo mode's autopilot, to show its countdown on the card it will take. */
+  autopilot?: AutopilotState;
 }
 
 export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
@@ -92,6 +97,7 @@ export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
           </>
         ),
         select: sel,
+        auto: () => orderEvacuation(t.name, true),
         actions: (
           <Button size="sm" variant={e.status === "order_soon" ? "secondary" : "primary"} onClick={() => orderEvacuation(t.name, true)}>
             Order evacuation
@@ -137,6 +143,7 @@ export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
           </>
         ),
         select: sel,
+        auto: () => orderEvacuation(t.name, true),
         actions: (
           <Button size="sm" variant="primary" onClick={() => orderEvacuation(t.name, true)}>
             Order evacuation
@@ -155,6 +162,7 @@ export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
       title: `${r.action === "move" ? "Move a crew" : ORDER_STYLE[r.token_type].verb} ${describeLocation(scenario, r.x, r.y)}`,
       detail: <RecLine rec={r} />,
       select: { kind: "rec", id: r.id, x: r.x, y: r.y },
+      auto: r.auto ? () => acceptRecommendation(r.id) : undefined,
       actions: (
         <>
           <Button size="sm" variant="primary" disabled={!r.auto} title={r.auto ? undefined : "A crew on the table: move it by hand"} onClick={() => acceptRecommendation(r.id)}>
@@ -190,6 +198,7 @@ export default function Decisions(props: Props) {
   const items = useDecisions(props);
   const { simGrid, situation, score } = useEngine();
   const burning = !!simGrid && simGrid.payload.includes(2);
+  const pending = props.autopilot?.pending;
 
   // Once the exercise ends the fire is frozen and orders do nothing, so its
   // last "act now" cards would only mislead (#128).
@@ -247,6 +256,7 @@ export default function Decisions(props: Props) {
                   {it.actions}
                 </div>
               )}
+              {pending?.key === it.key && <AutopilotCountdown at={pending.at} delayS={props.autopilot!.delayS} />}
             </div>
             <Icon name="chevronRight" size={15} className="mt-1 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
           </div>
