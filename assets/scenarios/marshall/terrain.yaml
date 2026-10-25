@@ -28,6 +28,10 @@ sim:
   # per cell per minute, so a different cell size would change how fast it
   # spreads and the replay would measure the cell size, not the model.
   grid_width: 192
+  # The sim map runs 6 km east of the print, past Broomfield (#197): the
+  # replay's fire used to hit the east edge, and Denver's exit is real road
+  # now, not wherever US 36 left the map. The print itself is unchanged.
+  margin_km: {north: 0, east: 6, south: 0, west: 0}
 
 # Approximate locations, for checking alignment on the preview.
 places:
