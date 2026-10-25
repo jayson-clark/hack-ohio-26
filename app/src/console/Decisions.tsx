@@ -257,13 +257,24 @@ export default function Decisions(props: Props) {
 }
 
 function RecLine({ rec }: { rec: Recommendation }) {
+  // Every number is from the paired simulations, with its 90% range (#11).
+  const pct = (x: number) => `${Math.round(x * 100)}%`;
   const parts: ReactNode[] = [];
   if (rec.station && rec.eta_min != null) parts.push(`From ${rec.station}, ${aboutMinutes(rec.eta_min)} out`);
-  if (rec.saves.length) parts.push(`keeps fire out of ${rec.saves.map((e) => `${e.town} (${e.hits}/${e.n})`).join(", ")}`);
-  else if (rec.acres_saved > 0) parts.push(`saves about ${Math.round(rec.acres_saved).toLocaleString()} acres in the next hour`);
+  if (rec.saves.length)
+    parts.push(`keeps fire out of ${rec.saves.map((e) => `${e.town} in ${e.hits} of ${e.n} simulations (likely ${pct(e.lo)}–${pct(e.hi)})`).join(", ")}`);
+  if (rec.acres_saved > 0)
+    parts.push(`saves about ${Math.round(Math.max(0, rec.acres_saved_lo)).toLocaleString()}–${Math.round(rec.acres_saved_hi).toLocaleString()} acres over the next two hours`);
   return (
     <>
-      {parts.join("; ")}.{rec.confidence !== "high" && <span className="text-warn"> Rough estimate.</span>}
+      {parts.join("; ")}.
+      {rec.act_by_min != null && (
+        <span className={rec.act_by_min <= 5 ? "font-medium text-warn" : "font-medium text-ink"}>
+          {" "}
+          {rec.act_by_min <= 5 ? "Send now: fire reaches this spot soon after the crew could." : `Send within ${aboutMinutes(rec.act_by_min)} to dig in before the fire.`}
+        </span>
+      )}
+      {rec.confidence !== "high" && <span className="text-warn"> Rough estimate: the range is wide.</span>}
     </>
   );
 }

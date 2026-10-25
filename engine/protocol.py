@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 20
+PROTOCOL_VERSION = 21
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -265,7 +265,15 @@ class Recommendation(Model):
     confidence: str  # how firmly to state it: "high" or "moderate"
     station: str | None  # which station's unit would go (#104)
     eta_min: float | None  # and how long it takes to get there, sim minutes
-    acres_saved: float  # mean acres the placement keeps from burning by T+60
+    # When fire likely reaches the crew's area (the early end, 10th percentile
+    # of the simulations), and the latest it can be sent and still dig in first
+    # (that minus eta_min; 0 or less means now). None if fire isn't expected
+    # there within the recommendation's two-hour look-ahead.
+    fire_arrival_min: float | None
+    act_by_min: float | None
+    acres_saved: float  # mean acres the placement keeps from burning over its look-ahead (2 h)
+    acres_saved_lo: float  # 90% interval on acres_saved (paired, #11)
+    acres_saved_hi: float
     saves: list[TownEffect]  # without it the fire reaches the town; with it, it doesn't
     worsens: list[TownEffect]  # the reverse: the placement deflects fire onto the town
     protects: list[TownShare]  # towns where less burns with it, biggest drop first

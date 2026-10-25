@@ -37,7 +37,9 @@ TOWN = TownInfo("Eastville", 80, 32, 8, 1000)
 def test_chokepoint_ranks_first_and_saves_the_town():
     snap = chokepoint_snapshot()
     f = run_forecast(snap, n=16, seed=0)
-    recs = recommend(snap, f.probability[0], [TOWN], k=8, n=12, seed=3)
+    # An hour's look-ahead: long enough for the fire to reach the town, short
+    # enough that one crew at the gap can keep it out.
+    recs = recommend(snap, f.probability[0], [TOWN], k=8, n=12, seed=3, horizon=60)
     assert recs, "expected at least one helpful placement"
     best = recs[0]
     assert math.hypot(best.x - GAP[0], best.y - GAP[1]) < 8, best
@@ -75,9 +77,9 @@ def test_describe_reads_naturally():
         "A crew here keeps the fire out of Paradise in 6 of 8 simulations, but pushes it into Concow in 1 of 8."
     )
     shield = Rec(1, 2, 700.0, 100.0, protects=[TownShare("Paradise", 0.123)])
-    assert describe(shield, 2.18) == "A crew here shields Paradise: about 12% less of it burns in the next hour."
+    assert describe(shield, 2.18) == "A crew here shields Paradise: about 12% less of it burns in the next two hours."
     acres = Rec(1, 2, 30.0, 143.0)
-    assert describe(acres, 2.18) == "A crew here holds back about 310 acres over the next hour."
+    assert describe(acres, 2.18) == "A crew here holds back about 310 acres over the next two hours."
 
 
 def test_accepting_a_recommendation_places_a_virtual_crew():
@@ -86,8 +88,8 @@ def test_accepting_a_recommendation_places_a_virtual_crew():
         try:
             engine.recs = [Recommendation(id="r5-0", token_type=TokenType.CREW, action="place", x=120.5, y=80.5,
                                           move_token=None, from_x=None, from_y=None, auto=True, benefit=3.0,
-                                          benefit_lo=1.0, benefit_hi=5.0, confidence="moderate", station=None, eta_min=None,
-                                          acres_saved=10.0, saves=[], worsens=[], protects=[], text="")]
+                                          benefit_lo=1.0, benefit_hi=5.0, confidence="moderate", station=None, eta_min=None, fire_arrival_min=None, act_by_min=None,
+                                          acres_saved=10.0, acres_saved_lo=5.0, acres_saved_hi=15.0, saves=[], worsens=[], protects=[], text="")]
             engine.accept_recommendation("r5-0")
             [crew] = engine.tracker.tokens
             assert crew.token_type == TokenType.CREW and (crew.x, crew.y) == (120.5, 80.5)
@@ -100,3 +102,18 @@ def test_accepting_a_recommendation_places_a_virtual_crew():
             engine.recommender.shutdown()
 
     asyncio.run(run_engine())
+
+
+def test_two_hour_lookahead_keeps_the_chokepoint_and_says_when_to_act():
+    """The default two-hour look-ahead: one crew only delays the fire past the
+    gap, so it may not keep the town clear, but the gap is still the best
+    spot. It comes with when fire reaches the crew's area and how long the
+    operator can wait before dispatching (arrival minus travel time)."""
+    snap = chokepoint_snapshot()
+    p30 = run_forecast(snap, n=16, seed=0).probability[0]
+    late = np.full(p30.shape, 5.0)  # every spot is 5 min away
+    [best, *_] = recommend(snap, p30, [TOWN], n=12, seed=3, eta=late)
+    assert math.hypot(best.x - GAP[0], best.y - GAP[1]) < 8, best
+    assert best.benefit_lo > 0
+    assert best.fire_arrival_min is not None and best.fire_arrival_min > 0
+    assert best.act_by_min == round(best.fire_arrival_min - 5.0, 1)

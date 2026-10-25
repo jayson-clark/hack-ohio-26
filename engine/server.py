@@ -762,9 +762,20 @@ class Engine:
             job = self.recommender.submit_moves(crews, f.probability[0], self.towns, seed=tick)
         else:
             eta = self.dispatcher.eta_grid(TokenType.CREW, self.fire.wind.speed_ms) if self.dispatcher.units else None
-            job = self.recommender.submit(snapshot, f.probability[0], self.towns, seed=tick, eta=eta)
+            job = self.recommender.submit(snapshot, f.probability[0], self.towns, seed=tick, eta=eta,
+                                          ahead=self.lookahead())
         self._rec_job = job
         job.add_done_callback(lambda j: self.recommend_done(j, epoch, tick))
+
+    def lookahead(self, minutes: float = 90.0):
+        """P(burn by now + `minutes`), float32 (H, W), from the evacuation
+        clock's long forecast (#121), for recommendations to look past the
+        hour (#132 follow-up). None until a long forecast has landed."""
+        lf = self.long_forecast
+        if lf is None or lf.first_burn.shape[1:] != self.fire.state.shape:
+            return None
+        elapsed = (self.fire.tick - lf.tick) * SIM_MINUTES_PER_TICK
+        return (lf.first_burn <= (minutes + elapsed) / SIM_MINUTES_PER_TICK).mean(axis=0, dtype=np.float32)
 
     def snapshot(self):
         """The fire now, plus the suppression schedule of the tokens acting on
@@ -869,9 +880,11 @@ class Engine:
             auto=r.move_id is None or (moving is not None and moving.source == "virtual"),
             benefit=round(r.benefit, 2), benefit_lo=round(r.benefit_lo, 2), benefit_hi=round(r.benefit_hi, 2),
             confidence=r.confidence, acres_saved=round(r.cells_saved * acres_per_cell, 1),
+            acres_saved_lo=round(r.cells_lo * acres_per_cell, 1), acres_saved_hi=round(r.cells_hi * acres_per_cell, 1),
             saves=effects(r.saves), worsens=effects(r.worsens),
             protects=[TownShareInfo(town=p.town, share=p.share) for p in r.protects],
             station=station, eta_min=r.eta_min,
+            fire_arrival_min=r.fire_arrival_min, act_by_min=r.act_by_min,
             text=describe(r, acres_per_cell, from_place, station),
         )
 
