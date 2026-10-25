@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 22
+PROTOCOL_VERSION = 23
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -490,6 +490,11 @@ class TownThreat(Model):
     within_60: KofN | None
     median_min: float | None  # median minutes until fire, if at least half the simulations reach it
     soonest_min: float | None  # 10th-percentile minutes until fire ("could be as soon as"), if that many reach it
+    # Calibrated 90% range for when fire reaches the town (#13): the long
+    # forecast's 5-95% arrival, corrected online so it holds about 90% of the
+    # time. eta_hi_min is None when too few simulations reach the town to bound it.
+    eta_lo_min: float | None
+    eta_hi_min: float | None
     route_status: RouteStatus | None  # None when the scenario has no roads
     exit: str | None  # the safe zone the route leads to
     drive_min: float | None

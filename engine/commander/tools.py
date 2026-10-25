@@ -247,6 +247,9 @@ class CommanderTools:
             row["fire_inside_town_now"] = on_fire
             if arrivals is not None:
                 row.update(self._reach(arrivals[:, i]))
+            lo, hi = self._eta_range(i)
+            if lo is not None:
+                row["fire_arrival_90pct_range_minutes"] = [lo, hi] if hi is not None else [lo, "later than the forecast"]
             r = routes.get(t.name)
             if r is not None:
                 row["evacuation"] = {"status": r.status, "exit": r.safe_zone, "drive_minutes": r.eta_min}
@@ -280,6 +283,7 @@ class CommanderTools:
                     median = round(float(np.median(reached)), 1)
                 if len(reached) * 10 >= n and len(reached):
                     soonest = round(float(np.quantile(a, 0.1)), 1)
+            eta_lo, eta_hi = self._eta_range(i)
             r = routes.get(t.name)
             out.append(TownThreat(
                 town=t.name,
@@ -290,11 +294,29 @@ class CommanderTools:
                 within_60=within[1],
                 median_min=median,
                 soonest_min=soonest,
+                eta_lo_min=eta_lo,
+                eta_hi_min=eta_hi,
                 route_status=None if r is None else r.status,
                 exit=None if r is None else r.safe_zone,
                 drive_min=None if r is None or r.safe_zone is None else round(r.eta_min, 1),
             ))
         return out
+
+    def _eta_range(self, i: int) -> tuple[float | None, float | None]:
+        """Calibrated 90% range of minutes until fire reaches town i (#13),
+        from the long forecast's arrivals and the online correction. (None,
+        None) without a long forecast or when fewer than 5% of its
+        simulations reach the town; (lo, None) when it can't be bounded above."""
+        e = self.e
+        lf = e.long_forecast
+        if lf is None or lf.first_burn.shape[1:] != self.masks.shape[1:]:
+            return None, None
+        a = _town_arrivals(lf.first_burn, self.masks[i : i + 1], e.fire.tick - lf.tick)[:, 0] * SIM_MINUTES_PER_TICK
+        lo, med, hi = np.quantile(a, [0.05, 0.5, 0.95], method="higher")
+        if not np.isfinite(lo):
+            return None, None
+        clo, chi = e.eta_cal.interval(float(lo), float(med) if np.isfinite(med) else float(lo), float(hi) if np.isfinite(hi) else float(lo))
+        return round(clo, 1), (round(chi, 1) if np.isfinite(hi) else None)
 
     @staticmethod
     def _reach(a: np.ndarray) -> dict:

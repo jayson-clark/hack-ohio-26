@@ -287,7 +287,24 @@ The known gap: the replay burns about 1.5–1.7x the real area, because flanks s
     In gusty wind no fixed cutoff gets under 14%, while the envelope ends at a cutoff near 1/32 plus a 3-cell margin.
   - **Per scenario:** the knob learns per scenario. A scenario switch restarts from `ENVELOPE_WARM`, because a new map is a new distribution and conformal promises only transfer within one. A map reset keeps what was learned.
   - **Real units:** misses are counted in area, so the promise keeps its meaning across resolutions.
-  - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates. It covers the simulator's own uncertainty plus shifts in wind and tokens, not the model's error against real fires; that's what the replays (#15, #107) check.
+  - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates.
+- **Calibrated time-to-impact ranges (#13, `ArrivalCalibrator` in `engine/uq/conformal.py`).** Each threatened town shows "fire likely arrives in 25–40 min (90%)".
+  - **The range:** the long forecast's 5–95% arrival, widened or narrowed by an online conformal correction (CQR) per lead-time bucket (<30, 30–120, >120 min).
+  - **Calibration units:** towns catch fire too rarely to calibrate on, so the units are town-sized disks (radius 8 cells) dropped on unburned ground. Each is scored, like a town, by the first time fire touches it. Single cells held their own 90% but transferred badly to towns.
+  - **Censoring:** a disk the forecast never sees burn scores as the smallest miss it could be, which can only make the ranges too narrow.
+  - **Measured** (`eval.arrival`, Paradise, 4 episodes per schedule, 4 h forecasts), calibrated coverage of real town arrivals:
+
+    | Wind | Calibrated | Raw |
+    |---|---|---|
+    | Steady | **89%** | 93% |
+    | Wind shift | **56%** | 47% |
+    | Gusty | **75%** | 34% |
+
+  - **Known limit: an unforecast wind shift.** Every range issued before it is wrong at once, and the correction only learns afterwards.
+    - Per-rollout wind spread (±20%, ±20°) lifted the shift case to 68%, but gave half as many towns a range and dropped steady to 79%. Wider spread left almost no town bounded. The long forecast stays without spread.
+    - The real fix is a wind forecast (e.g. HRRR), not more statistics.
+  - **Where it shows:** `TownThreat.eta_lo_min` / `eta_hi_min` (null when too few simulations reach the town to bound it), the threat cards and inspector, and the commander's town table.
+  - **Per scenario:** the calibrator learns per scenario. A reset clears in-flight forecasts and keeps what was learned. It covers the simulator's own uncertainty plus shifts in wind and tokens, not the model's error against real fires; that's what the replays (#15, #107) check.
 - **Learned emulator (#113, optional `ml` extra):** a small U-Net (`engine/emulator/`, MLX, 1.5M parameters) trained on our own simulator to predict P(burn by T+30/T+60) from the fire state, per-direction spread (fuel, slope, wind) and the suppression schedule.
   - **Speed and accuracy:** it takes 6 ms against ~0.6 s for 32 rollouts. On held-out fires its 50% area overlaps the 64-rollout reference by 88% (the 32-run forecast: 94%), and it is calibrated in every probability bin.
   - **Instant preview:** when the wind, tokens or fire change, the engine shows its prediction at once, and the next Monte Carlo forecast replaces it.
