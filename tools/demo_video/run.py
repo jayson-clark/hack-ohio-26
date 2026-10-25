@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -385,6 +386,14 @@ def find_windows(rec: Recordly, names: list[str]) -> tuple[dict[str, dict], dict
     for n in names:
         if not wins[n]:
             raise TakeError(f"No Chrome window titled {WINDOWS[n][0]!r}; open {WINDOWS[n][1]} as an app window")
+    # A tiling window manager re-lays the windows out when Recordly takes focus
+    # at the start of a take and again when the first step gives it back, so
+    # the opening frames slide against the crop. Float them so they stay put.
+    if shutil.which("aerospace"):
+        for w in wins.values():
+            subprocess.run(["aerospace", "layout", "floating", "--window-id", w["id"].split(":")[1]], capture_output=True)
+        time.sleep(0.5)
+        sources, wins = look()
     # The console's bounds win, since the console takes' coordinates assume them.
     ref = wins["console"] if "console" in wins else wins[names[0]]
     for w in wins.values():

@@ -8,7 +8,7 @@ prep
   move 700,500
 
 scene "The queue fills; read a crew recommendation"
-  hold 0.8
+  hold 1
   key period
   waitfor "Send a crew" timeout=20
   hold 1.5
@@ -23,7 +23,9 @@ scene "Dispatch the crew and speed up to watch it drive in"
   move 1150,600
   hold 8
 
-zoom 1@end-5.5..2@0.5 depth=3 at=0.72,0.32
-label "0.25× · 2.5 sim-min/s" 1@0.8..2@2
+# The inspector's recommendation, then pan to the map for the drive-in.
+zoom 1@end-5.5..2@2 depth=4 at=0.71,0.30
+zoom 2@2..end depth=3 at=0.62,0.50
+label "0.25× · 2.5 sim-min/s" 1@1..2@2
 label "1× · 10 sim-min/s" 2@2..end
 export B2-dispatch-crew.mp4
