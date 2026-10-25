@@ -71,8 +71,14 @@ CLASSES = [
 # that the Camp Fire burned through (its replay needs residential at 0.6 or
 # more). Superior and Louisville are irrigated lawns, streets and parking that
 # stopped the Marshall Fire: at 0.9 the replay burned 2.7x the real area, at
-# these weights 1.5x, with outline IoU from 0.19 to 0.27 (#144).
+# these weights 1.5x, with outline IoU from 0.19 to 0.27 (#144). The valley
+# floor around Chico and Oroville is irrigated orchard and rice, harvested and
+# wet by November, which the Camp Fire never crossed: at farmland 0.6 the
+# replay on the extended map ran 37 km west across it and burned 4.2x the real
+# area; at 0.05 it's 2.4x (IoU 0.21 -> 0.35 at 7.1 h). What's left is the dry
+# foothill grass above the valley (#197).
 SCENARIO_WEIGHTS = {
+    "paradise": {"farmland": 0.05},
     "marshall": {"residential": 0.25, "commercial": 0.3},
 }
 # Unmapped land below this elevation (m) is farmland, not background. OSM

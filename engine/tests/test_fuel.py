@@ -11,8 +11,10 @@ def test_fuel_layer_is_loaded_at_grid_size_and_varies():
     assert (s.dir / "fuel.png").exists()
     fuel = load_fuel(s)
     assert fuel.shape == (s.height, s.width)
-    # Forest-weighted, so the fire's tuning still holds; not uniform any more.
-    assert 0.8 < fuel.mean() < 1.1
+    # Forest-weighted where the fire was tuned (the print), so the tuning still
+    # holds; the irrigated valley around it is low fuel (#197).
+    x0, y0, w, h = s.print_window
+    assert 0.8 < fuel[y0:y0 + h, x0:x0 + w].mean() < 1.1
     assert fuel.std() > 0.05
     assert fuel.max() <= 1.5
 
