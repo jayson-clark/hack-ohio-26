@@ -1,6 +1,7 @@
 # Autopilot takes the decisions with a visible countdown, the incident plays
 # out at 4x, then Review shows the outcome.
 engine fresh 0.5 paused
+engine advance 12               # the fire is on the map and the queue is filling
 
 prep
   reload
@@ -14,7 +15,7 @@ scene "Autopilot takes the top decisions after a countdown"
   click "2s" role=button
   key period
   move 300,500 ms=1200
-  hold 11
+  hold 10
 
 scene "4x: let the incident play out"
   click "4×" role=button
@@ -27,8 +28,9 @@ scene "Review the outcome"
   move 200,400 ms=1000
   hold 7
 
-zoom 1@6..1@end depth=3 at=0.28,0.41
-zoom 3@0.5..end depth=3 at=0.28,0.34
+# The queue's countdown cards; wide for the 4x run; the review's numbers.
+zoom 1@3..1@end depth=4 at=0.29,0.45
+zoom 3@0.5..end depth=4 at=0.29,0.30
 label "0.5× · 5 sim-min/s" 1@1..2@0
 label "4× · 40 sim-min/s" 2@0..2@end
 label "Autopilot on" 1@1..2@0 at=79,7.5

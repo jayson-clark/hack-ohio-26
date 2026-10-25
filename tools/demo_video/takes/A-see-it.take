@@ -1,5 +1,6 @@
 # The fire spreads from Pulga with its forecast bands, then Paradise's
 # evacuation clock: the order is already overdue a minute in.
+# Zoom focus is a fraction of the window (see the README's "Aiming zooms").
 engine fresh 0.5 paused
 
 prep
@@ -9,10 +10,10 @@ prep
   move 1150,560
 
 scene "Fire spreads from Pulga with forecast bands at 0.5x"
-  hold 1.5
+  hold 2.5                      # wide: the whole console, to get bearings
   key period                    # resume
   move 1200,560 ms=1500
-  hold 10
+  hold 11
   move 900,640
   hold 1.5
 
@@ -22,7 +23,8 @@ scene "Open Paradise: the evacuation clock"
   move 1488,712                 # rest on Order evacuation, off the numbers
   hold 6
 
-zoom 1@2..1@end depth=3 at=0.67,0.39
-zoom 2@1..end depth=3 at=0.73,0.61
-label "0.5× · 5 sim-min/s" 1@1.5..end
+# The fire, Pulga, Concow and Magalia; then pan to Paradise's inspector.
+zoom 1@3..2@0.8 depth=4 at=0.71,0.40
+zoom 2@0.8..end depth=4 at=0.71,0.42
+label "0.5× · 5 sim-min/s" 1@2.5..end
 export A-see-it.mp4
