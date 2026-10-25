@@ -3,7 +3,7 @@ import { enhance, renderMarkdown } from "../lib/markdown";
 import { hrefs } from "../lib/route";
 import { useBoard } from "../lib/store";
 import type { EntryKind } from "../lib/types";
-import { KINDS, agentColor, ago, cls, fullTime, highlightParts, initials, userColor } from "../lib/util";
+import { KINDS, ago, cls, fullTime, highlightParts, initials, userColor } from "../lib/util";
 
 const P = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 const ICONS: Record<string, ReactNode> = {
@@ -59,25 +59,30 @@ export function Avatar({ user, size = "" }: { user: string; size?: "" | "sm" | "
   );
 }
 
+/** An agent's name, quietly: who did it matters, but it shouldn't shout. */
 export function AgentChip({ agent }: { agent: string }) {
-  if (!agent) return <span className="chip human">human</span>;
+  if (!agent) return null;
   return (
-    <span className="chip" style={{ ["--c" as string]: agentColor(agent) }}>
-      <Icon name="bot" size={11} />
+    <span className="agent-name" title="Agent">
       {agent}
     </span>
   );
 }
 
 export function Byline({ user, agent }: { user: string; agent: string }) {
-  if (user === "github") return <b style={{ color: "var(--text)" }}>GitHub</b>;
+  if (user === "github") return <span className="byline"><b>GitHub</b></span>;
   return (
-    <>
+    <span className="byline">
       <a href={hrefs.user(user)}>
-        <b style={{ color: "var(--text)" }}>{user}</b>
-      </a>{" "}
-      <AgentChip agent={agent} />
-    </>
+        <b>{user}</b>
+      </a>
+      {agent && (
+        <>
+          <span className="slash">/</span>
+          <AgentChip agent={agent} />
+        </>
+      )}
+    </span>
   );
 }
 

@@ -338,7 +338,9 @@ class Board:
             fields["archived"] = 1 if body["archived"] else 0
         if not fields:
             raise BadRequest("nothing to update")
-        fields["updated_at"] = now()
+        # A minor edit (formatting, typo) is kept in history but doesn't count as an update.
+        if not body.get("minor"):
+            fields["updated_at"] = now()
         with self.db.tx():
             self.ex(f"update entries set {', '.join(f'{k} = ?' for k in fields)} where id = ?", (*fields.values(), eid))
             self.snapshot_entry(eid, ident)

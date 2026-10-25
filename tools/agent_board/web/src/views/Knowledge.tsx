@@ -3,7 +3,7 @@ import { EntryForm } from "../components/Forms";
 import { Reactions } from "../components/Reactions";
 import { Ago, Avatar, Byline, Empty, Hl, Icon, KindBadge, Markdown } from "../components/ui";
 import { openModal } from "../lib/modal";
-import { go, hrefs } from "../lib/route";
+import { hrefs } from "../lib/route";
 import { api, entryListeners, fail, me, toast, useBoard } from "../lib/store";
 import type { Entry, EntryKind, Revision, Vote } from "../lib/types";
 import { KINDS, ago, cls, debounce, fullTime, lineDiff, plain } from "../lib/util";
@@ -14,43 +14,43 @@ export function staleness(e: Entry): "superseded" | "stale" | null {
   return null;
 }
 
+/** A knowledge entry as one row of a list: kind, title (and a snippet), tags, author, age. */
 export function EntryCard({ e, flash = false }: { e: Entry; flash?: boolean }) {
   const st = staleness(e);
+  const edited = e.updated_at - e.created_at > 60;
   return (
-    <article className={cls("card", flash && "flash", st && "dim")} onClick={() => go(hrefs.entry(e.id))}>
-      <div className="meta">
-        <KindBadge kind={e.kind} />
-        <span className="sep">·</span>
-        <Ago t={e.updated_at} />
-        {e.revisions > 1 && (
-          <>
-            <span className="sep">·</span>
-            <span>edited</span>
-          </>
-        )}
-        {st === "superseded" && <span className="pill warn">superseded</span>}
-        {st === "stale" && <span className="pill warn">may be stale</span>}
-        {e.votes.true > 0 && st !== "stale" && <span className="pill ok" title="Votes that it's still true">✓ {e.votes.true}</span>}
-      </div>
-      <h4>{e.title_hl ? <Hl text={e.title_hl} /> : e.title}</h4>
-      {e.snippet ? (
-        <div className="snippet">
-          <Hl text={e.snippet} />
+    <a className={cls("entry-row", flash && "flash", st && "dim")} href={hrefs.entry(e.id)}>
+      <KindBadge kind={e.kind} />
+      <div className="main-col">
+        <div className="title">
+          {e.title_hl ? <Hl text={e.title_hl} /> : e.title}
+          {st === "superseded" && <span className="flag warn">Superseded</span>}
+          {st === "stale" && <span className="flag warn">May be stale</span>}
+          {e.votes.true > 0 && st !== "stale" && (
+            <span className="flag ok" title="Votes that it's still true">
+              Confirmed {e.votes.true}
+            </span>
+          )}
         </div>
-      ) : (
-        e.body && <div className="excerpt">{plain(e.body, 220)}</div>
-      )}
-      <div className="meta" style={{ marginTop: "auto" }}>
-        <Avatar user={e.author_user} size="sm" />
-        <Byline user={e.author_user} agent={e.author_agent} />
-        {e.tags.map((t) => (
-          <a key={t} className="tag" href={hrefs.tag(t)} onClick={(ev) => ev.stopPropagation()}>
-            #{t}
-          </a>
-        ))}
-        {Object.keys(e.reactions).length > 0 && <span className="small">{Object.entries(e.reactions).map(([k, v]) => `${k}${v.length}`).join(" ")}</span>}
+        <div className="snippet">{e.snippet ? <Hl text={e.snippet} /> : plain(e.body, 200)}</div>
+        {e.tags.length > 0 && (
+          <div className="tags">
+            {e.tags.map((t) => (
+              <span key={t} className="tag">
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-    </article>
+      <div className="by">
+        <Avatar user={e.author_user} size="sm" />
+        <span className="ellipsis">{e.author_user}</span>
+      </div>
+      <div className="when" title={`${edited ? "Edited" : "Created"} ${fullTime(e.updated_at)}`}>
+        {ago(e.updated_at)}
+      </div>
+    </a>
   );
 }
 
@@ -138,7 +138,7 @@ export function KnowledgeView({ params }: { params: URLSearchParams }) {
         {hits && <span className="small muted">{hits.length} match{hits.length === 1 ? "" : "es"}, best first</span>}
       </div>
       {rows.length ? (
-        <div className="grid">
+        <div className="entry-list">
           {rows.map((e) => (
             <EntryCard key={e.id} e={e} flash={flash.has("e" + e.id)} />
           ))}
@@ -252,18 +252,16 @@ function Votes({ e }: { e: Entry }) {
   };
   return (
     <div className="panel">
-      <h4>
-        Still true?
-        <span className="muted small" style={{ fontWeight: 400 }}>
-          {e.votes.confirmed_at ? `last confirmed ${ago(e.votes.confirmed_at)}` : "nobody has confirmed it yet"}
-        </span>
-      </h4>
+      <h4>Still true?</h4>
+      <div className="small muted" style={{ marginBottom: 8 }}>
+        {e.votes.confirmed_at ? `Last confirmed ${ago(e.votes.confirmed_at)}` : "Nobody has confirmed it yet"}
+      </div>
       <div className="row wrap">
         <button className={cls("btn sm", mine?.vote === "true" && "on")} onClick={() => vote(mine?.vote === "true" ? "" : "true")}>
           <Icon name="check" size={13} /> Still true · {e.votes.true}
         </button>
         <button className={cls("btn sm", mine?.vote === "stale" && "on")} onClick={() => (mine?.vote === "stale" ? vote("") : setNoting(true))}>
-          ⚠️ Stale · {e.votes.stale}
+          Stale · {e.votes.stale}
         </button>
         <span className="small muted grow">
           {list.slice(0, 6).map((v) => `${v.voter.split("/").pop()} ${v.vote === "true" ? "✓" : "⚠"}${v.note ? ` (“${v.note}”)` : ""}`).join(" · ")}
@@ -298,9 +296,7 @@ function Links({ e }: { e: Entry }) {
     l.rel === "supersedes" ? (l.dir === "out" ? "supersedes" : "superseded by") : "related";
   return (
     <div className="panel">
-      <h4>
-        <Icon name="link" size={13} /> Linked entries
-      </h4>
+      <h4>Linked entries</h4>
       {e.links.length ? (
         <div className="links">
           {e.links.map((l) => (
@@ -368,76 +364,92 @@ export function EntryPage({ id }: { id: number }) {
       fail(err);
     }
   };
+  const edited = e.updated_at - e.created_at > 60;
   return (
     <div className="pad entry-page">
-      <div className="meta">
-        <KindBadge kind={e.kind} />
-        <span className="sep">·</span>
-        <span>#{e.id}</span>
-        <span className="sep">·</span>
-        <Ago t={e.created_at} prefix="created " />
-        {e.revisions > 1 && (
-          <>
-            <span className="sep">·</span>
-            <Ago t={e.updated_at} prefix="edited " />
-          </>
-        )}
-        {e.archived ? <span className="pill">archived</span> : null}
-      </div>
-      <h1>{e.title}</h1>
-      <div className="meta">
-        <Avatar user={e.author_user} size="sm" />
-        <Byline user={e.author_user} agent={e.author_agent} />
-        {e.source && (
-          <>
-            <span className="sep">·</span>
-            <span>
-              from <Markdown src={e.source} className="inline" />
-            </span>
-          </>
-        )}
-        {e.tags.map((t) => (
-          <a key={t} className="tag" href={hrefs.tag(t)}>
-            #{t}
-          </a>
-        ))}
-      </div>
-      {st === "superseded" && (
-        <div className="banner warn">
-          ⚠️ Superseded by <a href={hrefs.entry(e.superseded_by!)}>{e.links.find((l) => l.id === e.superseded_by)?.title || `#${e.superseded_by}`}</a>. Prefer that one.
+      <div className="doc">
+        <div className="eyebrow">
+          <KindBadge kind={e.kind} />
+          <span className="muted">#{e.id}</span>
+          {e.archived ? <span className="flag">Archived</span> : null}
         </div>
-      )}
-      {st === "stale" && <div className="banner warn">⚠️ More people say this is stale than still true. Check before relying on it, then vote or update it.</div>}
-      <div className="tabsbar">
-        <button className={cls(tab === "details" && "on")} onClick={() => setTab("details")}>
-          Details
-        </button>
-        <button className={cls(tab === "history" && "on")} onClick={() => setTab("history")}>
-          <Icon name="history" size={13} /> History · {e.revisions}
-        </button>
+        <h1>{e.title}</h1>
+        {st === "superseded" && (
+          <div className="banner warn">
+            Superseded by <a href={hrefs.entry(e.superseded_by!)}>{e.links.find((l) => l.id === e.superseded_by)?.title || `#${e.superseded_by}`}</a>. Prefer that one.
+          </div>
+        )}
+        {st === "stale" && <div className="banner warn">More people say this is stale than still true. Check it before relying on it, then vote or update it.</div>}
+        <div className="tabsbar">
+          <button className={cls(tab === "details" && "on")} onClick={() => setTab("details")}>
+            Details
+          </button>
+          <button className={cls(tab === "history" && "on")} onClick={() => setTab("history")}>
+            History <span className="muted">{e.revisions}</span>
+          </button>
+        </div>
+        {tab === "details" ? (
+          <>
+            <div className="body">{e.body ? <Markdown src={e.body} /> : <span className="muted">No details.</span>}</div>
+            <Reactions target={`e${e.id}`} reactions={e.reactions} showAdd />
+          </>
+        ) : (
+          <History id={e.id} />
+        )}
       </div>
-      {tab === "details" ? (
-        <>
-          <div className="body">{e.body ? <Markdown src={e.body} /> : <span className="muted">No details.</span>}</div>
-          <Reactions target={`e${e.id}`} reactions={e.reactions} showAdd />
-          <Votes e={e} />
-          <Links e={e} />
-        </>
-      ) : (
-        <History id={e.id} />
-      )}
-      <div className="toolbar">
-        <button className="btn sm" onClick={() => openModal(<EntryForm entry={e} />)}>
-          <Icon name="edit" size={13} /> Edit
-        </button>
-        <button className="btn sm" onClick={() => navigator.clipboard?.writeText(`python3 tools/agent_board/board.py show ${e.id}`).then(() => toast("CLI command copied"))}>
-          <Icon name="copy" size={13} /> Copy CLI command
-        </button>
-        <span className="grow" />
-        <button className="btn ghost danger sm" onClick={archive}>
-          <Icon name="archive" size={13} /> {e.archived ? "Restore" : "Archive"}
-        </button>
-      </div>
+      <aside className="doc-side">
+        <div className="actions-row">
+          <button className="btn sm" onClick={() => openModal(<EntryForm entry={e} />)}>
+            <Icon name="edit" size={13} /> Edit
+          </button>
+          <button className="btn sm" title="Copy the CLI command that prints this entry" onClick={() => navigator.clipboard?.writeText(`python3 tools/agent_board/board.py show ${e.id}`).then(() => toast("CLI command copied"))}>
+            <Icon name="copy" size={13} /> CLI
+          </button>
+          <button className="btn sm ghost danger" onClick={archive}>
+            <Icon name="archive" size={13} /> {e.archived ? "Restore" : "Archive"}
+          </button>
+        </div>
+        <dl className="props">
+          <dt>Author</dt>
+          <dd>
+            <Byline user={e.author_user} agent={e.author_agent} />
+          </dd>
+          <dt>Created</dt>
+          <dd>
+            <Ago t={e.created_at} />
+          </dd>
+          {edited && (
+            <>
+              <dt>Updated</dt>
+              <dd>
+                <Ago t={e.updated_at} />
+              </dd>
+            </>
+          )}
+          {e.source && (
+            <>
+              <dt>Source</dt>
+              <dd>
+                <Markdown src={e.source} className="inline" />
+              </dd>
+            </>
+          )}
+          {e.tags.length > 0 && (
+            <>
+              <dt>Tags</dt>
+              <dd className="tags">
+                {e.tags.map((t) => (
+                  <a key={t} className="tag" href={hrefs.tag(t)}>
+                    {t}
+                  </a>
+                ))}
+              </dd>
+            </>
+          )}
+        </dl>
+        <Votes e={e} />
+        <Links e={e} />
+      </aside>
     </div>
   );
 }

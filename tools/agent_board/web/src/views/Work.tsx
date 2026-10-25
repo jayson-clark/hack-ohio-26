@@ -107,7 +107,7 @@ export function ClaimsView() {
           )}
         </div>
       </div>
-      {conflictCount > 0 && <div className="banner warn" style={{ marginBottom: 14 }}>⚠️ {conflictCount} claims overlap another agent's. Whoever claimed second should check in with the first.</div>}
+      {conflictCount > 0 && <div className="banner warn" style={{ marginBottom: 14 }}>{conflictCount} claims overlap another agent's. Whoever claimed second should check in with the first.</div>}
       {groups.length ? (
         <div className="cols">
           {groups.map(([agent, list]) => (
@@ -288,7 +288,7 @@ export function PersonView({ user }: { user: string }) {
       </div>
       <SectionTitle title="Agents" />
       {agents.length ? (
-        <div className="agent-cards">
+        <div className="agent-list">
           {agents.map((a) => (
             <AgentCard key={a.id} a={a} />
           ))}
@@ -345,7 +345,7 @@ export function PersonView({ user }: { user: string }) {
       </div>
       <SectionTitle title="Knowledge" />
       {entries.length ? (
-        <div className="grid">
+        <div className="entry-list">
           {entries.map((e) => (
             <EntryCard key={e.id} e={e} />
           ))}
