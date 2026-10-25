@@ -1,21 +1,59 @@
 @import "tailwindcss";
 
+/* Firewatch design tokens (#130). A light, map-first operations UI: neutral
+   surfaces, one blue accent for anything you can act on, and status colors
+   kept for status. Fire colors live in the map shader (render/carto.ts). */
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
 
-  --color-surface-0: #0a0b0d;
-  --color-surface-1: #111317;
-  --color-surface-2: #181b20;
-  --color-surface-3: #22262d;
-  --color-edge: #23272e;
-  --color-edge-strong: #313640;
-  --color-fg: #e8eaed;
-  --color-fg-muted: #9aa1ab;
-  --color-fg-subtle: #646b75;
-  --color-ember-300: #ffb38a;
-  --color-ember-400: #ff8a4c;
-  --color-ember-500: #ff6b2c;
+  /* Surfaces */
+  --color-canvas: #eef0f3;
+  --color-panel: #ffffff;
+  --color-sunken: #f6f7f9;
+  --color-hover: #f1f3f6;
+  --color-line: #e4e7ec;
+  --color-line-strong: #cfd4dc;
+
+  /* Text */
+  --color-ink: #101828;
+  --color-ink-2: #475467;
+  --color-ink-3: #8a94a6;
+
+  /* Action */
+  --color-accent: #1f4fd6;
+  --color-accent-hover: #1a43b8;
+  --color-accent-soft: #edf2ff;
+  --color-accent-line: #c7d5fb;
+
+  /* Status */
+  --color-crit: #d92d20;
+  --color-crit-soft: #fef3f2;
+  --color-crit-line: #fecdca;
+  --color-warn: #c4560a;
+  --color-warn-soft: #fff6ed;
+  --color-warn-line: #fddcab;
+  --color-ok: #067647;
+  --color-ok-soft: #ecfdf3;
+  --color-ok-line: #abefc6;
+  --color-fire: #e8461b;
+
+  /* Older names, still used by exercise control, mapped onto the palette above. */
+  --color-surface-0: #eef0f3;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #f6f7f9;
+  --color-surface-3: #eceff3;
+  --color-edge: #e4e7ec;
+  --color-edge-strong: #cfd4dc;
+  --color-fg: #101828;
+  --color-fg-muted: #475467;
+  --color-fg-subtle: #8a94a6;
+  --color-ember-300: #1f4fd6;
+  --color-ember-400: #1a43b8;
+  --color-ember-500: #1f4fd6;
+
+  --shadow-float: 0 1px 2px rgb(16 24 40 / 0.06), 0 8px 24px -4px rgb(16 24 40 / 0.14);
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.05);
 }
 
 html,
@@ -25,19 +63,30 @@ body,
 }
 
 body {
-  background: var(--color-surface-0);
-  color: var(--color-fg);
+  background: var(--color-canvas);
+  color: var(--color-ink);
   font-family: var(--font-sans);
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   -webkit-user-select: none;
   overflow: hidden;
 }
 
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-surface-3);
-  border-radius: 4px;
+  background: #d5d9e0;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }

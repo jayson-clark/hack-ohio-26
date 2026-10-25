@@ -1,139 +1,109 @@
-// The decision queue (#122): what the operator should act on now, most urgent
-// first. It's built from what the engine already works out (the town board,
-// crew recommendations, units that can't get through), so every number on a
-// card comes from the simulation. When the evacuation order clock (#121)
-// lands, its "order by" times slot into the evacuation cards.
+// What needs a decision now (#122, #130), most urgent first: evacuation
+// orders coming due on the evacuation clock (#121), towns with no way out,
+// crew recommendations, and units that can't get through. Each card says
+// what to do and by when, and carries its action; clicking it opens the
+// details in the inspector.
 
 import type { ReactNode } from "react";
-import { UNIT_STATUS, orderText } from "../shared/dispatch";
-import { acceptRecommendation, useEngine } from "../shared/engine";
-import type { Recommendation, Token, TownThreat } from "../shared/protocol";
+import { orderText } from "../shared/dispatch";
+import { acceptRecommendation, orderEvacuation, useEngine } from "../shared/engine";
 import { aboutMinutes, describeLocation } from "../shared/places";
+import type { Recommendation } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
-import { ORDER_STYLE, TOKEN_STYLE } from "../shared/tokens";
-import { addToken } from "../shared/virtualTokens";
-import { REC_COLOR } from "../render/routes";
-import { Button } from "./ui";
+import { ORDER_STYLE } from "../shared/tokens";
+import { Icon, type IconName } from "./icons";
+import { minutesUntil, type Selection, type TownView } from "./model";
+import { Button, Empty, TONE, type Tone } from "./ui";
 
-type Level = "now" | "soon" | "consider" | "info";
-
-const LEVEL: Record<Level, { label: string; color: string }> = {
-  now: { label: "Act now", color: "#ef4444" },
-  soon: { label: "Act soon", color: "#fb923c" },
-  consider: { label: "Recommended", color: REC_COLOR },
-  info: { label: "Heads up", color: "#38bdf8" },
-};
-const ORDER: Level[] = ["now", "soon", "consider", "info"];
-
-interface Decision {
+interface Item {
   key: string;
-  level: Level;
-  /** Sort within a level: sooner first. */
-  minutes: number;
+  tone: Tone;
+  icon: IconName;
+  rank: number;
   title: string;
-  body: ReactNode;
+  detail: ReactNode;
+  select: Selection;
   actions: ReactNode;
 }
 
 interface Props {
-  scenario: Scenario;
-  onFocus: (x: number, y: number) => void;
+  scenario: Scenario | null;
+  towns: TownView[];
+  onSelect: (s: Selection) => void;
   onTryInPlan: (rec: Recommendation) => void;
 }
 
-// A town is worth an evacuation card when at least this share of the
-// simulations reach it within the hour.
-const EVAC_SHARE = 0.25;
+export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
+  const { recommendations, units, tokens, hello, score } = useEngine();
+  const perTick = hello?.sim_minutes_per_tick ?? 1;
+  const now = score?.tick ?? 0;
+  const items: Item[] = [];
+  if (!scenario) return items;
 
-export default function Decisions({ scenario, onFocus, onTryInPlan }: Props) {
-  const { situation, recommendations, tokens, units, simGrid } = useEngine();
-  const burning = !!simGrid && simGrid.payload.includes(2);
-  const towns = new Map(scenario.towns.map((t) => [t.name, t]));
-  const decisions: Decision[] = [];
-
-  for (const t of situation?.towns ?? []) {
-    const town = towns.get(t.town);
-    if (!town) continue;
-    const share = t.within_60 ? t.within_60.k / Math.max(1, t.within_60.n) : 0;
-    if (!t.fire_inside && share < EVAC_SHARE) continue;
-    const show = (
-      <Button variant="ghost" className="h-7" onClick={() => onFocus(town.x, town.y)}>
-        Show
-      </Button>
-    );
-    if (t.route_status === "cut") {
-      decisions.push({
-        key: `cut-${t.town}`,
-        level: "now",
-        minutes: t.soonest_min ?? 0,
-        title: `No safe way out of ${t.town}`,
-        body: (
-          <>
-            Every route out is cut or will burn before traffic gets through. {t.population.toLocaleString()} residents.
-            Shelter in place, or send a crew to hold a road open. <Arrival t={t} />
-          </>
-        ),
-        actions: show,
+  for (const t of towns) {
+    const e = t.evac;
+    const sel: Selection = { kind: "town", name: t.name };
+    if (e?.status === "trapped" || (!e && t.threat?.route_status === "cut" && (t.tone === "crit" || t.tone === "warn"))) {
+      items.push({
+        key: `trap-${t.name}`,
+        tone: "crit",
+        icon: "alert",
+        rank: 0,
+        title: `No way out of ${t.name}`,
+        detail: `${t.population.toLocaleString()} residents. Every exit is cut or will burn first. Shelter in place, or send a crew to hold a road.`,
+        select: sel,
+        actions: null,
       });
       continue;
     }
-    const bus = tokens.find((k) => k.token_type === "bus" && Math.hypot(k.x - town.x, k.y - town.y) <= town.radius);
-    decisions.push({
-      key: `evac-${t.town}`,
-      level: t.fire_inside || (t.soonest_min ?? Infinity) <= 30 ? "now" : "soon",
-      minutes: t.fire_inside ? 0 : (t.soonest_min ?? 60),
-      title: `Evacuate ${t.town}`,
-      body: (
-        <>
-          <Arrival t={t} />{" "}
-          {t.exit ? (
-            <>
-              Leave by {t.exit}
-              {t.drive_min != null && <>, about {aboutMinutes(t.drive_min)} drive</>}
-              {t.route_status === "risky" && <span className="text-amber-300"> (route at risk)</span>}.
-            </>
-          ) : null}
-        </>
-      ),
-      actions: (
-        <>
-          {bus ? (
-            <span className="flex h-7 flex-1 items-center justify-center rounded-lg bg-emerald-500/10 text-[11px] text-emerald-300">
-              Bus on scene
-            </span>
-          ) : (
-            <Button variant="primary" className="h-7 flex-1" onClick={() => addToken("bus", town.x, town.y, scenario)}>
-              Send evac bus
-            </Button>
-          )}
-          {show}
-        </>
-      ),
-    });
+    if (e && e.ordered_tick === null && (e.status === "late" || e.status === "order_now" || e.status === "order_soon")) {
+      const left = minutesUntil(e.order_by_tick, now, perTick);
+      const when =
+        left === null
+          ? "Waiting for the long forecast"
+          : left > 0
+            ? `Order within ${aboutMinutes(left)}${e.order_by_bound ? " or more" : ""}`
+            : `${aboutMinutes(-left)} past the latest safe time`;
+      const need = e.clearance_min === null ? null : e.mobilize_min + e.clearance_min;
+      items.push({
+        key: `evac-${t.name}`,
+        tone: e.status === "order_soon" ? "warn" : "crit",
+        icon: "users",
+        rank: e.status === "order_soon" ? 2 : 1,
+        title: `Order ${t.name} to evacuate`,
+        detail: (
+          <>
+            <span className="font-medium text-ink">{when}.</span> {e.people.toLocaleString()} people
+            {need !== null && <>, {aboutMinutes(need)} to get everyone out</>}
+            {e.exits.length > 0 && <> via {e.exits.map((x) => x.safe_zone).join(" and ")}</>}.
+          </>
+        ),
+        select: sel,
+        actions: (
+          <Button size="sm" variant={e.status === "order_soon" ? "secondary" : "primary"} onClick={() => orderEvacuation(t.name, true)}>
+            Order evacuation
+          </Button>
+        ),
+      });
+    }
   }
 
   recommendations.forEach((r, i) => {
-    decisions.push({
+    items.push({
       key: r.id,
-      level: "consider",
-      minutes: i,
+      tone: "info",
+      icon: "bulb",
+      rank: 3 + i * 0.01,
       title: `${r.action === "move" ? "Move a crew" : ORDER_STYLE[r.token_type].verb} ${describeLocation(scenario, r.x, r.y)}`,
-      body: <RecBody rec={r} />,
+      detail: <RecLine rec={r} />,
+      select: { kind: "rec", id: r.id, x: r.x, y: r.y },
       actions: (
         <>
-          <Button
-            variant="primary"
-            className={`h-7 flex-1 ${r.auto ? "" : "cursor-not-allowed opacity-50"}`}
-            title={r.auto ? undefined : "A physical crew on the table: move it there by hand"}
-            onClick={r.auto ? () => acceptRecommendation(r.id) : undefined}
-          >
-            {r.action === "move" ? (r.auto ? "Move crew" : "Move by hand") : "Dispatch"}
+          <Button size="sm" variant="primary" disabled={!r.auto} title={r.auto ? undefined : "A crew on the table: move it by hand"} onClick={() => acceptRecommendation(r.id)}>
+            {r.action === "move" ? "Move crew" : "Dispatch"}
           </Button>
-          <Button className="h-7" onClick={() => onTryInPlan(r)} title="Add it to a plan and compare it with other options">
+          <Button size="sm" onClick={() => onTryInPlan(r)}>
             Try in plan
-          </Button>
-          <Button variant="ghost" className="h-7" onClick={() => onFocus(r.x, r.y)}>
-            Show
           </Button>
         </>
       ),
@@ -142,110 +112,75 @@ export default function Decisions({ scenario, onFocus, onTryInPlan }: Props) {
 
   for (const u of units) {
     if (u.status !== "blocked" && u.status !== "grounded") continue;
-    const target = tokens.find((t) => t.id === u.token_id);
-    decisions.push({
+    const order = tokens.find((t) => t.id === u.token_id);
+    items.push({
       key: `unit-${u.id}`,
-      level: "info",
-      minutes: 0,
-      title: u.status === "grounded" ? `${u.station}: tankers grounded` : `${u.id} can't get through`,
-      body: (
-        <>
-          <span style={{ color: UNIT_STATUS[u.status].color }}>{orderText(u)}</span>
-          {target && <> for the {TOKEN_STYLE[target.token_type].label.toLowerCase()} order {describeLocation(scenario, target.x, target.y)}</>}.
-          {u.status === "blocked" && " Cancel the order or pick a spot a road reaches."}
-        </>
-      ),
-      actions: target ? <ShowToken token={target} onFocus={onFocus} /> : null,
+      tone: "warn",
+      icon: "route",
+      rank: 4,
+      title: u.status === "grounded" ? "Air tankers grounded" : `${u.id} can't get through`,
+      detail: `${orderText(u)}.${u.status === "blocked" ? " Cancel the order or pick a spot a road reaches." : ""}`,
+      select: order ? { kind: "order", id: order.id } : null,
+      actions: null,
     });
   }
 
-  decisions.sort((a, b) => ORDER.indexOf(a.level) - ORDER.indexOf(b.level) || a.minutes - b.minutes);
+  return items.sort((a, b) => a.rank - b.rank);
+}
 
-  if (decisions.length === 0) {
+export default function Decisions(props: Props) {
+  const items = useDecisions(props);
+  const { simGrid, situation } = useEngine();
+  const burning = !!simGrid && simGrid.payload.includes(2);
+
+  if (items.length === 0) {
     return (
-      <p className="px-1 py-4 text-center text-[11px] leading-relaxed text-fg-subtle">
-        {burning
-          ? situation?.forecast_tick == null
+      <Empty>
+        {!burning
+          ? "No active fire. Start one from Exercise control."
+          : situation?.forecast_tick == null
             ? "Running the first forecast…"
-            : "Nothing needs a decision right now. No town is likely to see fire within the hour."
-          : "No active fire."}
-      </p>
+            : "Nothing needs a decision right now."}
+      </Empty>
     );
   }
-
   return (
-    <ol className="space-y-2">
-      {decisions.map((d) => (
+    <ul className="space-y-2">
+      {items.map((it) => (
         <li
-          key={d.key}
-          className="rounded-lg border border-edge bg-surface-2 p-2.5"
-          style={{ borderLeft: `3px solid ${LEVEL[d.level].color}` }}
+          key={it.key}
+          onClick={() => it.select && props.onSelect(it.select)}
+          className="group cursor-pointer rounded-lg border border-line bg-panel p-3 shadow-card transition-colors hover:border-line-strong"
         >
-          <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: LEVEL[d.level].color }}>
-            {LEVEL[d.level].label}
+          <div className="flex gap-3">
+            <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${TONE[it.tone].soft} ${TONE[it.tone].text}`}>
+              <Icon name={it.icon} size={15} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold leading-snug text-ink">{it.title}</div>
+              <p className="mt-0.5 text-xs leading-relaxed text-ink-2">{it.detail}</p>
+              {it.actions && (
+                <div className="mt-2.5 flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+                  {it.actions}
+                </div>
+              )}
+            </div>
+            <Icon name="chevronRight" size={15} className="mt-1 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
           </div>
-          <div className="text-[13px] font-medium leading-snug text-fg">{d.title}</div>
-          <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">{d.body}</p>
-          {d.actions && <div className="mt-2 flex gap-1.5">{d.actions}</div>}
         </li>
       ))}
-    </ol>
+    </ul>
   );
 }
 
-/** "Fire could reach it in as little as 18 min (likely 25 min)." */
-function Arrival({ t }: { t: TownThreat }) {
-  if (t.fire_inside) return <span className="text-red-300">Fire is in town now.</span>;
-  const w = t.within_60;
+function RecLine({ rec }: { rec: Recommendation }) {
+  const parts: ReactNode[] = [];
+  if (rec.station && rec.eta_min != null) parts.push(`From ${rec.station}, ${aboutMinutes(rec.eta_min)} out`);
+  if (rec.saves.length) parts.push(`keeps fire out of ${rec.saves.map((e) => `${e.town} (${e.hits}/${e.n})`).join(", ")}`);
+  else if (rec.acres_saved > 0) parts.push(`saves about ${Math.round(rec.acres_saved).toLocaleString()} acres in the next hour`);
   return (
     <>
-      {t.soonest_min != null ? <>Fire could arrive in as little as {aboutMinutes(t.soonest_min)}</> : <>Fire may arrive</>}
-      {t.median_min != null && <> (likely {aboutMinutes(t.median_min)})</>}
-      {w && (
-        <>
-          ; {w.k} of {w.n} simulations reach it within the hour
-        </>
-      )}
-      .
+      {parts.join("; ")}.{rec.confidence !== "high" && <span className="text-warn"> Rough estimate.</span>}
     </>
-  );
-}
-
-function RecBody({ rec }: { rec: Recommendation }) {
-  return (
-    <>
-      {rec.station && rec.eta_min != null && (
-        <span className="text-fg">
-          From {rec.station}, about {aboutMinutes(rec.eta_min)} out.{" "}
-        </span>
-      )}
-      {rec.saves.length > 0 && (
-        <>
-          Keeps fire out of{" "}
-          {rec.saves.map((e, i) => (
-            <span key={e.town}>
-              {i > 0 && ", "}
-              <span className="text-emerald-300">{e.town}</span> in {e.hits} of {e.n} simulations
-            </span>
-          ))}
-          .{" "}
-        </>
-      )}
-      {rec.worsens.length > 0 && (
-        <span className="text-red-300">
-          Pushes fire toward {rec.worsens.map((e) => e.town).join(", ")} in some simulations.{" "}
-        </span>
-      )}
-      {rec.acres_saved > 0 && <>About {Math.round(rec.acres_saved).toLocaleString()} acres kept from burning in the next hour. </>}
-      {rec.confidence !== "high" && <span className="text-amber-300">Rough estimate.</span>}
-    </>
-  );
-}
-
-function ShowToken({ token, onFocus }: { token: Token; onFocus: (x: number, y: number) => void }) {
-  return (
-    <Button variant="ghost" className="h-7" onClick={() => onFocus(token.x, token.y)}>
-      Show
-    </Button>
   );
 }

@@ -458,6 +458,8 @@ class Engine:
             case Ignite():
                 self.fire.ignite(msg.x, msg.y)
                 self._ignitions += 1
+                # Send the map now: while paused no step would, and the new fire wouldn't show.
+                broadcast(self.clients, self.sim_grid_frame())
                 broadcast(self.clients, self.state_msg())
             case Reset():
                 self.game.reset()

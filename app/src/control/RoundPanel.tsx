@@ -30,7 +30,7 @@ function PhaseBadge({ score }: { score: Score }) {
   const style = {
     sandbox: "bg-surface-3 text-fg-muted",
     running: "bg-ember-500/15 text-ember-300",
-    ended: "bg-sky-500/15 text-sky-300",
+    ended: "bg-accent-soft text-accent",
   }[score.phase];
   const label = { sandbox: "Free play", running: "Live", ended: "Final" }[score.phase];
   return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${style}`}>{label}</span>;
@@ -62,7 +62,7 @@ function Running({ score }: { score: Score }) {
         </div>
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3">
           <div
-            className={`h-full rounded-full ${left < score.duration_min * 0.15 ? "bg-red-400" : "bg-ember-500"}`}
+            className={`h-full rounded-full ${left < score.duration_min * 0.15 ? "bg-crit" : "bg-ember-500"}`}
             style={{ width: `${done * 100}%` }}
           />
         </div>
@@ -149,7 +149,7 @@ function Towns({ score }: { score: Score }) {
               <span className="truncate text-fg">{t.name}</span>
               <span className="shrink-0 font-mono tabular-nums text-fg-subtle">
                 {t.evacuated.toLocaleString()}/{t.population.toLocaleString()} out
-                {t.structures_lost > 0 && <span className="text-red-400"> · {lost}% lost</span>}
+                {t.structures_lost > 0 && <span className="text-crit"> · {lost}% lost</span>}
               </span>
             </div>
             <div className="mt-0.5 flex h-1 overflow-hidden rounded-full bg-surface-3">

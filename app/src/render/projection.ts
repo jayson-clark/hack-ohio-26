@@ -41,7 +41,7 @@ function rgb(hex: string): THREE.Vector3 {
 }
 
 /** Separable 5-tap box blur, in place (edges clamp). */
-function blur(a: Float32Array, tmp: Float32Array, w: number, h: number) {
+export function blur(a: Float32Array, tmp: Float32Array, w: number, h: number) {
   const R = 2;
   const norm = 1 / (2 * R + 1);
   for (let y = 0; y < h; y++) {

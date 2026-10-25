@@ -26,7 +26,7 @@ export default function CalibrationPanel() {
     <div className="space-y-2 border-t border-edge pt-2.5 text-xs">
       <div className="flex items-center justify-between">
         <span className="font-medium text-fg">Calibration</span>
-        <span className={cal.phase === "calibrated" ? "text-emerald-300" : "text-fg-subtle"}>
+        <span className={cal.phase === "calibrated" ? "text-ok" : "text-fg-subtle"}>
           {
             {
               none: "Not calibrated",
@@ -61,7 +61,7 @@ export default function CalibrationPanel() {
         </p>
       )}
 
-      {cal.message && <p className="text-[11px] leading-relaxed text-amber-300">{cal.message}</p>}
+      {cal.message && <p className="text-[11px] leading-relaxed text-warn">{cal.message}</p>}
 
       <div className="flex flex-wrap gap-1.5">
         {cal.phase === "review" ? (
