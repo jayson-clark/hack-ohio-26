@@ -33,7 +33,7 @@ export default function SimControls({ state }: { state: ScenarioState | null }) 
         title={isPaused ? "Resume (Space)" : "Pause (Space)"}
         onClick={() => send({ type: "set_running", running: isPaused })}
         className={`flex h-6 w-7 items-center justify-center rounded-md transition-colors ${
-          isPaused ? "bg-ember-500 text-black hover:bg-ember-400" : "text-fg hover:bg-surface-3"
+          isPaused ? "bg-accent text-white hover:bg-ember-400" : "text-fg hover:bg-surface-3"
         }`}
       >
         {isPaused ? <PlayIcon /> : <PauseIcon />}

@@ -69,7 +69,7 @@ export default function ProjectorControls() {
           Browser mode: drag the popup to the projector screen and press F for fullscreen.
         </p>
       )}
-      {error && <p className="text-red-400">{error}</p>}
+      {error && <p className="text-crit">{error}</p>}
     </div>
   );
 }

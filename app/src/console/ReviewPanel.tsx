@@ -1,58 +1,56 @@
-// Review mode: how the incident has gone so far, town by town. Exercises
-// (rounds) are scored by the engine's game layer; the after-action comparison
-// against doing nothing is #124.
+// Review mode (#130): how the incident has gone so far, then the timeline.
+// The comparison against doing nothing is #124.
 
 import { useEngine } from "../shared/engine";
 import { END_REASON_TEXT, formatSimMinutes, headline, pct } from "../shared/round";
+import { Timeline } from "./EventLog";
+import { Section, Stat } from "./ui";
 
 export default function ReviewPanel() {
-  const { score } = useEngine();
+  const { score, events } = useEngine();
   if (!score) return null;
   const phase =
     score.phase === "sandbox"
-      ? "Free play: not a timed exercise. Start one from Exercise control to score it."
+      ? "Free play, not a timed exercise. Start one from Exercise control to score it."
       : score.phase === "running"
         ? `Exercise running, ${formatSimMinutes(score.duration_min - score.elapsed_min)} left.`
         : `${score.end_reason ? END_REASON_TEXT[score.end_reason] : "Exercise over"} after ${formatSimMinutes(score.elapsed_min)}.`;
+  const [evacuated, saved, acres] = headline(score);
 
   return (
-    <div className="space-y-3">
-      <p className="text-[11px] leading-relaxed text-fg-subtle">{phase}</p>
-      <div className="grid grid-cols-3 gap-2">
-        {headline(score).map((s) => (
-          <div key={s.label} className="rounded-lg border border-edge bg-surface-2 p-2">
-            <div className="font-mono text-sm tabular-nums text-fg">{s.value}</div>
-            <div className="text-[10px] leading-tight text-fg-subtle">{s.label}</div>
-            {s.pct !== null && <div className="text-[10px] text-fg-muted">{s.pct}%</div>}
-          </div>
-        ))}
-      </div>
-      {score.towns.length > 0 && (
-        <table className="w-full text-[11px]">
-          <thead>
-            <tr className="text-left text-[10px] uppercase tracking-wide text-fg-subtle">
-              <th className="pb-1 font-medium">Town</th>
-              <th className="pb-1 text-right font-medium">Evacuated</th>
-              <th className="pb-1 text-right font-medium">Structures lost</th>
-            </tr>
-          </thead>
-          <tbody>
+    <>
+      <Section title="Outcome so far">
+        <p className="mb-3 text-xs text-ink-2">{phase}</p>
+        <div className="grid grid-cols-3 gap-2">
+          <Stat label="Evacuated" value={evacuated.value} sub={`${evacuated.pct}% of residents`} tone="ok" />
+          <Stat label="Structures saved" value={saved.value} sub={`${saved.pct}%`} />
+          <Stat label="Acres burned" value={acres.value} tone="crit" />
+        </div>
+        {score.towns.length > 0 && (
+          <div className="mt-4">
+            <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 pb-1 text-[11px] font-medium text-ink-3">
+              <span>Town</span>
+              <span className="text-right">Evacuated</span>
+              <span className="w-20 text-right">Structures lost</span>
+            </div>
             {score.towns.map((t) => (
-              <tr key={t.name} className="border-t border-edge/60">
-                <td className="py-1 text-fg">{t.name}</td>
-                <td className="py-1 text-right font-mono tabular-nums text-fg-muted">
+              <div key={t.name} className="grid grid-cols-[1fr_auto_auto] gap-x-4 border-t border-line py-1.5 text-xs">
+                <span className="text-ink">{t.name}</span>
+                <span className="text-right text-ink-2 tnum">
                   {t.evacuated.toLocaleString()}
-                  <span className="text-fg-subtle">/{t.population.toLocaleString()}</span>
-                </td>
-                <td className={`py-1 text-right font-mono tabular-nums ${t.structures_lost ? "text-red-300" : "text-fg-muted"}`}>
-                  {t.structures_lost.toLocaleString()}
-                  <span className="text-fg-subtle"> · {pct(t.structures_lost, t.structures)}%</span>
-                </td>
-              </tr>
+                  <span className="text-ink-3">/{t.population.toLocaleString()}</span>
+                </span>
+                <span className={`w-20 text-right tnum ${t.structures_lost ? "font-medium text-crit" : "text-ink-3"}`}>
+                  {t.structures_lost.toLocaleString()} · {pct(t.structures_lost, t.structures)}%
+                </span>
+              </div>
             ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+          </div>
+        )}
+      </Section>
+      <Section title="Timeline" count={events.length}>
+        <Timeline />
+      </Section>
+    </>
   );
 }

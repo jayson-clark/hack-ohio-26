@@ -1,51 +1,35 @@
-// Situation events (#46; engine side in #38/#66): a log in the sidebar and
-// short-lived alerts over the map for the urgent ones. Events are facts from
-// the simulation; the commander's take on them is in its own panel.
+// Situation events (#46, #130): toasts over the map for the urgent ones, and
+// the incident timeline in Review. Events are facts from the simulation; the
+// commander's take on them is in its dock.
 
 import { useEffect, useRef, useState } from "react";
 import { useEngine } from "../shared/engine";
 import { EVENT_STYLE } from "../shared/events";
-import type { Event } from "../shared/protocol";
-import { Panel } from "./ui";
+import type { Event, EventKind } from "../shared/protocol";
+import { formatSimMinutes } from "../shared/round";
+import { Icon, type IconName } from "./icons";
+import { Empty, TONE, type Tone } from "./ui";
 
 const ALERT_MS = 6000;
+const RECENT_TICKS = 3;
 
-export function EventLogPanel() {
-  const { events, hello } = useEngine();
-  const perTick = hello?.sim_minutes_per_tick ?? 1;
-  const newestFirst = [...events].reverse();
-  return (
-    <Panel title="Events" right={<span className="font-mono text-[11px] tabular-nums text-fg-subtle">{events.length}</span>}>
-      {events.length === 0 ? (
-        <p className="py-1 text-[11px] text-fg-subtle">Road cuts, reroutes and threatened towns show up here.</p>
-      ) : (
-        <ul className="-mx-1 max-h-56 space-y-1 overflow-y-auto px-1">
-          {newestFirst.map((e, i) => {
-            const style = EVENT_STYLE[e.kind];
-            return (
-              <li key={events.length - i} className="flex gap-2 text-[11px]">
-                <span className="w-12 shrink-0 font-mono tabular-nums text-fg-subtle">
-                  T+{Math.round(e.tick * perTick)}m
-                </span>
-                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: style.color }} />
-                <span className="leading-relaxed text-fg">
-                  <span className="font-medium" style={{ color: style.color }}>
-                    {style.label}
-                  </span>{" "}
-                  {e.text}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </Panel>
-  );
-}
+const KIND: Record<EventKind, { tone: Tone; icon: IconName }> = {
+  town_threatened: { tone: "warn", icon: "alert" },
+  no_safe_route: { tone: "crit", icon: "alert" },
+  road_cut: { tone: "crit", icon: "route" },
+  route_changed: { tone: "warn", icon: "route" },
+  forecast_shift: { tone: "info", icon: "activity" },
+  town_safe: { tone: "ok", icon: "check" },
+  round_ended: { tone: "neutral", icon: "check" },
+  unit_arrived: { tone: "ok", icon: "crew" },
+  unit_blocked: { tone: "crit", icon: "route" },
+  tankers_grounded: { tone: "warn", icon: "air" },
+  evacuate_now: { tone: "crit", icon: "users" },
+};
 
 /** Urgent events pop up over the map for a few seconds, newest on top. */
 export function EventAlerts() {
-  const { events } = useEngine();
+  const { events, score } = useEngine();
   const [shown, setShown] = useState<{ key: number; event: Event }[]>([]);
   // The store keeps only the last 50 events, so its length stops growing:
   // find new ones by the last event already seen instead.
@@ -55,10 +39,12 @@ export function EventAlerts() {
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   useEffect(() => {
+    // Not found: the store was cleared (a reconnect) and refilled with the
+    // engine's recent log. That's history, not news, so only pop up events
+    // from the last few ticks.
     const idx = lastSeen.current ? events.lastIndexOf(lastSeen.current) : -1;
-    // Not found: the store was cleared (reconnect) or rolled past it. Only the
-    // newest few are worth an alert then.
-    const fresh = idx >= 0 ? events.slice(idx + 1) : events.slice(-3);
+    const now = score?.tick ?? 0;
+    const fresh = idx >= 0 ? events.slice(idx + 1) : events.filter((e) => e.tick >= now - RECENT_TICKS);
     lastSeen.current = events[events.length - 1];
     const urgent = fresh.filter((e) => EVENT_STYLE[e.kind].alert).map((event) => ({ key: next.current++, event }));
     if (urgent.length === 0) return;
@@ -68,26 +54,48 @@ export function EventAlerts() {
   }, [events]);
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-16 z-10 flex flex-col items-center gap-2">
+    <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex flex-col items-center gap-2">
       {shown.map(({ key, event }) => {
-        const style = EVENT_STYLE[event.kind];
+        const k = KIND[event.kind];
         return (
-          <div
-            key={key}
-            className="flex max-w-md items-start gap-2.5 rounded-lg border bg-surface-1/95 px-3 py-2 shadow-xl shadow-black/40 backdrop-blur"
-            style={{ borderColor: `${style.color}66` }}
-          >
-            <span className="mt-1 h-2 w-2 shrink-0 animate-pulse rounded-full" style={{ background: style.color }} />
-            <div className="text-xs">
-              <div className="font-semibold" style={{ color: style.color }}>
-                {style.label}
-                {event.town && <span className="text-fg"> · {event.town}</span>}
+          <div key={key} className="flex w-[380px] items-start gap-3 rounded-xl border border-line bg-panel px-3.5 py-3 shadow-float">
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${TONE[k.tone].soft} ${TONE[k.tone].text}`}>
+              <Icon name={k.icon} size={15} />
+            </span>
+            <div className="min-w-0 text-xs leading-relaxed">
+              <div className="text-[13px] font-semibold text-ink">
+                {EVENT_STYLE[event.kind].label}
+                {event.town && <span className="font-normal text-ink-2"> · {event.town}</span>}
               </div>
-              <div className="text-fg-muted">{event.text}</div>
+              <div className="text-ink-2">{event.text}</div>
             </div>
           </div>
         );
       })}
     </div>
+  );
+}
+
+/** Every event so far, newest first, on a vertical timeline. */
+export function Timeline() {
+  const { events, hello } = useEngine();
+  const perTick = hello?.sim_minutes_per_tick ?? 1;
+  if (events.length === 0) return <Empty>Road cuts, reroutes, arrivals and threatened towns are logged here.</Empty>;
+  return (
+    <ol className="relative ml-1.5 border-l border-line">
+      {[...events].reverse().map((e, i) => {
+        const k = KIND[e.kind];
+        return (
+          <li key={events.length - i} className="relative pb-3.5 pl-5 last:pb-0">
+            <span className={`absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-panel ${TONE[k.tone].solid}`} />
+            <div className="flex items-baseline gap-2">
+              <span className="text-[13px] font-medium text-ink">{EVENT_STYLE[e.kind].label}</span>
+              <span className="text-[11px] text-ink-3 tnum">T+{formatSimMinutes(e.tick * perTick)}</span>
+            </div>
+            <p className="text-xs leading-relaxed text-ink-2">{e.text}</p>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

@@ -45,7 +45,7 @@ export default function CameraView({ frame, vision }: { frame: BinaryFrame | nul
 /** One-line vision health for the viewport's bottom bar. */
 export function VisionReadout({ vision }: { vision: VisionStatus | null }) {
   if (!vision || vision.camera === "off") return <span>Camera off</span>;
-  if (vision.camera === "no_signal") return <span className="text-amber-300">No signal · {vision.source}</span>;
+  if (vision.camera === "no_signal") return <span className="text-warn">No signal · {vision.source}</span>;
   return (
     <span className="flex items-center gap-3">
       <span>
@@ -56,14 +56,14 @@ export function VisionReadout({ vision }: { vision: VisionStatus | null }) {
           <span
             key={c}
             className={`rounded px-1 ${
-              vision.corners_seen.includes(c) ? "bg-emerald-500/15 text-emerald-300" : "bg-surface-2 text-fg-subtle"
+              vision.corners_seen.includes(c) ? "bg-ok-soft text-ok" : "bg-surface-2 text-fg-subtle"
             }`}
           >
             {c}
           </span>
         ))}
       </span>
-      <span className={vision.board_found ? "text-emerald-300" : "text-amber-300"}>
+      <span className={vision.board_found ? "text-ok" : "text-warn"}>
         {vision.board_found ? "Board locked" : "Show all four corners"}
       </span>
     </span>

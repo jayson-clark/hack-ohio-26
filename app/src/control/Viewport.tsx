@@ -81,7 +81,7 @@ export default function Viewport(props: Props) {
         )
       ) : (
         <div className="flex h-full items-center justify-center text-sm text-fg-subtle">
-          {error ? <span className="font-mono text-red-400">{error}</span> : "Loading terrain…"}
+          {error ? <span className="font-mono text-crit">{error}</span> : "Loading terrain…"}
         </div>
       )}
 

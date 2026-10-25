@@ -1,82 +1,102 @@
-// The operator's console, the product (#122). Built for an incident manager
-// or planning chief: what's happening, what needs a decision, and what each
-// option would do. Three modes over one incident map:
+// The operator console, the product (#122, #130). For an incident manager or
+// planning chief: what's happening, what needs a decision, and what each
+// option would do. Layout: a top bar, the mode's sidebar on the left, the
+// incident map filling the rest, an inspector on the right for whatever is
+// selected, and the commander docked in the map's corner.
 //
-// - Monitor: the decision queue, the town board, units and orders.
+// - Monitor: situation, decisions, towns, units and orders.
 // - Plan: try orders and an assumed wind against doing nothing (#123).
-// - Review: how it has gone so far, and the event log.
+// - Review: the outcome so far and the timeline.
 //
-// Nothing here plays the world (lighting fires, setting the wind, running the
-// clock); that's exercise control (?view=control), which stands in for the
-// real incident and its drone footage.
+// Nothing here plays the world (fire, wind, clock); that's exercise control
+// (?view=control), which stands in for the real incident.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getPlatform } from "../platform";
 import { pttStart, pttStop, useEngine } from "../shared/engine";
-import { compass } from "../shared/places";
 import type { Recommendation, TokenType } from "../shared/protocol";
 import { formatSimMinutes } from "../shared/round";
 import { useEngineScenario } from "../shared/scenario";
-import { DEFAULT_LAYERS, type Layers } from "../render/projection";
-import CommanderPanel from "./CommanderPanel";
-import Decisions from "./Decisions";
-import EvacuationPanel from "./EvacuationPanel";
-import { EventLogPanel } from "./EventLog";
-import { FlameMark } from "./icons";
-import IncidentMap, { type ConsoleMode, type Focus } from "./IncidentMap";
+import CommanderDock from "./CommanderDock";
+import Decisions, { useDecisions } from "./Decisions";
+import { EventAlerts } from "./EventLog";
+import { FlameMark, Icon, type IconName } from "./icons";
+import Inspector from "./Inspector";
+import IncidentMap, { DEFAULT_MAP_LAYERS, type ConsoleMode, type MapLayers } from "./map/IncidentMap";
+import type { MapHandle } from "./map/MapView";
+import { useTowns, type Selection } from "./model";
 import { newDraft, PLAN_TYPES, type DraftOrder } from "./plan";
 import PlanPanel, { type PlanWind } from "./PlanPanel";
 import Resources from "./Resources";
 import ReviewPanel from "./ReviewPanel";
+import Situation from "./Situation";
 import SoundToggle from "./SoundToggle";
-import TownBoard from "./TownBoard";
-import { ConnectionBadge, Panel } from "./ui";
+import Towns from "./Towns";
+import { Button, ConnectionBadge, Section } from "./ui";
 
-const MODES: { value: ConsoleMode; label: string; hint: string }[] = [
-  { value: "monitor", label: "Monitor", hint: "What's happening and what needs a decision" },
-  { value: "plan", label: "Plan", hint: "Try orders and weather before committing" },
-  { value: "review", label: "Review", hint: "How it has gone so far" },
+const MODES: { value: ConsoleMode; label: string; icon: IconName; hint: string }[] = [
+  { value: "monitor", label: "Monitor", icon: "monitor", hint: "What's happening and what needs a decision" },
+  { value: "plan", label: "Plan", icon: "plan", hint: "Try orders and weather before committing" },
+  { value: "review", label: "Review", icon: "review", hint: "How it has gone so far" },
 ];
 
 const ORDER_TOOLS: TokenType[] = ["crew", "firebreak", "water", "bus"];
 
 export default function Console() {
-  const { status, scenario: live, situation, hello, score } = useEngine();
+  const { status, situation, hello, score, simGrid } = useEngine();
   const { scenario, error } = useEngineScenario();
   const [mode, setMode] = useState<ConsoleMode>("monitor");
-  const [layers, setLayers] = useState<Layers>({ ...DEFAULT_LAYERS, contours: false });
+  const [layers, setLayers] = useState<MapLayers>(DEFAULT_MAP_LAYERS);
   const [tool, setTool] = useState<TokenType | null>(null);
-  const [focus, setFocus] = useState<Focus | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
+  const [focus, setFocus] = useState<{ seq: number; x: number; y: number } | null>(null);
   const [drafts, setDrafts] = useState<DraftOrder[]>([]);
   const [planWind, setPlanWind] = useState<PlanWind>({ custom: false, speed_ms: 8, from_deg: 45 });
   const [horizon, setHorizon] = useState(120);
+  const map = useRef<MapHandle>(null);
   const seq = useRef(0);
+  const towns = useTowns(scenario);
 
   useEffect(() => {
     document.title = "Firewatch";
   }, []);
 
-  const focusOn = (x: number, y: number) => setFocus({ seq: ++seq.current, x, y });
+  const focusOn = (x: number, y: number) => {
+    setFocus({ seq: ++seq.current, x, y });
+    map.current?.focus(x, y);
+  };
+  function select(s: Selection) {
+    setSelection(s);
+    if (!s || !scenario) return;
+    if (s.kind === "town") {
+      const t = scenario.towns.find((x) => x.name === s.name);
+      if (t) focusOn(t.x, t.y);
+    } else if (s.kind === "rec") focusOn(s.x, s.y);
+  }
   const switchMode = (m: ConsoleMode) => {
     setMode(m);
     // A tool picked in Plan only edits the plan; carried into Monitor it would
-    // send real units with the next click. Every mode starts out just looking.
+    // send real units with the next click. Every mode starts out selecting.
     setTool(null);
   };
   function tryInPlan(r: Recommendation) {
     setDrafts((ds) => [...ds, newDraft(r.token_type, r.x, r.y)]);
+    setSelection(null);
     switchMode("plan");
   }
+  const decisions = useDecisions({ scenario, towns, onSelect: select, onTryInPlan: tryInPlan }).length;
 
-  // Keys: 1-4 pick an order tool, Esc goes back to looking, M/P/R switch
-  // modes, and holding Space talks to the commander.
+  // Keys: 1-4 pick an order tool, Esc goes back to selecting (then closes the
+  // inspector), M/P/R switch modes, and holding Space talks to the commander.
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
   useEffect(() => {
     const typing = (e: KeyboardEvent) =>
       e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
     function down(e: KeyboardEvent) {
-      if (typing(e)) return;
+      if (typing(e) || e.metaKey || e.ctrlKey) return;
       if (e.code === "Space") {
         e.preventDefault();
         if (!e.repeat) pttStart();
@@ -85,9 +105,12 @@ export default function Console() {
       const tools = modeRef.current === "plan" ? PLAN_TYPES : modeRef.current === "monitor" ? ORDER_TOOLS : [];
       const i = Number(e.key) - 1;
       if (i >= 0 && i < tools.length) setTool(tools[i]);
-      if (e.key === "Escape") setTool(null);
+      if (e.key === "Escape") {
+        if (toolRef.current === null) setSelection(null);
+        setTool(null);
+      }
       const m = MODES.find((x) => x.value[0] === e.key.toLowerCase());
-      if (m && !e.metaKey && !e.ctrlKey) switchMode(m.value);
+      if (m) switchMode(m.value);
     }
     function up(e: KeyboardEvent) {
       if (e.code === "Space" && !typing(e)) pttStop();
@@ -103,149 +126,140 @@ export default function Console() {
     // switchMode only touches state through setters, so the first one is fine.
   }, []);
 
-  // scenario_state.tick counts engine ticks since startup; the fire's own
-  // clock (reset with the map) is the one the score and forecasts use.
+  // scenario_state.tick counts engine ticks; the fire's clock is the score's.
   const perTick = hello?.sim_minutes_per_tick ?? 1;
   const fireTick = score?.tick ?? null;
-  const forecastAge =
-    fireTick != null && situation?.forecast_tick != null ? (fireTick - situation.forecast_tick) * perTick : null;
-
-  // The town board (in Monitor), units, orders and the commander sit in their
-  // own column on wide screens, and under the mode's panels otherwise.
-  const side = scenario && (
-    <>
-      {mode === "monitor" && (
-        <Panel title="Towns">
-          <TownBoard scenario={scenario} onFocus={focusOn} />
-        </Panel>
-      )}
-      {mode === "monitor" && <EvacuationPanel onFocus={focusOn} />}
-      <Panel title="Units and orders">
-        <Resources scenario={scenario} onFocus={focusOn} />
-      </Panel>
-      <CommanderPanel />
-    </>
-  );
+  const forecastAge = fireTick != null && situation?.forecast_tick != null ? (fireTick - situation.forecast_tick) * perTick : null;
+  const burning = !!simGrid && simGrid.payload.includes(2);
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge px-4">
-        <div className="flex items-center gap-2">
-          <FlameMark />
-          <span className="text-[13px] font-semibold tracking-[0.14em]">FIREWATCH</span>
+      <header className="relative z-20 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-panel px-4">
+        <div className="flex items-center gap-2.5">
+          <FlameMark size={26} />
+          <span className="text-[15px] font-semibold tracking-tight text-ink">Firewatch</span>
         </div>
-        {scenario && <span className="text-xs capitalize text-fg-muted">{scenario.info.name} incident</span>}
-        <nav className="ml-2 flex rounded-lg border border-edge bg-surface-1 p-0.5">
+        <div className="h-6 w-px bg-line" />
+        <div className="min-w-0 leading-tight">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[13px] font-semibold capitalize text-ink">{scenario?.info.name ?? "—"} incident</span>
+            {burning ? (
+              <span className="flex items-center gap-1 rounded-full bg-crit-soft px-2 text-[11px] font-medium leading-[18px] text-crit">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-crit" />
+                Active fire
+              </span>
+            ) : (
+              <span className="rounded-full bg-sunken px-2 text-[11px] font-medium leading-[18px] text-ink-2">No active fire</span>
+            )}
+          </div>
+          <div className="text-[11px] text-ink-3 tnum">
+            {fireTick != null ? `T+${formatSimMinutes(fireTick * perTick)}` : "—"}
+            {forecastAge != null && ` · forecast ${forecastAge < 2 ? "current" : `${Math.round(forecastAge)} min old`}`}
+          </div>
+        </div>
+
+        <nav className="absolute left-1/2 flex -translate-x-1/2 rounded-lg bg-sunken p-1 ring-1 ring-line ring-inset">
           {MODES.map((m) => (
             <button
               key={m.value}
               title={`${m.hint} (${m.label[0]})`}
               onClick={() => switchMode(m.value)}
-              className={`h-7 rounded-md px-3 text-xs font-medium transition-colors ${
-                mode === m.value ? "bg-surface-3 text-fg" : "text-fg-muted hover:text-fg"
+              className={`flex h-8 items-center gap-2 rounded-md px-3.5 text-[13px] font-medium transition-colors ${
+                mode === m.value ? "bg-panel text-ink shadow-card ring-1 ring-line" : "text-ink-2 hover:text-ink"
               }`}
             >
+              <Icon name={m.icon} size={15} />
               {m.label}
+              {m.value === "monitor" && decisions > 0 && (
+                <span className="rounded-full bg-crit px-1.5 text-[10px] font-semibold leading-4 text-white tnum">{decisions}</span>
+              )}
             </button>
           ))}
         </nav>
+
         <div className="flex-1" />
-        {live && (
-          <>
-            {fireTick != null && (
-              <HeaderStat label="Clock" title="Sim time since the map was last reset">
-                T+{formatSimMinutes(fireTick * perTick)}
-              </HeaderStat>
-            )}
-            <HeaderStat label="Wind" title="Observed wind (where it blows from)">
-              {compass(live.wind.from_deg)} {live.wind.speed_ms.toFixed(0)} m/s
-            </HeaderStat>
-            <HeaderStat label="Forecast" title="How old the forecast behind the town board is">
-              {forecastAge == null ? "—" : forecastAge < 2 ? "current" : `${Math.round(forecastAge)} min old`}
-            </HeaderStat>
-          </>
-        )}
-        {live?.paused && (
-          <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
-            Paused
-          </span>
-        )}
-        <div className="h-5 w-px bg-edge" />
-        <button
-          onClick={() => getPlatform().then((p) => p.openControl())}
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="sliders"
           title="Open exercise control: the stand-in for the real world (fire, weather, the table)"
-          className="h-7 rounded-md border border-edge bg-surface-1 px-2.5 text-xs text-fg-muted hover:bg-surface-2 hover:text-fg"
+          onClick={() => getPlatform().then((p) => p.openControl())}
         >
-          Exercise control ↗
-        </button>
+          Exercise control
+        </Button>
         <SoundToggle />
+        <div className="h-6 w-px bg-line" />
         <ConnectionBadge status={status} />
       </header>
 
-      <div className="flex min-h-0 flex-1 gap-3 p-3">
-        <aside className="flex w-[360px] shrink-0 flex-col gap-3 overflow-y-auto pb-3">
+      <div className="flex min-h-0 flex-1">
+        <aside className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-r border-line bg-panel">
           {scenario && mode === "monitor" && (
             <>
-              <Panel title="Decisions">
-                <Decisions scenario={scenario} onFocus={focusOn} onTryInPlan={tryInPlan} />
-              </Panel>
+              <Situation towns={towns} />
+              <Section title="Needs decision" count={decisions} className="mt-2">
+                <Decisions scenario={scenario} towns={towns} onSelect={select} onTryInPlan={tryInPlan} />
+              </Section>
+              <Section title="Towns" count={towns.length}>
+                <Towns towns={towns} selected={selection?.kind === "town" ? selection.name : null} onSelect={(name) => select({ kind: "town", name })} />
+              </Section>
+              <Section title="Units and orders">
+                <Resources scenario={scenario} selected={selection?.kind === "order" ? selection.id : null} onSelect={(id) => select({ kind: "order", id })} />
+              </Section>
             </>
           )}
           {scenario && mode === "plan" && (
-            <Panel title="Plan">
-              <PlanPanel
-                scenario={scenario}
-                drafts={drafts}
-                onDrafts={setDrafts}
-                wind={planWind}
-                onWind={setPlanWind}
-                horizon={horizon}
-                onHorizon={setHorizon}
-                onDispatched={() => {
-                  setTool(null);
-                  setMode("monitor");
-                }}
-              />
-            </Panel>
+            <PlanPanel
+              scenario={scenario}
+              drafts={drafts}
+              onDrafts={setDrafts}
+              wind={planWind}
+              onWind={setPlanWind}
+              horizon={horizon}
+              onHorizon={setHorizon}
+              onFocus={focusOn}
+              onDispatched={() => {
+                setTool(null);
+                setMode("monitor");
+              }}
+            />
           )}
-          {mode === "review" && (
-            <>
-              <Panel title="Outcome">
-                <ReviewPanel />
-              </Panel>
-              <EventLogPanel />
-            </>
-          )}
-          <div className="flex flex-col gap-3 xl:hidden">{side}</div>
+          {mode === "review" && <ReviewPanel />}
         </aside>
 
-        <main className="relative min-w-0 flex-1">
-          <IncidentMap
-            scenario={scenario}
-            error={error}
-            mode={mode}
-            layers={layers}
-            onToggleLayer={(k) => setLayers((l) => ({ ...l, [k]: !l[k] }))}
-            tool={tool}
-            onTool={setTool}
-            drafts={drafts}
-            onDrafts={setDrafts}
-            onAddDraft={(t, x, y) => setDrafts((ds) => [...ds, newDraft(t, x, y)])}
-            focus={focus}
-          />
+        <main className="relative min-w-0 flex-1 bg-canvas">
+          {scenario ? (
+            <IncidentMap
+              scenario={scenario}
+              mode={mode}
+              towns={towns}
+              layers={layers}
+              onLayers={setLayers}
+              tool={tool}
+              onTool={setTool}
+              selection={selection}
+              onSelect={select}
+              drafts={drafts}
+              onDrafts={setDrafts}
+              onAddDraft={(t, x, y) => setDrafts((ds) => [...ds, newDraft(t, x, y)])}
+              focus={focus}
+              handle={map}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-ink-3">
+              {error ? <span className="font-mono text-crit">{error}</span> : "Loading map…"}
+            </div>
+          )}
+          <EventAlerts />
+          <div className="absolute bottom-4 right-4 z-10">
+            <CommanderDock />
+          </div>
         </main>
 
-        <aside className="hidden w-[340px] shrink-0 flex-col gap-3 overflow-y-auto pb-3 xl:flex">{side}</aside>
+        {scenario && selection && (
+          <Inspector scenario={scenario} towns={towns} selection={selection} onClose={() => setSelection(null)} onFocus={focusOn} onTryInPlan={tryInPlan} />
+        )}
       </div>
     </div>
-  );
-}
-
-function HeaderStat({ label, title, children }: { label: string; title: string; children: ReactNode }) {
-  return (
-    <span className="flex items-baseline gap-1.5 text-[11px]" title={title}>
-      <span className="text-fg-subtle">{label}</span>
-      <span className="font-mono tabular-nums text-fg">{children}</span>
-    </span>
   );
 }

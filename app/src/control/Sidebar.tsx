@@ -77,7 +77,7 @@ function AutopilotPanel() {
           aria-pressed={on}
           onClick={() => setOn(!on)}
           className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
-            on ? "bg-ember-500 text-black" : "bg-surface-3 text-fg-muted hover:text-fg"
+            on ? "bg-accent text-white" : "bg-surface-3 text-fg-muted hover:text-fg"
           }`}
         >
           {on ? "On" : "Off"}
@@ -97,7 +97,7 @@ function TokenBadge({ type, size = 28 }: { type: TokenType; size?: number }) {
   const { color, letter } = TOKEN_STYLE[type];
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full font-bold text-black"
+      className="flex shrink-0 items-center justify-center rounded-full font-bold text-white"
       style={{ width: size, height: size, background: color, fontSize: size * 0.42, boxShadow: `0 0 0 3px ${color}22` }}
     >
       {letter}
@@ -128,7 +128,7 @@ function DeployPanel({ tokens, score, placeType, onPlaceType }: Props) {
               </div>
               <div>
                 <div className="text-xs font-medium text-fg">{TOKEN_STYLE[t].label}</div>
-                <div className={`text-[11px] ${limit !== null && count > limit ? "text-red-400" : "text-fg-subtle"}`}>
+                <div className={`text-[11px] ${limit !== null && count > limit ? "text-crit" : "text-fg-subtle"}`}>
                   {limit !== null
                     ? `${count} of ${limit}${full ? (count > limit ? " · over limit" : " · all out") : ""}`
                     : count === 0
@@ -266,16 +266,16 @@ function TokensPanel({ scenario, score, tokens, selectedId, onSelect }: Props) {
                     <div className="font-mono text-[10px] tabular-nums text-fg-subtle">
                       {t.x.toFixed(0)}, {t.y.toFixed(0)}
                       {scenario && ` · ${Math.round(elevationAt(scenario, t.x, t.y))} m`}
-                      {inactive.has(t.id) && <span className="text-red-400"> · over limit, no effect</span>}
+                      {inactive.has(t.id) && <span className="text-crit"> · over limit, no effect</span>}
                       {!inactive.has(t.id) && <OrderStatus token={t} units={units} />}
                       {!inactive.has(t.id) && (cooldown.get(t.id) ?? 0) > 0 && (
-                        <span className="text-sky-300"> · refills in {formatSimMinutes(cooldown.get(t.id)!)}</span>
+                        <span className="text-accent"> · refills in {formatSimMinutes(cooldown.get(t.id)!)}</span>
                       )}
                     </div>
                   </div>
                   <span
                     className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                      t.source === "vision" ? "bg-sky-500/15 text-sky-300" : "bg-surface-3 text-fg-muted"
+                      t.source === "vision" ? "bg-accent-soft text-accent" : "bg-surface-3 text-fg-muted"
                     }`}
                   >
                     {t.source === "vision" ? "camera" : "virtual"}
