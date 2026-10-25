@@ -838,6 +838,7 @@ class Engine:
                 token_id=u.token_id, x=round(float(x), 2), y=round(float(y), 2),
                 eta_min=round((u.arrive_tick - tick) * mpt, 1) if u.status == "en_route" else None,
                 path=u.path if u.status == "en_route" else [],
+                line=self.effects.line_of(u.token_id, tick) if u.status == "working" and u.token_id else [],
             ))
         return Units(tick=tick, units=units).model_dump_json()
 
@@ -849,7 +850,8 @@ class Engine:
                   for e in self.dispatcher.take_events()]
         self.broadcast_events(events)
         sig = tuple((u.id, u.status, u.token_id, u.arrive_tick) for u in self.dispatcher.units)
-        moving = any(u.status == "en_route" for u in self.dispatcher.units)
+        # Units go out again while they move and while crews' lines grow (#159).
+        moving = any(u.status == "en_route" for u in self.dispatcher.units) or self.effects.line_growing(self.fire.tick)
         if sig != self._units_sig or (moving and self.tick % 3 == 0):
             self._units_sig = sig
             broadcast(self.clients, self.units_msg())

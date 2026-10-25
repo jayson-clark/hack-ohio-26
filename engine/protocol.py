@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 22
+PROTOCOL_VERSION = 23
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -305,6 +305,7 @@ class UnitInfo(Model):
     y: float
     eta_min: float | None  # sim minutes until it arrives, while en route
     path: list[list[float]]  # its route, origin to target, while en route
+    line: list[list[float]]  # a working crew's cut line so far, as its two ends (#159); empty if none
 
 
 class Units(Model):
