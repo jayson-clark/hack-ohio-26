@@ -184,7 +184,10 @@ function handleMessage(msg: EngineMessage) {
       setState({ vision: msg });
       break;
     case "score":
-      setState({ score: msg });
+      // The fire's clock going back means a reset or a new round: the last
+      // fire's briefings and events no longer apply.
+      if (state.score && msg.tick < state.score.tick) setState({ score: msg, transcript: [], events: [] });
+      else setState({ score: msg });
       break;
     case "calibration":
       setState({ calibration: msg });
