@@ -32,7 +32,7 @@ export default function Control() {
   const seq = useRef(0);
 
   useEffect(() => {
-    document.title = "Firewatch · Exercise control";
+    document.title = "Fireline · Exercise control";
   }, []);
 
   // Drop the selection when its token goes away.
@@ -64,7 +64,7 @@ export default function Control() {
       <header className="flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge px-4">
         <div className="flex items-center gap-2">
           <FlameMark size={24} />
-          <span className="text-[15px] font-semibold tracking-tight text-ink">Firewatch</span>
+          <span className="text-[15px] font-semibold tracking-tight text-ink">Fireline</span>
           <span className="rounded-full bg-accent-soft px-2 text-[11px] font-medium leading-5 text-accent">Exercise control</span>
         </div>
         {scenario && <ScenarioPicker scenario={scenario} />}

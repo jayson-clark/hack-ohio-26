@@ -382,7 +382,7 @@ def summarize(results: dict[str, Results]) -> dict:
 
 def markdown(summary: dict, args) -> str:
     lines = [
-        "# Firewatch model evaluation",
+        "# Fireline model evaluation",
         "",
         f"{args.episodes} episodes per schedule, {args.ticks} sim-minutes each, forecasts every {args.every} min "
         f"with {args.rollouts} rollouts. Truth is the live sim (same fire model), so this measures what the "

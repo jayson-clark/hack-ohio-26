@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Firewatch design tokens (#130). A light, map-first operations UI: neutral
+/* Fireline design tokens (#130). A light, map-first operations UI: neutral
    surfaces, one blue accent for anything you can act on, and status colors
    kept for status. Fire colors live in the map shader (render/carto.ts). */
 @theme {

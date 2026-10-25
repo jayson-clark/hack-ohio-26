@@ -12,7 +12,7 @@ let crackle: GainNode | null = null;
 let enabled = false;
 let target = 0; // crackle level from the fire
 
-const STORAGE_KEY = "firewatch.sound";
+const STORAGE_KEY = "fireline.sound";
 
 export function soundPreference(): boolean {
   try {

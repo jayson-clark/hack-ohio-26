@@ -157,7 +157,7 @@ def fetch_tile(z, x, y):
     path = CACHE / str(z) / str(x) / f"{y}.png"
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        req = urllib.request.Request(TILE_URL.format(z=z, x=x, y=y), headers={"User-Agent": "firewatch-dem"})
+        req = urllib.request.Request(TILE_URL.format(z=z, x=x, y=y), headers={"User-Agent": "fireline-dem"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = resp.read()
         path.write_bytes(data)
@@ -445,7 +445,7 @@ def write_stl(path, solid):
     rec = np.zeros(len(tri), dtype=[("n", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
     rec["n"], rec["v"] = normal, tri
     with open(path, "wb") as f:
-        f.write(b"firewatch dem_to_assets".ljust(80, b" "))
+        f.write(b"fireline dem_to_assets".ljust(80, b" "))
         f.write(np.uint32(len(tri)).tobytes())
         f.write(rec.tobytes())
     return len(tri)
