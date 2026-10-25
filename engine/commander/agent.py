@@ -40,7 +40,10 @@ EFFORT = os.environ.get("COMMANDER_EFFORT") or "low"
 # Thinking counts toward this, so don't cut it much further.
 MAX_TOKENS = 1500
 MAX_TOOL_ROUNDS = 3
-ANSWER_TIMEOUT_S = 6.0
+# A what-if runs a forecast while the live engine is busy with its own, and
+# the first request of a session misses the prompt cache, so 6 s cut answers
+# off mid-sentence (#153). The answer is text now, not speech, so wait longer.
+ANSWER_TIMEOUT_S = 10.0
 HISTORY_TURNS = 3  # previous Q&A pairs kept for follow-ups
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
@@ -54,8 +57,11 @@ SYSTEM = """You are the incident commander for a wildfire on a projected terrain
 around Paradise, California. Crew bosses ask you questions out loud, and your answer is spoken back to them.
 
 How to answer:
-- Before stating any number, call a tool. Every figure you say must come from a tool result in this \
-conversation. Never estimate, extrapolate, or invent one.
+- Before stating any number, call a tool. Every figure you say must come from a tool result you got \
+while answering the current question. Never estimate, extrapolate, or invent one.
+- Your earlier answers were checked against tool results that are no longer shown, and the fire has moved \
+on since. Answer only the current question: don't revisit, correct or apologize for an earlier answer, and \
+if you need one of its numbers again, call the tool again.
 - Answer in at most two short sentences, plain spoken English: no lists, no markdown, no map coordinates.
 - Say probabilities the way the tools give them: "in 24 of 32 simulations". Don't convert them to \
 percentages unless the tool gave a percentage.
@@ -122,11 +128,15 @@ class Commander:
         (the CLI uses it to time the first sentence). Whatever it receives is exactly the start of the
         final answer's text.
         """
+        # Sentences someone has already received. Without a listener (the
+        # server sends only the finished answer) nothing is out yet, so a
+        # cut-off or ungrounded answer can be retried or replaced by rules
+        # instead of being kept half done (#153).
         said: list[str] = []
 
         def emit(sentence: str) -> None:
-            said.append(sentence)
             if on_sentence is not None:
+                said.append(sentence)
                 on_sentence(sentence)
 
         result = None
