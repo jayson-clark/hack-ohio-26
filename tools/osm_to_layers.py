@@ -57,6 +57,10 @@ EARTH_R = 6371008.8
 DEFAULT_CLASSES = "motorway,trunk,primary,secondary,tertiary,unclassified,residential"
 RANK = {c: i for i, c in enumerate(["motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential"])}
 PRUNE_CLASSES = {"residential", "unclassified"}
+# Suburban street grids are loops, not dead ends, so pruning barely shrinks
+# them: with residential streets, Superior and Louisville come to 4.9k nodes,
+# three times paradise. The towns' collector roads are enough to route on.
+SCENARIO_CLASSES = {"marshall": "motorway,trunk,primary,secondary,tertiary,unclassified"}
 # Douglas-Peucker tolerance when merging degree-2 nodes. Half a cell keeps
 # road shapes at the sim's resolution, so per-edge burn sampling stays honest.
 SIMPLIFY_CELLS = 0.5
@@ -72,6 +76,14 @@ TOWNS = {
         {"name": "Yankee Hill", "lat": 39.7035, "lon": -121.5222, "radius_km": 0.8, "population": 330, "structures": 200},
         {"name": "Pulga", "lat": 39.8007, "lon": -121.4486, "radius_km": 0.4, "population": 50, "structures": 30},
     ],
+    # Marshall Fire (Dec 2021): 2020 Census populations; structures are rough
+    # housing-unit counts. The fire destroyed about 1,084 homes (Boulder County).
+    "marshall": [
+        {"name": "Louisville", "lat": 39.9720, "lon": -105.1380, "radius_km": 2.4, "population": 21200, "structures": 9300},
+        {"name": "Superior", "lat": 39.9480, "lon": -105.1600, "radius_km": 1.8, "population": 13100, "structures": 5000},
+        {"name": "Marshall", "lat": 39.9539, "lon": -105.2297, "radius_km": 0.6, "population": 300, "structures": 120},
+        {"name": "Eldorado Springs", "lat": 39.9322, "lon": -105.2775, "radius_km": 0.5, "population": 600, "structures": 250},
+    ],
 }
 
 # Exits: where an evacuation route leaves the map toward safety. Each is the
@@ -82,6 +94,12 @@ SAFE_ZONES = {
         {"name": "Oroville (Clark Rd)", "road": ["Clark Road"], "edge": "south"},
         {"name": "Oroville (Hwy 70)", "road": ["CA 70"], "edge": "south"},
     ],
+    "marshall": [
+        {"name": "Denver (US 36)", "road": ["US 36"], "edge": "east"},
+        {"name": "Lafayette (South Boulder Rd)", "road": ["East South Boulder Road"], "edge": "east"},
+        {"name": "Lafayette (CO 42)", "road": ["CO 42"], "edge": "north"},
+        {"name": "Boulder (US 36)", "road": ["US 36"], "edge": "north"},
+    ],
 }
 
 
@@ -89,6 +107,9 @@ SAFE_ZONES = {
 # can be off the map. Positions are approximate.
 AIR_BASES = {
     "paradise": [{"name": "Chico Air Attack Base", "lat": 39.7954, "lon": -121.8584}],
+    # On the map, at Rocky Mountain Metropolitan Airport. On the day, the wind
+    # grounded aircraft, as TANKER_MAX_WIND_MS does here.
+    "marshall": [{"name": "Jeffco Airtanker Base", "lat": 39.9088, "lon": -105.1172}],
 }
 # What each kind of station can send, per station (the round's limits still cap the totals).
 GROUND_UNITS = {"crew": 1, "firebreak": 1}  # an engine crew and a dozer
@@ -325,7 +346,7 @@ def nearest_node(nodes, x, y, allowed=None) -> int:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("scenario", help="scenario name under assets/scenarios/")
-    ap.add_argument("--classes", default=DEFAULT_CLASSES, help="comma-separated OSM highway classes")
+    ap.add_argument("--classes", help="comma-separated OSM highway classes (default: the scenario's, else all drivable)")
     ap.add_argument("--no-prune", action="store_true", help="keep dead-end residential stubs")
     ap.add_argument("--refresh", action="store_true", help="ignore the Overpass cache")
     ap.add_argument("--stations-only", action="store_true", help="only write stations.json")
@@ -337,6 +358,7 @@ def main():
     if args.stations_only:
         write_stations(d, terrain, proj, args.scenario, args.refresh)
         return
+    args.classes = args.classes or SCENARIO_CLASSES.get(args.scenario, DEFAULT_CLASSES)
     ways = fetch_ways(terrain["bounds"], args.classes.split(","), args.refresh)
     print(f"{len(ways)} ways")
 

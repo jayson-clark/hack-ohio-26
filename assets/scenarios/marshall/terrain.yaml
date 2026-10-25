@@ -1,0 +1,38 @@
+# Marshall Fire, Boulder County, CO (Dec 30 2021). Covers the foothills west of
+# Hwy 93 where it started, the grassland it ran across on a downslope westerly,
+# and Superior and Louisville, where it burned about 1,100 homes.
+# Generate: uv run tools/dem_to_assets.py assets/scenarios/marshall/terrain.yaml
+# Unset keys fall back to DEFAULTS in tools/dem_to_assets.py.
+
+region:
+  center: [39.957, -105.180]  # lat, lon: the middle of the final perimeter
+  width_km: 18                # north-south extent follows the model aspect (13.5 km)
+  zoom: 13
+
+# Same board as paradise, so the table, projector and calibration carry over.
+model:
+  width_mm: 330.2             # 13 in
+  height_mm: 247.65           # 9.75 in, keeps the 4:3 region
+  base_mm: 6
+  max_relief_mm: 35           # PLAN.md: keep relief low for projection parallax
+  resolution_mm: 0.5
+  smooth_mm: 0.75
+
+tiles:
+  cols: 2
+  rows: 2
+  bed_mm: [256, 256]
+
+sim:
+  # 18 km / 192 = 94 m cells, the same as paradise. The fire model's rates are
+  # per cell per minute, so a different cell size would change how fast it
+  # spreads and the replay would measure the cell size, not the model.
+  grid_width: 192
+
+# Approximate locations, for checking alignment on the preview.
+places:
+  - {name: Superior, lat: 39.9528, lon: -105.1686}
+  - {name: Louisville, lat: 39.9778, lon: -105.1319}
+  - {name: Broomfield, lat: 39.9205, lon: -105.0867}
+  - {name: Eldorado Springs, lat: 39.9322, lon: -105.2775}
+  - {name: Marshall, lat: 39.9539, lon: -105.2297}

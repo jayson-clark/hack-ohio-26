@@ -31,7 +31,7 @@ import numpy as np
 from protocol import EndReason, Token, TokenType
 from protocol import RoundPhase as Phase
 from scenario import Scenario
-from sim.fire import BURNED, BURNING, SIM_MINUTES_PER_TICK, UNBURNABLE
+from sim.fire import BURNED, BURNING, DEFAULT_WIND, SIM_MINUTES_PER_TICK, UNBURNABLE, Wind
 
 SQ_M_PER_ACRE = 4046.86
 
@@ -45,6 +45,10 @@ DEFAULTS = {
     "limits": {"crew": 3, "water": 2, "firebreak": 1, "bus": 2},
     # [x, y] in map coords, or null to leave the first ignition to the operator.
     "ignition": None,
+    # {"speed_ms", "from_deg"}: the wind the scenario starts with, in free play
+    # and at each round's start. Null is sim.fire.DEFAULT_WIND (NE 8 m/s),
+    # which would blow Marshall's fire back into the foothills.
+    "wind": None,
     # Two buses can't empty every town before the fire arrives (Paradise alone
     # is 26,800 people), so where they go is the decision.
     "bus_people_per_min": 40,
@@ -117,6 +121,11 @@ class Game:
     def ignition(self) -> tuple[float, float] | None:
         ig = self.config.get("ignition")
         return None if ig is None else (float(ig[0]), float(ig[1]))
+
+    @property
+    def wind(self) -> Wind:
+        w = self.config.get("wind")
+        return DEFAULT_WIND if w is None else Wind(speed_ms=float(w["speed_ms"]), from_deg=float(w["from_deg"]) % 360)
 
     @property
     def frozen(self) -> bool:

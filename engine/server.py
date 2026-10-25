@@ -268,6 +268,7 @@ class Engine:
             GameTown(t.name, t.x, t.y, t.radius, t.population, t.structures) for t in self.roads.towns
         ] if self.roads else []
         self.game = Game(s, game_towns)
+        self.fire.set_wind(self.game.wind)
         # The evacuation clock (#121): orders given (town -> sim tick), the long
         # forecast it reads, and the latest clock. Computed once here with no
         # forecast, which also builds the graph's caches before any thread does.
@@ -471,10 +472,13 @@ class Engine:
             case StartRound():
                 self.paused = False  # starting a round means playing it
                 self.game.start(0)  # reset_map puts the fire back at tick 0
+                # The map reset keeps whatever wind exercise control last set;
+                # a round starts from the scenario's own.
+                self.fire.set_wind(self.game.wind)
                 self.reset_map()
                 if (ig := self.game.ignition) is not None:
                     self.fire.ignite(*ig)
-                    broadcast(self.clients, self.state_msg())
+                broadcast(self.clients, self.state_msg())
             case EndRound():
                 phase = self.game.phase
                 self.game.stop(self.fire.tick)
