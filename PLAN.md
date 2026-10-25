@@ -530,11 +530,10 @@ Virtual table mode means nobody is blocked waiting for hardware.
 
 ## Demo Script
 
-Judging is virtual, so the demo is a recorded video. The full 3-minute script, shot flow and footage list are in [`tools/demo_video/SCRIPT.md`](tools/demo_video/SCRIPT.md); the outline below is the short version. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record the console with `?demo=1`: start the fire from exercise control off-camera, slow the clock to show a feature, speed it up to let the fire run, and turn on Autopilot where clicking every card would drag. The Camp Fire scenario outruns any operator above 1× (10 sim-minutes a second), so most of the video runs at 0.25–0.5×.
+Judging is virtual, so the demo is a recorded video. [`tools/demo_video/SCRIPT.md`](tools/demo_video/SCRIPT.md) is the whole thing in one timed table (picture, line, on-screen text), and it is the cut's clock: the voiceover is read to it with a karaoke prompter (`make prompter`), and the footage is cut into its slots. It's pitched like a thesis talk: the question, how Fireline answers it, how well that holds up against the real fire, and its limits, with every number traced to its source. The console takes run at 0.25–0.5× because the Camp Fire outruns any operator above 1×.
 
-1. Open on the table under the projector, a fire starting at the Camp Fire origin: "this is what a drone sees."
-2. Cut to the operator console, Monitor. The decision queue fills: Concow likely to see fire in about 40 minutes, evacuate via Highway 70; crew recommendations with stations and ETAs. The town board shows every town's time until fire, with ranges.
-3. Dispatch a recommendation. The unit drives in from its station on the map; the forecast credits it from its arrival.
-4. Plan mode: "what if the wind swings west?" Dial it in, add a dozer line, and watch the map shade what the plan saves against doing nothing, with intervals. Dispatch the plan.
-5. The wind really shifts (exercise control). Routes reroute, a road is cut, the queue re-sorts, and the commander briefs it. Ask the commander a question out loud.
-6. Review: the outcome town by town (and, with #124, what the decisions bought against doing nothing). Close with the Camp Fire replay against the real perimeter.
+1. What Fireline is, over the Camp Fire replay, and the question: the latest time each town can be ordered out.
+2. The table: a phone shot of the projector painting the fire on the print, synced (by a test-grid flash) to what the overhead camera sees, then the overlays and the console on the same feed.
+3. The forecast (32 runs, a calibrated outline), the evacuation clock and order card, crew recommendations, and Plan mode against doing nothing.
+4. A road cut and replan, and the commander's grounded briefings.
+5. Results against the real fire (evacuation clock, perimeter overlap), then the limits: the uncertainty covers the simulator, not model error, and crew benefit is overstated after wind shifts.

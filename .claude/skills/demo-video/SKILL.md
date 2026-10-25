@@ -12,6 +12,8 @@ The takes and their command language are in `tools/demo_video/README.md`. Read i
 - To see an export without opening it: the Recordly editor still holds the last take, so its `render_preview` shows frames (no ffmpeg on this Mac).
 - Find a click target: Recordly's `find_elements` (or a `perform` dry run) lists what's clickable. Text targets beat coordinates; coordinates are window points for the 1668×1084 Chrome app window.
 - A failed step means the page didn't match the script, usually because the queue's order or timing changed. Add a `waitfor` before the click, or an `index=`.
+- The script is `tools/demo_video/SCRIPT.md`; its Read-along table is the cut's clock and `prompter.html` reads it directly (`make prompter`). Change a line's time or words there and the prompter and captions follow. Keep lines at about 2.0–2.5 spoken words a second, and every number listed under "Claims and sources".
+- Take F opens with a slate (the projector's test grid for 1 s, via `calibration_step` check/cancel) to sync a phone shot of the table with the recording.
 - Exercise control or the camera: `window control` in a take drives exercise control, `window console` cuts back (`F-table-camera` does both). The camera must be live with the board locked; if the feed looks washed out, see the vision-camera skill (gain).
 - Safari upgrades `localhost` to https here. The runner uses a Chrome app window.
 - Aim zooms with the README's "Aiming zooms" section: `at` is a fraction of the window, not the framed video, and the README lists how far it can go before the wallpaper shows. Check a take after export with a contact sheet: in `engine/`, `uv run python` with OpenCV, reading frames with `grab()` (seeking in these 3K exports is very slow).
