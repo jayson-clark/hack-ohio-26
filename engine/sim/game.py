@@ -55,6 +55,9 @@ DEFAULTS = {
     # Two buses can't empty every town before the fire arrives (Paradise alone
     # is 26,800 people), so where they go is the decision.
     "bus_people_per_min": 40,
+    # Units the operator can request from outside the map in a round (#178).
+    # Each one also raises its type's limit by one, since it's more resources.
+    "mutual_aid": 2,
 }
 
 
@@ -104,6 +107,9 @@ class Game:
 
     def reset(self) -> None:
         """Back to the sandbox, with nothing scored."""
+        # Mutual aid raised some limits during the last round (#178).
+        self.limits = {TokenType(k): v for k, v in self.config["limits"].items()}
+        self.aid_used = 0
         self._lit: set[int] = set()  # timed ignitions already lit this round
         self.phase = Phase.SANDBOX
         self.end_reason: EndReason | None = None
