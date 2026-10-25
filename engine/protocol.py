@@ -19,10 +19,12 @@ app/src/shared/binary.ts), followed by a payload:
   as 0-255: first without the plan's orders, then with them, both under the
   plan's wind. `tick` is the PlanResult.id it belongs to (not a sim tick).
   Sent right after each PlanResult that has no error.
-- CAMERA_FRAME: one JPEG of the webcam with the vision overlay drawn on it
-  (markers, map outline, placed tokens), for the console's camera view.
-  width/height are the JPEG's size and `tick` counts feed frames. A few per
-  second, only while the engine has a camera (CAMERA in .env).
+- CAMERA_FRAME: one JPEG of the webcam for exercise control's camera view.
+  Once the board is locked it's the top-down orthophoto, cropped to the map
+  grid (VisionStatus.feed_rectified), and the UI draws its layers over it;
+  before that, the raw frame with the vision overlay (markers, map outline,
+  placed tokens). width/height are the JPEG's size and `tick` counts feed
+  frames. About 10 a second, only while the engine has a camera (CAMERA in .env).
 
 All positions are in map-grid coordinates, in cell units (floats allowed):
 x runs from 0 to the map width, y from 0 to the map height, origin at the
@@ -391,6 +393,10 @@ class VisionStatus(Model):
     # A camera->map homography has been solved (all four corners seen at
     # once). It is kept while corners are covered, so tokens still track.
     board_found: bool
+    # The camera_frame feed is the top-down orthophoto: the board rectified to
+    # fill the frame, so pixel (u, v) of a w x h JPEG is map cell
+    # (u * width / w, v * height / h). False: the raw frame with the overlay.
+    feed_rectified: bool = False
 
 
 class CalibrationPhase(StrEnum):

@@ -43,10 +43,12 @@ interface CalibrationProps {
   lens?: number[] | null;
   /** Draw the calibration test grid and corner crosses over the map. */
   testPattern?: boolean;
+  /** Draw token rings, reach and selection in the shader (default true); the white disc under each marker is always drawn. */
+  showTokens?: boolean;
 }
 
 export default function ProjectionView(props: ViewProps & CalibrationProps & { showGlyphs?: boolean; children?: ReactNode }) {
-  const { scenario, tokens, placeType, showGlyphs, onSelect, onHover, mapToProj = null, lens = null, testPattern = false } = props;
+  const { scenario, tokens, placeType, showGlyphs, onSelect, onHover, mapToProj = null, lens = null, testPattern = false, showTokens = true } = props;
   const frameRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const projRef = useRef<Projection | null>(null);
@@ -118,6 +120,7 @@ export default function ProjectionView(props: ViewProps & CalibrationProps & { s
   useEffect(() => projRef.current?.setMapToProj(mapToProj), [mapToProj, generation]);
   useEffect(() => projRef.current?.setLens(mapToProj ? lens : null), [mapToProj, lens, generation]);
   useEffect(() => projRef.current?.setTestGrid(testPattern), [testPattern, generation]);
+  useEffect(() => projRef.current?.setShowTokens(showTokens), [showTokens, generation]);
 
   const overlay = (toMap?: (clientX: number, clientY: number) => { x: number; y: number }) => (
     <>

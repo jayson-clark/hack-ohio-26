@@ -74,6 +74,7 @@ uniform vec4 uLayers;      // tint, contours, labels, grid (0 or 1)
 
 uniform vec4 uTokens[MAX_TOKENS]; // x, y (cells), type index, selected
 uniform int uTokenCount;
+uniform float uShowTokens; // 0 on the drone-view projector: only the white disc under each marker
 uniform vec3 uTokenColors[4];
 uniform float uHalo;
 uniform float uCrewReach; // cells: a crew's reach (hello.crew_radius)
@@ -217,7 +218,7 @@ vec3 tokens(vec3 col, vec2 cell) {
     // faint tint fading out like its suppression, and a dashed ring at the
     // full radius, dashed like the recommendation rings that use the same
     // radius. Type 0 is crew (TOKEN_TYPES).
-    if (tk.z < 0.5) {
+    if (tk.z < 0.5 && uShowTokens > 0.5) {
       float core = 0.6 * uCrewReach;
       float reach = clamp((uCrewReach - d) / (uCrewReach - core), 0.0, 1.0);
       col = mix(col, tc, 0.18 * reach);
@@ -225,10 +226,12 @@ vec3 tokens(vec3 col, vec2 cell) {
       float dash = step(0.0, sin(atan(rel.y, rel.x) * 18.0));
       col = mix(col, tc, (1.0 - smoothstep(0.3, 0.3 + aa * 1.5, abs(d - uCrewReach))) * dash * 0.9);
     }
-    // Colored ring for the type, white disc under the marker.
-    col = mix(col, tc, 1.0 - smoothstep(uRing - aa, uRing + aa, d));
+    // Colored ring for the type, white disc under the marker. The drone view
+    // (uShowTokens = 0) keeps only the disc: it's what lets the camera read
+    // the marker under fire light, not an annotation.
+    if (uShowTokens > 0.5) col = mix(col, tc, 1.0 - smoothstep(uRing - aa, uRing + aa, d));
     col = mix(col, vec3(1.0), 1.0 - smoothstep(uHalo - aa, uHalo + aa, d));
-    if (tk.w > 0.5) {
+    if (tk.w > 0.5 && uShowTokens > 0.5) {
       float r = uRing + 2.5 + 1.2 * sin(uTime * 5.0);
       col = mix(col, vec3(1.0), (1.0 - smoothstep(0.35, 0.35 + aa * 1.5, abs(d - r))) * 0.9);
     }
