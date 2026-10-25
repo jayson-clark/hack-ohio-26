@@ -2,7 +2,7 @@
 -include .env
 export
 
-.PHONY: install engine web app dev types test board board-web board-dev board-vite clean distclean
+.PHONY: install engine web app dev types test board board-web board-dev board-vite demo-video clean distclean
 
 install:
 	cd engine && uv sync
@@ -52,6 +52,11 @@ board-dev:
 
 board-vite:
 	cd tools/agent_board/web && BOARD_URL=http://localhost:8790 pnpm dev
+
+# Re-record the demo video's console takes (tools/demo_video). Needs the engine,
+# `make web` and Recordly running. TAKES="B2 C" records only those.
+demo-video:
+	cd engine && uv run python ../tools/demo_video/run.py $(TAKES)
 
 # Remove build output and caches. Keeps .env, the agent board's data, generated
 # STL tiles and the elevation tile cache (slow to rebuild). Installed

@@ -1,0 +1,35 @@
+# Autopilot takes the decisions with a visible countdown, the incident plays
+# out at 4x, then Review shows the outcome.
+engine fresh 0.5 paused
+
+prep
+  reload
+  waitfor "Fit the whole map" timeout=15
+  click "Fit the whole map"
+  move 1000,560
+
+scene "Autopilot takes the top decisions after a countdown"
+  hold 1
+  click "Autopilot" role=button
+  click "2s" role=button
+  key period
+  move 300,500 ms=1200
+  hold 11
+
+scene "4x: let the incident play out"
+  click "4×" role=button
+  move 1100,560 ms=1200
+  waitfor "Exercise over" timeout=30
+  hold 1
+
+scene "Review the outcome"
+  click "Review" role=button
+  move 200,400 ms=1000
+  hold 7
+
+zoom 1@6..1@end at=0.22,0.40
+zoom 3@0.5..end at=0.22,0.32
+label "0.5× · 5 sim-min/s" 1@1..2@0
+label "4× · 40 sim-min/s" 2@0..2@end
+label "Autopilot on" 1@1..2@0 at=79,10.5
+export E-autopilot-review.mp4
