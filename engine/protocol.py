@@ -245,6 +245,7 @@ class TownShare(Model):
 class RecAction(StrEnum):
     PLACE = "place"  # put a new token here
     MOVE = "move"  # every token of the type is placed: move `move_token` here instead (#77)
+    RELIEVE = "relieve"  # `move_token`'s crew is fading: send a fresh unit to take over its spot (#178)
 
 
 class Recommendation(Model):

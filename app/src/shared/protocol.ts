@@ -34,7 +34,7 @@ export type EventKind =
   | "tankers_grounded"
   | "evacuate_now"
   | "draft_sent";
-export type RecAction = "place" | "move";
+export type RecAction = "place" | "move" | "relieve";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
