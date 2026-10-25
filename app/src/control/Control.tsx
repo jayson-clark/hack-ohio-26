@@ -62,11 +62,9 @@ export default function Control() {
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 whitespace-nowrap border-b border-edge px-4">
         <div className="flex items-center gap-2">
-          <FlameMark />
-          <span className="text-[13px] font-semibold tracking-[0.14em]">FIREWATCH</span>
-          <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
-            Exercise control
-          </span>
+          <FlameMark size={24} />
+          <span className="text-[15px] font-semibold tracking-tight text-ink">Firewatch</span>
+          <span className="rounded-full bg-accent-soft px-2 text-[11px] font-medium leading-5 text-accent">Exercise control</span>
         </div>
         {scenario && <ScenarioPicker scenario={scenario} />}
         <div className="flex-1" />
