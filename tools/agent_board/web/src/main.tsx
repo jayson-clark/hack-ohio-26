@@ -4,8 +4,7 @@ import { App } from "./App";
 import { setEntryTitles } from "./lib/markdown";
 import { connect, getState } from "./lib/store";
 import { trackVisits } from "./views/Dashboard";
-import "./base.css";
-import "./app.css";
+import "./styles.css";
 
 setEntryTitles((id) => getState().entries.find((e) => e.id === id)?.title);
 trackVisits();

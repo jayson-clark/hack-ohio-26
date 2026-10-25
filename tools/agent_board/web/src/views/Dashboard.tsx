@@ -71,7 +71,7 @@ export function Overview() {
           <SectionTitle title="Working now">
             <a href="#/activity">Activity →</a>
           </SectionTitle>
-          <div className="agent-cards">
+          <div className="agent-list">
             {online.map((a) => (
               <AgentCard key={a.id} a={a} />
             ))}
@@ -117,7 +117,7 @@ export function Overview() {
         <a href="#/knowledge">View all →</a>
       </SectionTitle>
       {s.entries.length ? (
-        <div className="grid">
+        <div className="entry-list">
           {s.entries.slice(0, 6).map((e) => (
             <EntryCard key={e.id} e={e} flash={s.flash.has("e" + e.id)} />
           ))}

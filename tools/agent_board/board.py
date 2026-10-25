@@ -387,6 +387,8 @@ def cmd_update(args):
         body["archived"] = True
     if args.unarchive:
         body["archived"] = False
+    if args.minor:
+        body["minor"] = True
     out(args, call("PATCH", f"/api/entries/{args.id}", body), lambda e: print(f"updated [{e['id']}] {e['title']}"))
 
 
@@ -685,6 +687,7 @@ def main():
     sp.add_argument("--kind", choices=ENTRY_KINDS)
     sp.add_argument("--archive", action="store_true", help="hide it (outdated or wrong)")
     sp.add_argument("--unarchive", action="store_true")
+    sp.add_argument("--minor", action="store_true", help="formatting or typo fix: keep it in history but don't mark the entry updated")
 
     sp = add("ask", cmd_ask, "ask a question in a channel (created if missing)")
     sp.add_argument("text")

@@ -51,6 +51,13 @@ def test_edits_keep_history(api):
     assert api.get("/api/entries?q=old") == []
 
 
+def test_minor_edits_keep_updated_at(api):
+    e = add(api, "Title", "one two")
+    edited = api.patch(f"/api/entries/{e['id']}", {"body": "one\n\ntwo", "minor": True})
+    assert edited["updated_at"] == e["updated_at"] and edited["body"] == "one\n\ntwo"
+    assert edited["revisions"] == 2
+
+
 def test_votes_and_supersedes(api):
     old = add(api, "Use camera index 0")
     new = add(api, "Use camera index 1 on the demo Mac")

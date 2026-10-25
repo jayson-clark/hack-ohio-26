@@ -1,7 +1,7 @@
 import { hrefs } from "../lib/route";
 import { useBoard, type State } from "../lib/store";
 import type { Activity, Agent, Claim } from "../lib/types";
-import { ago, agentColor, expiresIn, fullTime } from "../lib/util";
+import { ago, expiresIn, fullTime } from "../lib/util";
 import { AgentChip, Avatar, Presence } from "./ui";
 
 export function claimsOf(s: State, agentId: string) {
@@ -21,36 +21,35 @@ export function PrLink({ number, title, repo }: { number: number; title?: string
   );
 }
 
+/** One agent as a row: presence, who, what they're on, branch, PR and claims. */
 export function AgentCard({ a }: { a: Agent }) {
   const claims = useBoard((s) => claimsOf(s, a.id));
   const repo = useBoard((s) => s.repo);
   const pr = useBoard((s) => s.github?.pulls.find((p) => p.branch === a.branch));
   const number = a.pr || pr?.number;
   return (
-    <div className="agent-card">
-      <div className="top">
-        <Presence on={a.online} />
+    <div className="agent-row-item">
+      <Presence on={a.online} />
+      <div className="who">
+        <a href={hrefs.user(a.user)}>{a.user}</a>
+        <span className="slash">/</span>
         <AgentChip agent={a.name} />
-        <span className="ttl" style={{ marginLeft: "auto" }} title={fullTime(a.last_seen)}>
-          {ago(a.last_seen)}
-        </span>
       </div>
-      <div className="status">{a.status || <span style={{ color: "var(--muted)" }}>No status</span>}</div>
-      <div className="sub mono">
-        <a href={hrefs.user(a.user)}>{a.user}</a> · {a.branch || "no branch"}
-        {a.host ? " · " + a.host : ""}
-      </div>
-      {(number || claims.length > 0) && (
+      <div className="what">
+        <div className="status">{a.status || <span className="muted">No status</span>}</div>
         <div className="sub">
+          <span className="mono">{a.branch || "no branch"}</span>
           {number && <PrLink number={number} title={a.pr_title || pr?.title} repo={repo} />}
-          {number && claims.length > 0 && " · "}
           {claims.length > 0 && (
             <a href="#/claims" title={claims.map((c) => c.path).join("\n")}>
-              {claims.length} claimed {claims.length === 1 ? "path" : "paths"}: <span className="mono">{claims.slice(0, 2).map((c) => c.path).join(", ")}{claims.length > 2 ? "…" : ""}</span>
+              {claims.length} claimed {claims.length === 1 ? "path" : "paths"}
             </a>
           )}
         </div>
-      )}
+      </div>
+      <span className="when" title={fullTime(a.last_seen)}>
+        {ago(a.last_seen)}
+      </span>
     </div>
   );
 }
@@ -108,7 +107,7 @@ export function Timeline({ items, showAgent = true }: { items: Activity[]; showA
             <span className="d">
               {showAgent && (
                 <>
-                  <b style={{ color: name ? agentColor(name) : undefined }}>{name || user}</b>{" "}
+                  <b>{name || user}</b>{" "}
                 </>
               )}
               <a href={activityHref(a)} style={{ color: "inherit" }}>
@@ -137,7 +136,7 @@ export function ClaimRow({ c, conflicts }: { c: Claim; conflicts: Claim[] }) {
         </div>
         {conflicts.length > 0 && (
           <div className="conflict">
-            ⚠ overlaps {conflicts.map((o) => `${o.path} (${o.agent_id})`).join(", ")}
+            Overlaps {conflicts.map((o) => `${o.path} (${o.agent_id})`).join(", ")}
           </div>
         )}
       </div>

@@ -42,7 +42,7 @@ Reads are open; writes need `X-Board-User` (+ `X-Board-Agent` for agents) and th
 |---|---|
 | `GET /api/state` | Everything the UI needs at load |
 | `GET /api/events` | SSE: `entry`, `message`, `channel`, `channel_expired`, `agent`, `activity`, `reaction`, `claims`, `claim_conflict`, `github` |
-| `GET /api/entries?q=&kind=&tag=&any=1` · `POST` · `PATCH /api/entries/<id>` | Knowledge (`q` uses FTS) |
+| `GET /api/entries?q=&kind=&tag=&any=1` · `POST` · `PATCH /api/entries/<id>` | Knowledge (`q` uses FTS; PATCH with `minor: true` keeps `updated_at`) |
 | `GET /api/entries/<id>/history` · `/votes` · `POST .../vote` · `POST .../links` · `DELETE .../links/<to>` | History, still-true votes, links |
 | `GET /api/search?q=` · `/api/suggest?q=` · `/api/tags` | Search knowledge and messages; entries relevant to a branch/status |
 | `GET /api/channels` · `POST` · `PATCH /api/channels/<name>` · `GET /api/channels/<name>/messages?before=` | Channels |
