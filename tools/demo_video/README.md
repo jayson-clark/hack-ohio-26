@@ -97,4 +97,5 @@ What reads well (see `SCRIPT.md`):
 - Every take reloads the console and fits the map in `prep`, so the last take's selection, zoom, plan drafts, commander dock and autopilot don't leak into it.
 - Move sliders with `drag`, not a click and arrow keys: with keys the thumb jumps while the pointer sits still. Thumb x for a value is about `36 + 308 × fraction` in the Plan panel at 1668 wide; check the value with `--rehearse`.
 - Recordly's `type` has dropped letters in this window. Prefer clicking the commander's suggestion buttons.
+- A tiling window manager (AeroSpace here) moves the window when Recordly takes focus at the start of a take, so the first frames slid against the crop. The runner floats the window with `aerospace layout floating` when AeroSpace is installed. With another tiler, float the Chrome app window by hand.
 - Above 1× the Paradise fire outruns every decision. Most takes run at 0.25–0.5×.
