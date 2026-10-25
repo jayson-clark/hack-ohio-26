@@ -12,12 +12,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-voice = [
-    "mlx-whisper>=0.4.3 ; platform_machine == 'arm64' and sys_platform == 'darwin'",
-    "sounddevice>=0.5.6",
-]
 # The learned fire emulator (#113): instant forecast previews and crew-spot
-# screening. Same mlx as the voice extra; without it the engine uses Monte Carlo only.
+# screening. Without it the engine uses Monte Carlo only.
 ml = [
     "mlx>=0.32.4 ; platform_machine == 'arm64' and sys_platform == 'darwin'",
 ]

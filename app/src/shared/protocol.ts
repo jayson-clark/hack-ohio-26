@@ -10,7 +10,6 @@ export type EngineMessage =
   | VisionStatus
   | Score
   | CommanderMessage
-  | Transcript
   | Units
   | EvacClock
   | Situation
@@ -60,8 +59,6 @@ export type ClientMessage =
   | OrderEvacuation
   | DraftAction
   | RequestBriefing
-  | PttStart
-  | PttStop
   | CalibrationStep
   | EvaluatePlan;
 export type CalibrationAction = "start" | "save" | "check" | "cancel" | "clear";
@@ -82,7 +79,6 @@ export interface Hello {
   map_height: number;
   sim_minutes_per_tick: number;
   forecast_horizons_min: number[];
-  speech_to_text: boolean;
   stations: StationInfo[];
 }
 export interface StationInfo {
@@ -258,14 +254,6 @@ export interface CommanderMessage {
   text: string;
   grounded: boolean;
   event: EventKind | null;
-}
-/**
- * What push-to-talk heard. A non-empty text is also asked of the commander.
- */
-export interface Transcript {
-  type: "transcript";
-  text: string;
-  error: string | null;
 }
 /**
  * Every fire unit (#104). Sent when one changes status, and a few times
@@ -543,7 +531,7 @@ export interface StepOnce {
   type: "step_once";
 }
 /**
- * A question for the incident commander, typed or transcribed. A new
+ * A question for the incident commander, typed in the console. A new
  * question cancels one still being answered.
  */
 export interface CommanderQuery {
@@ -572,18 +560,6 @@ export interface DraftAction {
  */
 export interface RequestBriefing {
   type: "request_briefing";
-}
-/**
- * Push-to-talk pressed: the engine starts recording and the commander stops talking.
- */
-export interface PttStart {
-  type: "ptt_start";
-}
-/**
- * Push-to-talk released: the engine transcribes and asks the commander.
- */
-export interface PttStop {
-  type: "ptt_stop";
 }
 export interface CalibrationStep {
   type: "calibration_step";
