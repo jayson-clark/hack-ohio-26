@@ -66,6 +66,15 @@ CLASSES = [
     ("water", 0.0, {"natural": ["water"], "landuse": ["reservoir", "basin"], "waterway": ["riverbank"]}),
     ("river", 0.0, {"waterway": ["river"]}),  # lines, drawn RIVER_WIDTH_M wide
 ]
+# Per-scenario weights that replace CLASSES' own, where the same OSM class
+# burns differently. Paradise's residential areas are pine-needle forest lots
+# that the Camp Fire burned through (its replay needs residential at 0.6 or
+# more). Superior and Louisville are irrigated lawns, streets and parking that
+# stopped the Marshall Fire: at 0.9 the replay burned 2.7x the real area, at
+# these weights 1.5x, with outline IoU from 0.19 to 0.27 (#144).
+SCENARIO_WEIGHTS = {
+    "marshall": {"residential": 0.25, "commercial": 0.3},
+}
 # The PNG stores fuel / MAX_FUEL (sim/fire.py's white = 1.5x).
 MAX_FUEL = 1.5
 
@@ -200,7 +209,9 @@ def main():
 
     ss = SUPERSAMPLE
     classes = rasterize(elements, proj, ss)
-    lut = np.array([f for _, f, _ in CLASSES], np.float32)
+    over = SCENARIO_WEIGHTS.get(args.scenario, {})
+    weights = [over.get(name, f) for name, f, _ in CLASSES]
+    lut = np.array(weights, np.float32)
     fine = lut[classes]
     fuel = fine.reshape(proj.h, ss, proj.w, ss).mean(axis=(1, 3))
 
@@ -209,7 +220,7 @@ def main():
     print(f"Wrote {out.relative_to(REPO)} ({proj.w}x{proj.h}), mean fuel {fuel.mean():.2f}, "
           f"unburnable cells {(fuel == 0).sum()}")
     counts = np.bincount(classes.ravel(), minlength=len(CLASSES)) / classes.size
-    for (name, f, _), share in zip(CLASSES, counts):
+    for (name, _, _), f, share in zip(CLASSES, weights, counts):
         if share:
             print(f"  {name:12s} fuel {f:.1f}  {share:6.1%} of the map")
 
