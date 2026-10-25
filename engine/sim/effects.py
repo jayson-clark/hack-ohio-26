@@ -69,6 +69,14 @@ FATIGUE_FLOOR = 0.5
 LINE_LENGTH = 80.0  # cells, end to end
 LINE_RATE = 0.5  # cells a tick, at each end
 LINE_HALF_WIDTH = 1.0
+# Patrol (#178): a staffed line also catches embers landing across it and
+# slopovers at its edges, so while its crew works there's partial suppression
+# PATROL x the crew's current strength within PATROL_BAND cells of the line.
+# Bare soil doesn't tire, but the patrol does: it fades with the crew and is
+# gone once the crew leaves, which is what makes relieving a crew matter when
+# embers fly (above SPOT_MIN_WIND).
+PATROL = 0.5
+PATROL_BAND = 3.0
 
 WATER_RADIUS = 5.0
 WATER_WET = 0.8
@@ -112,6 +120,7 @@ class TimedLayer:
     # crew (inf off it), and how far the line reaches at dt = t_on (negative
     # while the crew is still digging in), growing at line_rate a tick.
     line_along: np.ndarray | None = None
+    line_band: np.ndarray | None = None  # the same, for cells within PATROL_BAND of the line
     line_reach0: float = 0.0
     line_rate: float = 0.0
     # A crew's shift (#178): from dt = fade_at it fades linearly to
@@ -136,6 +145,8 @@ class TimedLayer:
             reach = min(LINE_LENGTH / 2, self.line_reach0 + self.line_rate * (dt - self.t_on))
             if reach > 0:
                 line = (self.line_along <= reach).astype(np.float32)
+                if self.line_band is not None and lvl > 0:
+                    np.maximum(line, (self.line_band <= reach) * np.float32(PATROL * lvl / self.cap), out=line)
                 g = line if g is None else np.maximum(g, line)
         return g
 
@@ -169,8 +180,9 @@ class SuppressionSchedule:
         return any(layer.varies for layer in self.layers)
 
 
-def line_along(cx: np.ndarray, cy: np.ndarray, x: float, y: float, wind_from: float) -> np.ndarray:
-    """Distance along a crew's line from (x, y) for cells on it, inf off it.
+def line_along(cx: np.ndarray, cy: np.ndarray, x: float, y: float, wind_from: float) -> tuple[np.ndarray, np.ndarray]:
+    """Distance along a crew's line from (x, y) for cells on it, inf off it;
+    and the same for cells within PATROL_BAND of it (the patrolled band).
     The line runs with the wind: bearing b is the direction (sin b, -cos b) in
     map coords (y south), and the line goes both ways from the crew."""
     b = math.radians(wind_from)
@@ -178,7 +190,9 @@ def line_along(cx: np.ndarray, cy: np.ndarray, x: float, y: float, wind_from: fl
     dx, dy = cx - x, cy - y
     along = dx * ux + dy * uy
     off = np.abs(dx * uy - dy * ux)
-    return np.where(off <= LINE_HALF_WIDTH, np.abs(along), np.inf).astype(np.float32)
+    dist = np.abs(along)
+    return (np.where(off <= LINE_HALF_WIDTH, dist, np.inf).astype(np.float32),
+            np.where(off <= PATROL_BAND, dist, np.inf).astype(np.float32))
 
 
 def crew_layer(width: int, height: int, x: float, y: float, *, t_on: int = 0, ramped: float = 0.0,
@@ -193,7 +207,7 @@ def crew_layer(width: int, height: int, x: float, y: float, *, t_on: int = 0, ra
     layer = TimedLayer(disk, CREW_MAX * ramped, CREW_MAX / CREW_RAMP_TICKS, CREW_MAX, t_on=t_on,
                        fade_at=t_on + SHIFT_TICKS - int(ramped * CREW_RAMP_TICKS))
     if wind_from is not None:
-        layer.line_along = line_along(cx, cy, x, y, wind_from)
+        layer.line_along, layer.line_band = line_along(cx, cy, x, y, wind_from)
         layer.line_reach0 = -LINE_RATE * CREW_RAMP_TICKS * (1.0 - ramped)
         layer.line_rate = LINE_RATE
     return layer
@@ -348,7 +362,7 @@ class TokenEffects:
     def _with_line(self, layer: TimedLayer, x: float, y: float, wind_from: float | None, age: int) -> TimedLayer:
         """Add the line a crew `age` ticks into its job cuts (none without a wind)."""
         if wind_from is not None:
-            layer.line_along = line_along(self._cx, self._cy, x, y, wind_from)
+            layer.line_along, layer.line_band = line_along(self._cx, self._cy, x, y, wind_from)
             layer.line_reach0 = LINE_RATE * (age - CREW_RAMP_TICKS)
             layer.line_rate = LINE_RATE
         return layer
