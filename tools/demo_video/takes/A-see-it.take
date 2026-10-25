@@ -1,0 +1,28 @@
+# The fire spreads from Pulga with its forecast bands, then Paradise's
+# evacuation clock: the order is already overdue a minute in.
+engine fresh 0.5 paused
+
+prep
+  key r mods=cmd                # reload: clears autopilot, plan and dock state
+  waitfor "Fit the whole map" timeout=15
+  click "Fit the whole map"
+  move 1150,560
+
+scene "Fire spreads from Pulga with forecast bands at 0.5x"
+  hold 1.5
+  key period                    # resume
+  move 1200,560 ms=1500
+  hold 10
+  move 900,640
+  hold 1.5
+
+scene "Open Paradise: the evacuation clock"
+  click "Paradise" index=1      # the map label (0 is the header)
+  hold 2.5
+  move 1488,712                 # rest on Order evacuation, off the numbers
+  hold 6
+
+zoom 1@2..1@end at=0.72,0.38
+zoom 2@1..end at=0.80,0.62
+label "0.5× · 5 sim-min/s" 1@1.5..end
+export A-see-it.mp4

@@ -1,0 +1,28 @@
+# At 2x the fire cuts a road and routes replan; then the commander's briefings.
+engine fresh 0.5 paused
+engine advance 28
+
+prep
+  key r mods=cmd
+  waitfor "Fit the whole map" timeout=15
+  move 1000,560
+
+scene "2x: the fire cuts the road and routes replan"
+  hold 1.5
+  key period
+  key ]
+  key ]                         # 0.5x -> 2x
+  move 1300,650 ms=1500
+  hold 14
+
+scene "Open the commander's briefings"
+  click "Commander" index=0
+  hold 6
+  key period
+  hold 1.5
+
+zoom 1@5..1@12 at=0.68,0.55
+zoom 2@0.5..end at=0.82,0.72
+label "2× · 20 sim-min/s" 1@1.5..2@end-1.5
+label "Paused" 2@end-1.5..end
+export D-road-cut-commander.mp4

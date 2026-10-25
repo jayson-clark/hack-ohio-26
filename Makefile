@@ -2,7 +2,7 @@
 -include .env
 export
 
-.PHONY: install engine web app dev types test board clean distclean
+.PHONY: install engine web app dev types test board demo-video clean distclean
 
 install:
 	cd engine && uv sync
@@ -38,6 +38,11 @@ test:
 # Local agent board on http://localhost:8790 (the team board is https://hack.apps.jaysonc.dev)
 board:
 	python3 tools/agent_board/server.py
+
+# Re-record the demo video's console takes (tools/demo_video). Needs the engine,
+# `make web` and Recordly running. TAKES="B2 C" records only those.
+demo-video:
+	cd engine && uv run python ../tools/demo_video/run.py $(TAKES)
 
 # Remove build output and caches. Keeps .env, the agent board's data, generated
 # STL tiles and the elevation tile cache (slow to rebuild). Installed

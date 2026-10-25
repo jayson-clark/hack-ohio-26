@@ -1,0 +1,28 @@
+# Read a crew recommendation, dispatch it, watch the unit drive in.
+engine fresh 0.25 paused
+
+prep
+  key r mods=cmd
+  waitfor "Fit the whole map" timeout=15
+  move 700,500
+
+scene "The queue fills; read a crew recommendation"
+  hold 0.8
+  key period
+  waitfor "Send a crew" timeout=20
+  hold 1.5
+  click "Send a crew" index=0
+  hold 5.5
+
+scene "Dispatch the crew and speed up to watch it drive in"
+  click "Dispatch" role=button index=0   # the inspector's button
+  hold 2
+  key ]
+  key ]                                  # 0.25x -> 1x
+  move 1150,600
+  hold 8
+
+zoom 1@end-5.5..2@0.5 at=0.78,0.30
+label "0.25× · 2.5 sim-min/s" 1@0.8..2@2
+label "1× · 10 sim-min/s" 2@2..end
+export B2-dispatch-crew.mp4
