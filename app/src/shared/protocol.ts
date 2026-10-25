@@ -171,7 +171,11 @@ export interface Recommendation {
   confidence: string;
   station: string | null;
   eta_min: number | null;
+  fire_arrival_min: number | null;
+  act_by_min: number | null;
   acres_saved: number;
+  acres_saved_lo: number;
+  acres_saved_hi: number;
   saves: TownEffect[];
   worsens: TownEffect[];
   protects: TownShare[];

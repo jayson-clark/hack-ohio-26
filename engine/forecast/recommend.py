@@ -36,8 +36,15 @@ HOLDOUT_ROLLOUTS = 16
 # When the top two can't be told apart, they're re-run head to head on fresh seeds with this many.
 REFINE_ROLLOUTS = 16
 TOP = 3
-HORIZON_TICKS = 60
+HORIZON_TICKS = 60  # the commander's what-ifs (evaluate_spots) speak in "the next hour"
+# Recommendations look further: a crew sent now takes 15-40 min to arrive, so
+# a one-hour window left it arriving with the fire in strong wind. They're
+# scored over two hours, and candidates come from both the 30-minute front and
+# where the long forecast expects fire in 60-120 min.
+REC_HORIZON_TICKS = 120
+ARRIVAL_PCTL = 10  # "fire reaches the crew's area" = the early end across rollouts
 FRONT_BAND = (0.2, 0.8)  # P(burn by T+30) range that counts as "the front"
+AHEAD_BAND = FRONT_BAND  # the same band on P(burn by T+90), from the long forecast
 NEAR_TOWN_CELLS = 25.0  # candidates are weighted by population within ~this distance
 # Person-equivalents per burned cell, so acres break ties without
 # outweighing people (Paradise is about 7 people per cell).
@@ -76,6 +83,8 @@ class Rec:
     y: float
     benefit: float  # mean person-equivalents spared per rollout
     cells_saved: float  # mean burned cells avoided per rollout
+    cells_lo: float = 0.0  # 90% interval on cells_saved (paired t)
+    cells_hi: float = 0.0
     benefit_lo: float = 0.0  # 90% interval on `benefit` (paired t over rollouts)
     benefit_hi: float = 0.0
     confidence: str = "low"  # how firmly to state it: high / moderate / low
@@ -84,6 +93,11 @@ class Rec:
     protects: list[TownShare] = field(default_factory=list)  # towns where less burns, biggest first
     # Minutes for the unit to get there (#104); None when units appear instantly.
     eta_min: float | None = None
+    # Minutes until fire likely reaches the crew's area (the ARRIVAL_PCTL early
+    # end across rollouts), and the latest the crew can be sent and still dig in
+    # first (arrival minus eta). None when fire isn't expected there in the horizon.
+    fire_arrival_min: float | None = None
+    act_by_min: float | None = None
     # Set when every crew is already placed (#77): move this crew here instead.
     move_id: str | None = None
     from_x: float | None = None
@@ -136,10 +150,10 @@ SCREEN_POOL = 48
 SCREEN_SPACING = CREW_RADIUS
 
 
-def screen(snapshot, p30, towns, masks, emulator, eta=None, k: int = N_CANDIDATES) -> list[tuple[float, float]]:
+def screen(snapshot, p30, towns, masks, emulator, eta=None, k: int = N_CANDIDATES, ahead=None) -> list[tuple[float, float]]:
     """The k most promising spots by the emulator's predicted T+60 loss
     reduction, at least a crew's reach apart. Falls back to candidates()."""
-    pool = _reachable(candidates(snapshot, p30, towns, SCREEN_POOL, spacing=SCREEN_SPACING), eta)
+    pool = _reachable(_pool(snapshot, p30, ahead, towns, SCREEN_POOL, SCREEN_SPACING), eta)
     if len(pool) <= k:
         return pool
     from emulator.features import SUP_TICKS, from_snapshot
@@ -179,7 +193,8 @@ def evaluate_spots(snapshot, spots, towns, n=N_ROLLOUTS, seed=0, starts: list[in
     return _evaluate(snapshot, spots, towns, _town_masks(towns, h, w), n, seed, starts=starts)
 
 
-def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[int] | None = None) -> list[Rec]:
+def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[int] | None = None,
+              horizon: int = HORIZON_TICKS) -> list[Rec]:
     """Paired run of the baseline plus a fresh crew at each spot, digging in
     from its start tick (0 = now; later if it has to travel there, #104) and
     ramping up as a placed crew does (#56).
@@ -192,7 +207,7 @@ def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[in
     variants = [crew_layer(w, h, x, y, t_on=t0) for (x, y), t0 in zip(spots, starts)]
     if keep is not None:
         variants = [keep] + variants
-    first = rollout_paired(snapshot, n, HORIZON_TICKS, variants, seed=seed)
+    first = rollout_paired(snapshot, n, horizon, variants, seed=seed)
     if keep is not None:
         first = first[1:]  # index 0 is now "crew where it is"
     burned = np.isfinite(first).reshape(len(spots) + 1, n, h * w).astype(np.float32)
@@ -206,7 +221,12 @@ def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[in
     def effects(counts):
         return [TownEffect(t.name, int(c), n, *wilson(int(c), n)) for t, c in zip(towns, counts) if c > 0]
 
+    cy, cx = np.mgrid[:h, :w].astype(np.float32) + 0.5
     for v, (x, y) in enumerate(spots, start=1):
+        # When fire reaches the crew's core area in the baseline (per rollout).
+        core = np.hypot(cx - x, cy - y) <= 0.6 * CREW_RADIUS
+        reach = first[0][:, core].min(axis=1) * SIM_MINUTES_PER_TICK  # (n,), inf if never
+        arrival = float(np.percentile(reach, ARRIVAL_PCTL)) if np.isfinite(reach).mean() > ARRIVAL_PCTL / 100 else None
         saves = (reached[0] & ~reached[v]).sum(axis=0)
         share = (frac[0] - frac[v]).mean(axis=0)  # (T,)
         worse = (~reached[0] & reached[v]).sum(axis=0)
@@ -215,7 +235,9 @@ def _evaluate(snapshot, spots, towns, masks, n, seed, keep=None, starts: list[in
         recs.append(Rec(
             x=round(x, 2), y=round(y, 2),
             benefit=mean, benefit_lo=lo, benefit_hi=hi, confidence=benefit_confidence(mean, lo, hi),
+            fire_arrival_min=None if arrival is None else round(arrival, 1),
             cells_saved=float((cells[0] - cells[v]).mean()),
+            cells_lo=mean_ci(cells[0] - cells[v])[1], cells_hi=mean_ci(cells[0] - cells[v])[2],
             saves=effects(saves),
             worsens=effects(worse),
             protects=sorted(
@@ -241,13 +263,31 @@ def _reachable(spots, eta):
     return [s for s in spots if eta is None or math.isfinite(_arrival(eta, *s)[1])]
 
 
-def _eval_at(snapshot, spots, towns, masks, n, seed, eta, keep=None) -> list[Rec]:
-    """_evaluate with each crew starting when a unit can get there."""
+def _eval_at(snapshot, spots, towns, masks, n, seed, eta, keep=None, horizon: int = REC_HORIZON_TICKS) -> list[Rec]:
+    """_evaluate with each crew starting when a unit can get there, plus the
+    act-by time: how long the operator can wait and still have it dig in first."""
     arrivals = [_arrival(eta, x, y) for x, y in spots]
-    recs = _evaluate(snapshot, spots, towns, masks, n, seed, keep=keep, starts=[a[0] for a in arrivals])
+    recs = _evaluate(snapshot, spots, towns, masks, n, seed, keep=keep, starts=[a[0] for a in arrivals], horizon=horizon)
     for r, (_, m) in zip(recs, arrivals):
         r.eta_min = None if m is None else round(m, 1)
+        if r.fire_arrival_min is not None:
+            r.act_by_min = round(r.fire_arrival_min - (m or 0.0), 1)
     return recs
+
+
+def _pool(snapshot, p30, ahead, towns, k: int, spacing: float) -> list[tuple[float, float]]:
+    """Candidate spots on the 30-minute front and, with a look-ahead map
+    (P(burn by T+90)), on where the fire is expected in 1-2 h, best first,
+    at least `spacing` apart."""
+    near = candidates(snapshot, p30, towns, k, spacing=spacing)
+    if ahead is None:
+        return near
+    far = candidates(snapshot, ahead, towns, k, spacing=spacing)
+    picks: list[tuple[float, float]] = []
+    for spot in [s for pair in zip(near, far) for s in pair] + near[len(far):] + far[len(near):]:
+        if all(math.hypot(spot[0] - a, spot[1] - b) >= spacing for a, b in picks):
+            picks.append(spot)
+    return picks[:k]
 
 
 def recommend(
@@ -261,6 +301,8 @@ def recommend(
     seed: int = 0,
     eta: np.ndarray | None = None,
     screened: bool = False,
+    ahead: np.ndarray | None = None,
+    horizon: int = REC_HORIZON_TICKS,
 ) -> list[Rec]:
     """The best `top` crew placements, best first, each re-scored on fresh
     seeds (#11):
@@ -276,23 +318,28 @@ def recommend(
     - With `eta` (minutes for the fastest free crew to reach each cell, #104),
       each candidate's crew only starts digging in when it could get there,
       and spots no free crew can reach are skipped.
+    - With `ahead` (P(burn by T+90), from the long forecast), half the
+      candidates sit where the fire is expected in 1-2 h, so a crew can be
+      there first. Every candidate is scored over REC_HORIZON_TICKS.
     """
     h, w = snapshot.state.shape
     masks = _town_masks(towns, h, w)
     emulator = _emulator() if screened else None
     if emulator is not None and towns:
-        spots = screen(snapshot, p30, towns, masks, emulator, eta, k)
+        spots = screen(snapshot, p30, towns, masks, emulator, eta, k, ahead=ahead)
     else:
-        spots = _reachable(candidates(snapshot, p30, towns, k), eta)
+        spots = _reachable(_pool(snapshot, p30, ahead, towns, k, 2 * CREW_RADIUS), eta)
     if not spots:
         return []
-    first_pass = _eval_at(snapshot, spots, towns, masks, n, seed, eta)
+    first_pass = _eval_at(snapshot, spots, towns, masks, n, seed, eta, horizon=horizon)
     best = sorted(first_pass, key=lambda r: r.benefit, reverse=True)[:top]
-    held_out = sorted(_eval_at(snapshot, [(r.x, r.y) for r in best], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919, eta),
+    held_out = sorted(_eval_at(snapshot, [(r.x, r.y) for r in best], towns, masks, HOLDOUT_ROLLOUTS, seed + 7919, eta,
+                               horizon=horizon),
                       key=lambda r: r.benefit, reverse=True)
     if len(held_out) >= 2 and overlap((held_out[0].benefit_lo, held_out[0].benefit_hi),
                                       (held_out[1].benefit_lo, held_out[1].benefit_hi)):
-        pair = _eval_at(snapshot, [(r.x, r.y) for r in held_out[:2]], towns, masks, REFINE_ROLLOUTS, seed + 15485, eta)
+        pair = _eval_at(snapshot, [(r.x, r.y) for r in held_out[:2]], towns, masks, REFINE_ROLLOUTS, seed + 15485, eta,
+                        horizon=horizon)
         held_out = sorted(pair + held_out[2:], key=lambda r: r.benefit, reverse=True)
     return [r for r in held_out if r.benefit_lo > 0]
 
@@ -345,6 +392,11 @@ def recommend_moves(
     return sorted(out, key=lambda r: r.benefit, reverse=True)
 
 
+def _horizon_words() -> str:
+    hours = REC_HORIZON_TICKS * SIM_MINUTES_PER_TICK / 60
+    return "hour" if hours == 1 else f"{hours:g} hours" if hours != 2 else "two hours"
+
+
 def describe(rec: Rec, acres_per_cell: float, from_place: str | None = None, station: str | None = None) -> str:
     """One sentence for a recommendation card or a briefing. For a move,
     `from_place` names where the crew is now ("near Pulga"). With dispatch
@@ -361,9 +413,9 @@ def describe(rec: Rec, acres_per_cell: float, from_place: str | None = None, sta
         text = f"{who} keeps the fire out of {best.town} in {best.hits} of {best.n} simulations"
     elif rec.protects:
         top = rec.protects[0]
-        text = f"{who} shields {top.town}: about {round(top.share * 100)}% less of it burns in the next hour"
+        text = f"{who} shields {top.town}: about {round(top.share * 100)}% less of it burns in the next {_horizon_words()}"
     else:
-        text = f"{who} holds back about {_round_acres(acres)} acres over the next hour"
+        text = f"{who} holds back about {_round_acres(acres)} acres over the next {_horizon_words()}"
     if rec.worsens:
         worst = max(rec.worsens, key=lambda e: e.hits)
         text += f", but pushes it into {worst.town} in {worst.hits} of {worst.n}"
@@ -384,8 +436,8 @@ class Recommender:
         self._pool = ProcessPoolExecutor(max_workers=1, mp_context=ctx)
 
     def submit(self, snapshot: FireSnapshot, p30: np.ndarray, towns: list[TownInfo], seed: int,
-               eta: np.ndarray | None = None) -> asyncio.Future[list[Rec]]:
-        return self.run(_recommend_job, snapshot, p30, towns, seed, eta)
+               eta: np.ndarray | None = None, ahead: np.ndarray | None = None) -> asyncio.Future[list[Rec]]:
+        return self.run(_recommend_job, snapshot, p30, towns, seed, eta, ahead)
 
     def submit_moves(self, crews: list[PlacedCrew], p30: np.ndarray,
                      towns: list[TownInfo], seed: int) -> asyncio.Future[list[Rec]]:
@@ -425,8 +477,8 @@ def _emulator():
     return _EMULATOR[0]
 
 
-def _recommend_job(snapshot, p30, towns, seed, eta=None):
-    return recommend(snapshot, p30, towns, seed=seed, eta=eta, screened=True)
+def _recommend_job(snapshot, p30, towns, seed, eta=None, ahead=None):
+    return recommend(snapshot, p30, towns, seed=seed, eta=eta, screened=True, ahead=ahead)
 
 
 def _moves_job(crews, p30, towns, seed):
