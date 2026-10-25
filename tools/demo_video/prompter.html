@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fireline Prompter</title>
+<!--
+  Karaoke prompter for the demo video's voiceover. Reads the "Read-along" table
+  in SCRIPT.md (same folder), so the script stays the one source. Serve it with
+  `make prompter`; fetch() can't read SCRIPT.md from a file:// page.
+-->
+<style>
+  :root {
+    --bg: #0d0f11; --panel: #16191d; --edge: #262b31;
+    --ink: #f2f4f6; --dim: #6b737c; --faint: #3a4047;
+    --lit: #ffb547; --accent: #5b8cff; --warn: #ff6b5b;
+    --size: 44px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    display: grid; grid-template-rows: auto 1fr auto; overflow: hidden;
+  }
+  header, footer { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-color: var(--edge); }
+  header { border-bottom: 1px solid var(--edge); }
+  footer { border-top: 1px solid var(--edge); flex-wrap: wrap; }
+  .clock { font: 600 28px/1 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .clock small { color: var(--dim); font-size: 16px; }
+  .state { color: var(--dim); font-size: 14px; }
+  .state.live { color: var(--lit); }
+  .grow { flex: 1; }
+  button {
+    background: var(--bg); color: var(--ink); border: 1px solid var(--edge); border-radius: 8px;
+    padding: 8px 12px; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--dim); }
+  .hint { color: var(--dim); font-size: 13px; }
+  kbd { font: 12px ui-monospace, Menlo, monospace; color: var(--dim); border: 1px solid var(--edge); border-radius: 4px; padding: 1px 5px; }
+  .bar { position: relative; height: 6px; background: var(--faint); border-radius: 3px; flex-basis: 100%; cursor: pointer; }
+  .bar .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 3px; }
+  .bar .tick { position: absolute; top: -3px; width: 1px; height: 12px; background: var(--dim); }
+
+  main { overflow: hidden; position: relative; }
+  .lines { padding: 40vh 8vw; transition: transform 0.35s ease; }
+  .line { margin: 0 0 0.9em; font-size: calc(var(--size) * 0.62); line-height: 1.3; color: var(--faint); cursor: pointer; }
+  .line .time { display: block; font: 13px ui-monospace, Menlo, monospace; color: var(--faint); margin-bottom: 4px; }
+  .line.near { color: var(--dim); }
+  .line.current { font-size: var(--size); color: var(--ink); }
+  .line.current .time { color: var(--dim); }
+  .line .w { transition: color 0.12s; }
+  .line.current .w.lit { color: var(--lit); }
+  .line.done { color: var(--faint); }
+  .progress { height: 4px; margin-top: 10px; background: var(--faint); border-radius: 2px; overflow: hidden; display: none; }
+  .line.current .progress { display: block; }
+  .progress div { height: 100%; width: 0; background: var(--lit); }
+
+  .cue { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; max-width: 70ch; }
+  .cue dt { color: var(--dim); }
+  .cue dd { margin: 0; }
+  .next { color: var(--dim); font-size: 14px; }
+  .next b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  .count { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font: 700 30vh/1 -apple-system, sans-serif; color: var(--lit); background: rgba(13, 15, 17, 0.75); }
+  .count.on { display: flex; }
+  .error { padding: 10vh 8vw; font-size: 20px; color: var(--warn); }
+  .error code { color: var(--ink); }
+
+  @media (max-width: 640px) {
+    :root { --size: 30px; }
+    header, footer { padding: 10px 16px; gap: 10px; }
+    .lines { padding: 35vh 16px; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="clock"><span id="now">0:00.0</span> <small>/ <span id="total">0:00</span></small></div>
+  <div class="state" id="state">Ready · Space to start</div>
+  <div class="grow"></div>
+  <div class="next" id="next"></div>
+</header>
+<main>
+  <div class="lines" id="lines"></div>
+  <div class="count" id="count"></div>
+</main>
+<footer>
+  <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+  <dl class="cue">
+    <dt>Picture</dt><dd id="picture">–</dd>
+    <dt>On screen</dt><dd id="onscreen">–</dd>
+  </dl>
+  <div class="grow"></div>
+  <button id="prev" title="Previous line">←</button>
+  <button id="play">Start</button>
+  <button id="nextBtn" title="Next line">→</button>
+  <button id="srt">Captions (.srt)</button>
+  <span class="hint"><kbd>Space</kbd> start/pause · <kbd>←</kbd><kbd>→</kbd> lines · <kbd>R</kbd> restart · <kbd>+</kbd><kbd>−</kbd> size · <kbd>C</kbd> count-in</span>
+</footer>
+<script>
+const COUNT_IN_S = 3;
+const $ = (id) => document.getElementById(id);
+let cues = [], total = 0;
+let t = 0;               // script time, seconds
+let running = false, lastFrame = 0, countIn = true, counting = null;
+
+const toSec = (s) => { const [m, sec] = s.split(":"); return Number(m) * 60 + Number(sec); };
+const fmt = (s, tenths = true) => {
+  const m = Math.floor(s / 60), r = s - m * 60;
+  return `${m}:${tenths ? r.toFixed(1).padStart(4, "0") : String(Math.floor(r)).padStart(2, "0")}`;
+};
+const plain = (s) => s.replace(/`/g, "").replace(/\*\*/g, "").trim();
+
+function parse(md) {
+  const part = md.split(/^## Read-along\s*$/m)[1];
+  if (!part) throw new Error("SCRIPT.md has no \"## Read-along\" section");
+  const rows = part.split(/^## /m)[0].split("\n").filter((l) => /^\|\s*\d+:\d\d/.test(l));
+  return rows.map((r) => {
+    const c = r.replace(/^\||\|$/g, "").split("|").map((x) => plain(x));
+    return { start: toSec(c[0]), end: toSec(c[1]), picture: c[2] || "–", line: c[3] || "", onscreen: c[4] || "–" };
+  });
+}
+
+// Each word lights when the time spent reading the words before it has passed.
+// Longer words take longer to say, so the share is by letters, not by count.
+function build() {
+  const box = $("lines");
+  box.innerHTML = "";
+  cues.forEach((c, i) => {
+    const el = document.createElement("div");
+    el.className = "line";
+    el.innerHTML = `<span class="time">${fmt(c.start, false)}–${fmt(c.end, false)}</span>`;
+    const words = c.line.split(/\s+/).filter(Boolean);
+    const weights = words.map((w) => w.replace(/[^\p{L}\p{N}]/gu, "").length + 2);
+    const sum = weights.reduce((a, b) => a + b, 0);
+    let acc = 0;
+    c.at = [];
+    words.forEach((w, j) => {
+      const span = document.createElement("span");
+      span.className = "w";
+      span.textContent = w + " ";
+      el.appendChild(span);
+      c.at.push(c.start + (acc / sum) * (c.end - c.start));
+      acc += weights[j];
+    });
+    const prog = document.createElement("div");
+    prog.className = "progress";
+    prog.innerHTML = "<div></div>";
+    el.appendChild(prog);
+    el.addEventListener("click", () => seek(c.start));
+    c.el = el;
+    box.appendChild(el);
+  });
+  const bar = $("bar");
+  cues.forEach((c) => {
+    const tick = document.createElement("div");
+    tick.className = "tick";
+    tick.style.left = `${(c.start / total) * 100}%`;
+    bar.appendChild(tick);
+  });
+}
+
+// The line being read, or in a gap, the one coming up.
+function currentIndex() {
+  for (let i = 0; i < cues.length; i++) if (t < cues[i].end) return i;
+  return cues.length - 1;
+}
+
+function render() {
+  $("now").textContent = fmt(Math.min(t, total));
+  $("fill").style.width = `${Math.min(100, (t / total) * 100)}%`;
+  const i = currentIndex(), c = cues[i];
+  const inGap = t < c.start;
+  cues.forEach((q, k) => {
+    q.el.classList.toggle("current", k === i);
+    q.el.classList.toggle("near", Math.abs(k - i) === 1);
+    q.el.classList.toggle("done", k < i);
+    if (k === i) {
+      q.el.querySelectorAll(".w").forEach((w, j) => w.classList.toggle("lit", t >= q.at[j]));
+      const p = Math.max(0, Math.min(1, (t - q.start) / (q.end - q.start)));
+      q.el.querySelector(".progress div").style.width = `${p * 100}%`;
+    }
+  });
+  // Keep the current line a third of the way down. offsetTop is measured
+  // from <main> and ignores the transform, so it's stable.
+  const main = $("lines").parentElement;
+  $("lines").style.transform = `translateY(${main.clientHeight * 0.33 - c.el.offsetTop}px)`;
+  $("picture").textContent = c.picture;
+  $("onscreen").textContent = c.onscreen;
+  $("next").innerHTML = inGap
+    ? `Breathe · line in <b>${(c.start - t).toFixed(1)} s</b>`
+    : i + 1 < cues.length ? `Next line in <b>${(cues[i + 1].start - t).toFixed(1)} s</b>` : t >= total ? "End" : "Last line";
+  const st = $("state");
+  st.className = "state" + (running ? " live" : "");
+  st.textContent = counting !== null ? "Get ready" : running ? "Reading" : t >= total ? "Done · R to restart" : t > 0 ? "Paused · Space to resume" : "Ready · Space to start";
+  $("play").textContent = running || counting !== null ? "Pause" : t > 0 && t < total ? "Resume" : "Start";
+}
+
+function tick(now) {
+  if (running) {
+    t += (now - lastFrame) / 1000;
+    if (t >= total) { t = total; running = false; }
+  }
+  lastFrame = now;
+  render();
+  requestAnimationFrame(tick);
+}
+
+function start() {
+  if (t >= total) t = 0;
+  if (!countIn) { running = true; lastFrame = performance.now(); return; }
+  let n = COUNT_IN_S;
+  const show = () => { $("count").textContent = n; $("count").classList.add("on"); };
+  show();
+  counting = setInterval(() => {
+    n -= 1;
+    if (n > 0) return show();
+    clearInterval(counting); counting = null;
+    $("count").classList.remove("on");
+    running = true; lastFrame = performance.now();
+  }, 1000);
+}
+function stop() {
+  running = false;
+  if (counting !== null) { clearInterval(counting); counting = null; $("count").classList.remove("on"); }
+}
+const toggle = () => (running || counting !== null ? stop() : start());
+function seek(s) { stop(); t = Math.max(0, Math.min(total, s)); render(); }
+function step(d) {
+  const i = currentIndex();
+  // ← from the middle of a line goes back to its start; again goes to the line before.
+  const target = d < 0 && t > cues[i].start + 0.3 ? i : Math.max(0, Math.min(cues.length - 1, i + d));
+  seek(cues[target].start);
+}
+
+function srt() {
+  const ts = (s) => {
+    const ms = Math.round(s * 1000), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, sec = Math.floor(ms / 1000) % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")},${String(ms % 1000).padStart(3, "0")}`;
+  };
+  const body = cues.map((c, i) => `${i + 1}\n${ts(c.start)} --> ${ts(c.end)}\n${c.line}\n`).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([body], { type: "application/x-subrip" }));
+  a.download = "fireline-demo.srt";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function size(d) {
+  const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--size"));
+  document.documentElement.style.setProperty("--size", `${Math.max(24, Math.min(96, cur + d))}px`);
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.code === "Space") { e.preventDefault(); toggle(); }
+  else if (e.key === "ArrowLeft") step(-1);
+  else if (e.key === "ArrowRight") step(1);
+  else if (e.key === "r" || e.key === "R" || e.key === "Home") seek(0);
+  else if (e.key === "+" || e.key === "=") size(4);
+  else if (e.key === "-" || e.key === "_") size(-4);
+  else if (e.key === "c" || e.key === "C") { countIn = !countIn; $("state").textContent = `Count-in ${countIn ? "on" : "off"}`; }
+});
+$("play").addEventListener("click", toggle);
+$("prev").addEventListener("click", () => step(-1));
+$("nextBtn").addEventListener("click", () => step(1));
+$("srt").addEventListener("click", srt);
+$("bar").addEventListener("click", (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  seek(((e.clientX - r.left) / r.width) * total);
+});
+
+fetch("SCRIPT.md", { cache: "no-store" })
+  .then((r) => { if (!r.ok) throw new Error(`SCRIPT.md: HTTP ${r.status}`); return r.text(); })
+  .then((md) => {
+    cues = parse(md);
+    if (!cues.length) throw new Error("the Read-along table has no rows");
+    total = cues[cues.length - 1].end;
+    $("total").textContent = fmt(total, false);
+    build();
+    requestAnimationFrame((now) => { lastFrame = now; tick(now); });
+  })
+  .catch((err) => {
+    document.querySelector("main").innerHTML =
+      `<div class="error">Couldn't load the script (${err.message}).<br><br>Run <code>make prompter</code> from the repo root and open the link it prints.</div>`;
+  });
+</script>
+</body>
+</html>

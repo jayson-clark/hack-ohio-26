@@ -3,6 +3,8 @@
 # lays the forecast and routes over that photo, then the operator console runs
 # on the same live feed. Needs the camera on with the board locked, and the
 # projector calibrated and open (exercise control's Projector panel).
+# Scene 1 is a slate: the projector flashes its test grid for a second, so a
+# phone filming the table can be lined up with this recording (SCRIPT.md).
 engine fresh 0.5 paused
 engine advance 60
 
@@ -22,6 +24,13 @@ prep
   click "Towns"
   click "Units"
   move 640,820
+
+scene "Slate: the test grid flashes on the table"
+  hold 1
+  engine send {"type":"calibration_step","action":"check"}
+  hold 1
+  engine send {"type":"calibration_step","action":"cancel"}
+  hold 1.5
 
 scene "The table: projected fire, filmed top-down"
   engine resume
@@ -50,7 +59,7 @@ scene "The operator console on the same feed"
   hold 5
   engine pause
 
-zoom 1@1..1@end depth=2 at=0.40,0.54      # the camera feed, left of the toggles
-zoom 4@0..end depth=2 at=0.62,0.52        # the console's map, once the basemap is back on Drone
-label "0.5× · 5 sim-min/s" 1@0.5..end
+zoom 2@1..2@end depth=2 at=0.40,0.54      # the camera feed, left of the toggles
+zoom 5@0..end depth=2 at=0.62,0.52        # the console's map, once the basemap is back on Drone
+label "0.5× · 5 sim-min/s" 2@0.5..end
 export F-table-camera.mp4
