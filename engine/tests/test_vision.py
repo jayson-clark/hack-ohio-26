@@ -199,3 +199,6 @@ def test_camera_thread_reports_tokens_from_a_still_image(scenario, tmp_path):
     assert snap.status.board_found
     assert snap.feed_jpeg[:2] == b"\xff\xd8"  # a JPEG
     assert snap.feed_size[0] == 960
+    # Locked, so the feed is the orthophoto: the map grid's aspect, flagged for the UI.
+    assert snap.status.feed_rectified
+    assert snap.feed_size[1] == round(960 * scenario.height / scenario.width)
