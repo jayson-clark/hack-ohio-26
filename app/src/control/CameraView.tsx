@@ -8,11 +8,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { BinaryFrame } from "../shared/binary";
-import { Cell, useEngine, type ForecastGrids } from "../shared/engine";
+import { useEngine } from "../shared/engine";
+import { useFeedUrl } from "../shared/feed";
 import type { VisionStatus } from "../shared/protocol";
 import type { Scenario } from "../shared/scenario";
 import { useTowns } from "../console/model";
-import { OrdersLayer, PlacesLayer, RecsLayer, RoutesLayer, StationsLayer, TownsLayer, UnitsLayer } from "../console/map/layers";
+import { ForecastLayer, OrdersLayer, PlacesLayer, RecsLayer, RoutesLayer, StationsLayer, TownsLayer, UnitsLayer } from "../console/map/layers";
 import { ToggleGroup } from "../console/ui";
 
 const CORNERS = ["NW", "NE", "SE", "SW"] as const;
@@ -41,15 +42,8 @@ export default function CameraView({
   vision: VisionStatus | null;
   scenario: Scenario | null;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
+  const url = useFeedUrl(frame);
   const [overlays, setOverlays] = useState<Overlays>({ forecast: true, routes: true, towns: true, resources: true });
-
-  useEffect(() => {
-    if (!frame) return;
-    const next = URL.createObjectURL(new Blob([frame.payload as Uint8Array<ArrayBuffer>], { type: "image/jpeg" }));
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
-  }, [frame]);
 
   const on = vision && vision.camera !== "off";
   const rectified = !!(vision?.feed_rectified && scenario);
@@ -127,41 +121,6 @@ function RectifiedFeed({ url, scenario, overlays }: { url: string; scenario: Sce
       </div>
     </div>
   );
-}
-
-// Forecast colors, matching the console map's legend: nearer horizon orange
-// over the further one in yellow. Only on ground that isn't already burning.
-const NEAR = [245, 130, 50];
-const FAR = [250, 205, 110];
-
-/** P(burned) at the first two forecast horizons as a translucent fill. */
-function ForecastLayer({ scenario, forecast, simGrid }: { scenario: Scenario; forecast: ForecastGrids | null; simGrid: BinaryFrame | null }) {
-  const [href, setHref] = useState<string | null>(null);
-  const { width: W, height: H } = scenario;
-
-  useEffect(() => {
-    if (!forecast || forecast.width !== W || forecast.height !== H || forecast.horizons.length === 0) return setHref(null);
-    const c = document.createElement("canvas");
-    c.width = W;
-    c.height = H;
-    const ctx = c.getContext("2d")!;
-    const img = ctx.createImageData(W, H);
-    const near = forecast.horizons[0];
-    const far = forecast.horizons[1] ?? near;
-    const cells = simGrid && simGrid.width === W && simGrid.height === H ? simGrid.payload : null;
-    for (let i = 0; i < W * H; i++) {
-      if (cells && (cells[i] === Cell.Burning || cells[i] === Cell.Burned)) continue;
-      const pn = near[i] / 255;
-      const pf = far[i] / 255;
-      if (pf < 0.1) continue;
-      const [r, g, b] = pn >= 0.1 ? NEAR : FAR;
-      img.data.set([r, g, b, Math.round(Math.min(1, Math.max(pn, pf)) * 150)], i * 4);
-    }
-    ctx.putImageData(img, 0, 0);
-    setHref(c.toDataURL());
-  }, [forecast, simGrid, W, H]);
-
-  return href ? <image href={href} x={0} y={0} width={W} height={H} preserveAspectRatio="none" style={{ imageRendering: "auto" }} /> : null;
 }
 
 /** One-line vision health for the viewport's bottom bar. */
