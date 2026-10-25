@@ -171,7 +171,8 @@ def _future_losses(snapshot, variants, n, ticks, wind_at, start_tick, seed, town
         sup = np.empty((k + 1, h, w), np.float32)
         sup[0] = snapshot.suppression
         for i, v in enumerate(variants, start=1):
-            np.maximum(snapshot.suppression, v.level(t) * v.footprint, out=sup[i])
+            g = v.grid(t)
+            np.maximum(snapshot.suppression, g if g is not None else 0.0, out=sup[i])
         if advance(state, burn_left, snapshot.layers, wind_at(start_tick + t), sup, rng, group=k + 1) is None:
             break
     burned = ((state == BURNING) | (state == BURNED)).reshape(k + 1, n, -1).astype(np.float32)
@@ -226,7 +227,8 @@ def run_episode(scenario, net, towns, sched: str, seed: int, ticks: int, every: 
                     res.recs.shown += 1
                     top = recs[0]
                     rnd = spots[int(rng.integers(len(spots)))]
-                    variants = [crew_layer(W, H, top.x, top.y), crew_layer(W, H, *rnd)]
+                    wf = snap.wind.from_deg
+                    variants = [crew_layer(W, H, top.x, top.y, wind_from=wf), crew_layer(W, H, *rnd, wind_from=wf)]
                     # Realized over the same window the recommendation was scored on.
                     loss = _future_losses(snap, variants, 8, REC_HORIZON_TICKS, wind_at, tick,
                                           seed * 31 + tick, towns, masks)
