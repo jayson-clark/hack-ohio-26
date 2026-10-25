@@ -26,6 +26,10 @@ interface Item {
   actions: ReactNode;
 }
 
+// Before the order clock's long forecast lands, a town gets an evacuation card
+// when at least this share of the simulations reach it within the hour.
+const EVAC_SHARE = 0.25;
+
 interface Props {
   scenario: Scenario | null;
   towns: TownView[];
@@ -76,11 +80,59 @@ export function useDecisions({ scenario, towns, onTryInPlan }: Props): Item[] {
             <span className="font-medium text-ink">{when}.</span> {e.people.toLocaleString()} people
             {need !== null && <>, {aboutMinutes(need)} to get everyone out</>}
             {e.exits.length > 0 && <> via {e.exits.map((x) => x.safe_zone).join(" and ")}</>}.
+            {e.shares_with.length > 0 && <span className="text-warn"> Shares exit roads with {e.shares_with.join(", ")}.</span>}
+            {e.n > 0 && e.people > 0 && (
+              <> If ordered now, the last car gets out first in {e.p_safe_bound ? "at most " : ""}{Math.round(e.p_safe * e.n)} of {e.n} simulations.</>
+            )}
           </>
         ),
         select: sel,
         actions: (
           <Button size="sm" variant={e.status === "order_soon" ? "secondary" : "primary"} onClick={() => orderEvacuation(t.name, true)}>
+            Order evacuation
+          </Button>
+        ),
+      });
+      continue;
+    }
+    if (e && e.ordered_tick !== null && e.status === "evacuating") {
+      const out = minutesUntil(e.last_car_out_tick, now, perTick);
+      items.push({
+        key: `evac-${t.name}`,
+        tone: "info",
+        icon: "users",
+        rank: 5,
+        title: `${t.name} is evacuating`,
+        detail: `${e.people.toLocaleString()} still in town${out !== null ? `, last car out in ${aboutMinutes(Math.max(0, out))}` : ""}.`,
+        select: sel,
+        actions: (
+          <Button size="sm" onClick={() => orderEvacuation(t.name, false)}>
+            Cancel order
+          </Button>
+        ),
+      });
+      continue;
+    }
+    // Until the clock's long forecast lands, fall back to the hour-ahead
+    // forecast so a fast fire still gets an evacuation card.
+    const th = t.threat;
+    const share = th?.within_60 ? th.within_60.k / Math.max(1, th.within_60.n) : 0;
+    if ((!e || (e.order_by_tick === null && e.ordered_tick === null && e.status === "watch")) && th && (th.fire_inside || share >= EVAC_SHARE)) {
+      items.push({
+        key: `evac-${t.name}`,
+        tone: th.fire_inside || (th.soonest_min ?? Infinity) <= 30 ? "crit" : "warn",
+        icon: "users",
+        rank: 2,
+        title: `Order ${t.name} to evacuate`,
+        detail: (
+          <>
+            <span className="font-medium text-ink">{th.fire_inside ? "Fire is in town." : `Fire could arrive in ${aboutMinutes(th.soonest_min ?? 60)}.`}</span>{" "}
+            {Math.round(share * 100)}% of simulations reach it within the hour. The order clock is still running its long forecast.
+          </>
+        ),
+        select: sel,
+        actions: (
+          <Button size="sm" variant="primary" onClick={() => orderEvacuation(t.name, true)}>
             Order evacuation
           </Button>
         ),
