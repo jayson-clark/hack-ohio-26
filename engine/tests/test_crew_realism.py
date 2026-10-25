@@ -113,3 +113,13 @@ def test_the_patrol_band_fades_with_the_crew():
     assert early[on] == 1.0 and late[on] == 1.0
     assert early[beside] == pytest.approx(PATROL)
     assert late[beside] == pytest.approx(PATROL * FATIGUE_FLOOR)
+
+
+def test_moved_crew_does_not_act_before_it_gets_there(router):
+    """A crew that has worked and is then moved drives to the new spot before
+    it acts there (silver-vole's repro on #187)."""
+    d = Dispatcher([Station("West", 2, 10, "ground", {"crew": 1})], router)
+    run(d, [tok("c", TokenType.CREW, 20, 10)], 200)
+    acting = d.update([tok("c", TokenType.CREW, 36, 10)], 200, 5.0, None)
+    assert d.units[0].status == "en_route"
+    assert [t.id for t in acting] == []

@@ -151,7 +151,9 @@ class Dispatcher:
             elif moved:
                 self._send(u, t, tick, wind_ms, start=u.position(tick))
             elif u.status in ("blocked", "grounded") and tick >= u.retry_tick:
-                self._send(u, t, tick, wind_ms, start=u.home)
+                # A shuttling tanker grounded on its way back out is the same
+                # order, so its retry doesn't draft a new one.
+                self._send(u, t, tick, wind_ms, start=u.home, turnout=u.work_start is None)
             elif u.status == "en_route" and self._path_cut(u):
                 self._send(u, t, tick, wind_ms, start=u.position(tick))
             if u.status == "en_route" and tick >= u.arrive_tick:
@@ -167,8 +169,10 @@ class Dispatcher:
             if u.status == "en_route" and tick >= u.arrive_tick:
                 self._take_over(u, tick)
         # A water order keeps acting between drops, so its wet patch dries on
-        # schedule instead of vanishing while the tanker reloads.
-        acting = {u.token_id for u in self.units if u.status == "working" or u.work_start is not None}
+        # schedule instead of vanishing while the tanker reloads. Only tankers:
+        # a moved crew must not act at its new spot while still driving there.
+        acting = {u.token_id for u in self.units
+                  if u.status == "working" or (u.station.kind == "air" and u.work_start is not None)}
         return [t for t in tokens if t.token_type not in DISPATCHED or t.id in acting]
 
     def starts(self) -> dict[str, int]:
@@ -273,6 +277,8 @@ class Dispatcher:
             u.relieving = t.id
         else:
             u.token_id = t.id
+            if u.station.kind == "ground":
+                u.work_start = None  # a new trip: it digs in afresh, and says so when it arrives
         u.target, u.origin = (t.x, t.y), tuple(start)
         if not math.isfinite(eta):
             grounded = u.station.kind == "air"
