@@ -262,7 +262,7 @@ export default function Console() {
               {error ? <span className="font-mono text-crit">{error}</span> : "Loading map…"}
             </div>
           )}
-          <EventAlerts />
+          <EventAlerts onSelect={select} />
           <div className="absolute bottom-4 right-4 z-10">
             <CommanderDock />
           </div>
