@@ -86,6 +86,25 @@ class Reader:
         return self.f
 
 
+def grade_luts(ref: np.ndarray, lo_p: float = 1.0, hi_p: float = 99.6, gamma: float = 1.15) -> list[np.ndarray]:
+    """Per-channel levels from one reference frame of the phone: the room
+    light washes the table and print out, so stretch each channel's 1-99.6%
+    range to full and deepen the mids. Fixed for the clip, so it can't flicker."""
+    luts = []
+    for ch in range(3):
+        lo, hi = np.percentile(ref[..., ch], [lo_p, hi_p])
+        x = np.clip((np.arange(256) - lo) / max(1.0, hi - lo), 0, 1) ** gamma
+        luts.append((x * 255).astype(np.uint8))
+    return luts
+
+
+def grade(img: np.ndarray, luts: list[np.ndarray], sat: float = 1.3) -> np.ndarray:
+    out = np.dstack([cv2.LUT(np.ascontiguousarray(img[..., i]), luts[i]) for i in range(3)])
+    hsv = cv2.cvtColor(out, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[..., 1] = np.clip(hsv[..., 1] * sat, 0, 255)
+    return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+
 def cover(img: np.ndarray, w: int, h: int) -> np.ndarray:
     """Scale to fill w x h, cropping the overflow from the centre."""
     s = max(w / img.shape[1], h / img.shape[0])
@@ -136,6 +155,7 @@ def main() -> None:
     ap.add_argument("--mirror", action="store_true", help="the phone file is mirrored (Recordly's webcam)")
     ap.add_argument("--view", type=rect, default=(376, 380, 2040, 1528), help="camera view in SCREEN: x,y,w,h px")
     ap.add_argument("--phone-crop", type=rect, default=(550, 540, 720, 540), help="4:3 crop of the phone frame: x,y,w,h px")
+    ap.add_argument("--no-grade", action="store_true", help="leave the phone's colours as shot")
     ap.add_argument("--speed", default="0.5× · 5 sim-min/s", help="the sim-speed badge; empty for none")
     a = ap.parse_args()
 
@@ -166,12 +186,17 @@ def main() -> None:
     scr, ph = Reader(a.screen), Reader(a.phone, a.mirror)
     vx, vy, vw, vh = a.view
     px, py, pw, phh = a.phone_crop
+    luts = None
+    if not a.no_grade:
+        ref = Reader(a.phone, a.mirror).at(a.offset + (a.t_from + a.t_to) / 2)
+        luts = grade_luts(ref[py:py + phh, px:px + pw])
     out = cv2.VideoWriter(a.out, cv2.VideoWriter_fourcc(*"avc1"), FPS, (OUT_W, OUT_H))
     n = int((a.t_to - a.t_from) * FPS)
     for k in range(n):
         t = a.t_from + k / FPS
         frame = bg.copy()
-        panels = (cover(ph.at(t + a.offset)[py:py + phh, px:px + pw], PANEL_W, PANEL_H),
+        phone = ph.at(t + a.offset)[py:py + phh, px:px + pw]
+        panels = (cover(grade(phone, luts) if luts else phone, PANEL_W, PANEL_H),
                   cover(scr.at(t)[vy:vy + vh, vx:vx + vw], PANEL_W, PANEL_H))
         for x, p in zip(xs, panels):
             region = frame[y0:y0 + PANEL_H, x:x + PANEL_W]
