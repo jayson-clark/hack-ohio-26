@@ -153,6 +153,17 @@ The raw forecast assumes the wind and the crews stay as they are. Players change
 - **What kind of guarantee this is** (see "The guarantee, precisely" below): a finite-sample bound on the *average* miss over the forecasts scored so far, holding for any sequence of winds and player actions. It is not a promise about any single outline.
 - **On screen:** the map's layers menu shows "Forecast outline: X% at 30 min, Y% at 60 min of new fire fell outside it lately (target 10%)", over the last 20 forecasts. It is highlighted when a recent miss rate is more than 5 points over target.
 - **Reading the numbers:** a recent miss rate well above 10% usually means the wind just changed. Expect the outline to widen over the next few forecasts.
+- **What it looks like** (`cd engine && uv run python -m eval.envelope_figure`: one Paradise fire, the wind swinging from north-east to west at minute 60, the engine's own forecaster and calibrator). On the map, the orange **fill** is where at least half the simulations have fire by T+60. That's the raw forecast, not calibrated. The dark orange **line** around it is the calibrated outline.
+
+  ![The T+60 outline at three moments of a wind shift](docs/images/calibration/envelope_maps.png)
+
+  - **Minute 40, before the shift:** the forecast assumes the old wind, and 63% of the next hour's fire lands outside the outline (magenta).
+  - **Minute 85, just after it:** new forecasts already use the new wind and miss 1%. But the forecasts issued before the shift are only scored an hour later, so their misses are still arriving and the outline is just starting to loosen.
+  - **Minute 125:** those misses have pushed the knob to its widest (cutoff 1/32 plus 10 cells), so the line sits far outside the fill. It's over-wide now that the forecast has caught up, and it tightens again over the next ~90 minutes.
+
+  ![Miss rate against the 10% target, and the outline's knob](docs/images/calibration/envelope_miss.png)
+
+  The miss rate (dots per scored forecast, line for the last-20 average the console shows) spikes about an hour after the shift, and only then does the knob drop to 1/32 and add margin cells. Over this one fire it averages 10.0% at T+30 and 16.7% at T+60. That's the price of a guarantee on the running average with an hour's delay in learning: the outline lags a shift on the way out and stays wide for a while on the way back. Read a wide line next to a tight fill as "the forecast was recently wrong, so give it room", not as a bigger fire.
 - **Measured** at `C2` 0.3 (`eval.run`, 4 episodes per wind schedule, 83–96 scored forecasts each; missed share over the whole run):
 
   | Wind | T+30 | T+60 |
