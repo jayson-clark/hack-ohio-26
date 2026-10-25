@@ -64,9 +64,9 @@ export default function CommanderDock() {
     return (
       <Floating className="w-[340px]">
         <button onClick={() => setOpen(true)} className="flex w-full items-start gap-3 p-3 text-left">
-          <span className="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-white">
+          <span className="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-panel">
             <Icon name="message" size={15} />
-            {unread > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-crit" />}
+            {unread > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-panel bg-crit" />}
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2 text-[13px] font-semibold text-ink">
@@ -86,7 +86,7 @@ export default function CommanderDock() {
   return (
     <Floating className="flex h-[min(480px,calc(100vh-180px))] w-[380px] flex-col overflow-hidden">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-white">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-panel">
           <Icon name="message" size={14} />
         </span>
         <span className="flex-1 text-[13px] font-semibold text-ink">Commander</span>

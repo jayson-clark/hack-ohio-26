@@ -8,11 +8,11 @@ import { Icon, type IconName } from "./icons";
 export type Tone = "crit" | "warn" | "ok" | "info" | "neutral";
 
 export const TONE: Record<Tone, { text: string; soft: string; line: string; solid: string; hex: string }> = {
-  crit: { text: "text-crit", soft: "bg-crit-soft", line: "border-crit-line", solid: "bg-crit", hex: "#d92d20" },
-  warn: { text: "text-warn", soft: "bg-warn-soft", line: "border-warn-line", solid: "bg-warn", hex: "#c4560a" },
-  ok: { text: "text-ok", soft: "bg-ok-soft", line: "border-ok-line", solid: "bg-ok", hex: "#067647" },
-  info: { text: "text-accent", soft: "bg-accent-soft", line: "border-accent-line", solid: "bg-accent", hex: "#1f4fd6" },
-  neutral: { text: "text-ink-2", soft: "bg-sunken", line: "border-line", solid: "bg-ink-3", hex: "#8a94a6" },
+  crit: { text: "text-crit", soft: "bg-crit-soft", line: "border-crit-line", solid: "bg-crit", hex: "var(--color-crit)" },
+  warn: { text: "text-warn", soft: "bg-warn-soft", line: "border-warn-line", solid: "bg-warn", hex: "var(--color-warn)" },
+  ok: { text: "text-ok", soft: "bg-ok-soft", line: "border-ok-line", solid: "bg-ok", hex: "var(--color-ok)" },
+  info: { text: "text-accent", soft: "bg-accent-soft", line: "border-accent-line", solid: "bg-accent", hex: "var(--color-accent)" },
+  neutral: { text: "text-ink-2", soft: "bg-sunken", line: "border-line", solid: "bg-ink-3", hex: "var(--color-ink-3)" },
 };
 
 export function Button({

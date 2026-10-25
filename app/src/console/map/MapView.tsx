@@ -152,7 +152,7 @@ export default function MapView(props: Props) {
 
   useEffect(() => carto.current?.setFire(simGrid), [simGrid, scenario]);
   useEffect(() => carto.current?.setForecast(forecast), [forecast, scenario]);
-  useEffect(() => carto.current?.setStyle(style), [style.terrain, style.contours, style.forecast, scenario]);
+  useEffect(() => carto.current?.setStyle(style), [style.terrain, style.contours, style.forecast, style.dark, scenario]);
 
   // Wheel and trackpad: zoom about the cursor (pinch arrives as ctrl+wheel).
   useEffect(() => {

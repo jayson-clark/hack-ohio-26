@@ -11,9 +11,9 @@ import { ORDER_COLOR, ORDER_ICON, type TownView } from "../model";
 import { TONE } from "../ui";
 
 const NS = { vectorEffect: "non-scaling-stroke" as const };
-const HALO = { paintOrder: "stroke" as const, stroke: "#ffffff", strokeLinejoin: "round" as const };
+const HALO = { paintOrder: "stroke" as const, stroke: "var(--color-panel)", strokeLinejoin: "round" as const };
 
-/** Text with a white halo, sized in pixels. */
+/** Text with a halo in the panel color, sized in pixels. */
 function MapText(props: {
   x: number;
   y: number;
@@ -31,7 +31,7 @@ function MapText(props: {
       y={props.y}
       fontSize={size * props.k}
       fontWeight={props.weight ?? 500}
-      fill={props.color ?? "#101828"}
+      fill={props.color ?? "var(--color-ink)"}
       textAnchor={props.anchor ?? "start"}
       dominantBaseline="central"
       strokeWidth={3.5 * props.k}
@@ -60,8 +60,8 @@ export function PlacesLayer({ scenario, k }: { scenario: Scenario; k: number }) 
         .filter((p) => !towns.has(p.name) && !/origin/i.test(p.name))
         .map((p) => (
           <g key={p.name}>
-            <circle cx={p.map[0]} cy={p.map[1]} r={2 * k} fill="#667085" />
-            <MapText x={p.map[0] + 5 * k} y={p.map[1]} k={k} size={11} weight={400} color="#667085">
+            <circle cx={p.map[0]} cy={p.map[1]} r={2 * k} fill="var(--color-ink-3)" />
+            <MapText x={p.map[0] + 5 * k} y={p.map[1]} k={k} size={11} weight={400} color="var(--color-ink-3)">
               {p.name}
             </MapText>
           </g>
@@ -71,13 +71,13 @@ export function PlacesLayer({ scenario, k }: { scenario: Scenario; k: number }) 
 }
 
 export function RoutesLayer({ routes, k, highlight }: { routes: RouteInfo[]; k: number; highlight: string | null }) {
-  const color = { clear: TONE.ok.hex, risky: "#dc6803", cut: TONE.crit.hex };
+  const color = { clear: TONE.ok.hex, risky: "var(--color-risky)", cut: TONE.crit.hex };
   const towns = routes.filter((r) => !r.bus && r.points.length > 1);
   const pts = (r: RouteInfo) => r.points.map((p) => p.join(",")).join(" ");
   return (
     <g className="pointer-events-none" fill="none" strokeLinecap="round" strokeLinejoin="round">
       {towns.map((r) => (
-        <polyline key={`c${r.town}`} points={pts(r)} stroke="#ffffff" strokeWidth={r.town === highlight ? 7 : 5} {...NS} />
+        <polyline key={`c${r.town}`} points={pts(r)} stroke="var(--color-panel)" strokeWidth={r.town === highlight ? 7 : 5} {...NS} />
       ))}
       {towns.map((r) => (
         <polyline
@@ -94,7 +94,7 @@ export function RoutesLayer({ routes, k, highlight }: { routes: RouteInfo[]; k: 
         const end = r.points[r.points.length - 1];
         return r.safe_zone && r.status !== "cut" ? (
           <g key={`e${r.town}`}>
-            <circle cx={end[0]} cy={end[1]} r={4 * k} fill="#ffffff" stroke={color[r.status]} strokeWidth={2} {...NS} />
+            <circle cx={end[0]} cy={end[1]} r={4 * k} fill="var(--color-panel)" stroke={color[r.status]} strokeWidth={2} {...NS} />
           </g>
         ) : null;
       })}
@@ -129,9 +129,9 @@ export function TownsLayer({
               cx={t.x}
               cy={t.y}
               r={t.radius}
-              fill={active ? tone.hex : "#475467"}
+              fill={active ? tone.hex : "var(--color-ink-2)"}
               fillOpacity={active ? 0.06 : 0.03}
-              stroke={sel ? "#1f4fd6" : active ? tone.hex : "#98a2b3"}
+              stroke={sel ? "var(--color-accent)" : active ? tone.hex : "var(--color-line-strong)"}
               strokeWidth={sel ? 2.5 : 1.25}
               strokeDasharray={active || sel ? undefined : "3 3"}
               {...NS}
@@ -142,8 +142,8 @@ export function TownsLayer({
               width={9 * k}
               height={9 * k}
               rx={2 * k}
-              fill="#ffffff"
-              stroke={active ? tone.hex : "#344054"}
+              fill="var(--color-panel)"
+              stroke={active ? tone.hex : "var(--color-ink-2)"}
               strokeWidth={2}
               {...NS}
             />
@@ -151,7 +151,7 @@ export function TownsLayer({
               {t.name}
             </MapText>
             {t.eta && (
-              <MapText x={t.x + 9 * k} y={t.y + 9 * k} k={k} size={11} weight={600} color={active ? tone.hex : "#475467"}>
+              <MapText x={t.x + 9 * k} y={t.y + 9 * k} k={k} size={11} weight={600} color={active ? tone.hex : "var(--color-ink-2)"}>
                 {t.eta}
               </MapText>
             )}
@@ -168,8 +168,8 @@ export function StationsLayer({ stations, k }: { stations: StationInfo[]; k: num
       {stations.map((s) => (
         <g key={s.name}>
           <title>{s.name}</title>
-          <rect x={s.x - 6.5 * k} y={s.y - 6.5 * k} width={13 * k} height={13 * k} rx={3 * k} fill="#ffffff" fillOpacity={0.9} stroke="#b4bcc8" strokeWidth={1} {...NS} />
-          <MapIcon name={s.kind === "air" ? "air" : "home"} x={s.x} y={s.y} k={k} px={9} color="#667085" />
+          <rect x={s.x - 6.5 * k} y={s.y - 6.5 * k} width={13 * k} height={13 * k} rx={3 * k} fill="var(--color-panel)" fillOpacity={0.9} stroke="var(--color-line-strong)" strokeWidth={1} {...NS} />
+          <MapIcon name={s.kind === "air" ? "air" : "home"} x={s.x} y={s.y} k={k} px={9} color="var(--color-ink-3)" />
         </g>
       ))}
     </g>
@@ -196,7 +196,7 @@ export function UnitsLayer({ units, k }: { units: UnitInfo[]; k: number }) {
       )}
       {moving.map((u) => (
         <g key={u.id}>
-          <circle cx={u.x} cy={u.y} r={6 * k} fill={ORDER_COLOR[u.token_type]} stroke="#ffffff" strokeWidth={2} {...NS} />
+          <circle cx={u.x} cy={u.y} r={6 * k} fill={ORDER_COLOR[u.token_type]} stroke="var(--color-panel)" strokeWidth={2} {...NS} />
           {u.eta_min != null && (
             <MapText x={u.x + 9 * k} y={u.y} k={k} size={11} weight={600} color={ORDER_COLOR[u.token_type]}>
               {aboutMinutes(u.eta_min)}
@@ -238,8 +238,8 @@ export function OrdersLayer({
             {t.token_type === "crew" && (
               <circle cx={t.x} cy={t.y} r={reach} fill={c} fillOpacity={0.06} stroke={c} strokeOpacity={0.5} strokeWidth={1} strokeDasharray="3 3" {...NS} />
             )}
-            {sel && <circle cx={t.x} cy={t.y} r={17 * k} fill="none" stroke="#1f4fd6" strokeWidth={2} {...NS} />}
-            <rect x={t.x - 11 * k} y={t.y - 11 * k} width={22 * k} height={22 * k} rx={6 * k} fill="#ffffff" stroke={c} strokeWidth={2} {...NS} />
+            {sel && <circle cx={t.x} cy={t.y} r={17 * k} fill="none" stroke="var(--color-accent)" strokeWidth={2} {...NS} />}
+            <rect x={t.x - 11 * k} y={t.y - 11 * k} width={22 * k} height={22 * k} rx={6 * k} fill="var(--color-panel)" stroke={c} strokeWidth={2} {...NS} />
             <MapIcon name={ORDER_ICON[t.token_type]} x={t.x} y={t.y} k={k} px={13} color={c} />
           </g>
         );
@@ -274,12 +274,12 @@ export function RecsLayer({
               onSelect(r);
             }}
           >
-            <circle cx={r.x} cy={r.y} r={reach} fill="#1f4fd6" fillOpacity={sel ? 0.1 : 0.04} stroke="#1f4fd6" strokeWidth={sel ? 2 : 1.25} strokeDasharray="5 4" {...NS} />
+            <circle cx={r.x} cy={r.y} r={reach} fill="var(--color-accent)" fillOpacity={sel ? 0.1 : 0.04} stroke="var(--color-accent)" strokeWidth={sel ? 2 : 1.25} strokeDasharray="5 4" {...NS} />
             {r.action === "move" && r.from_x != null && r.from_y != null && (
-              <line x1={r.from_x} y1={r.from_y} x2={r.x} y2={r.y} stroke="#1f4fd6" strokeWidth={1.5} strokeDasharray="2 3" {...NS} />
+              <line x1={r.from_x} y1={r.from_y} x2={r.x} y2={r.y} stroke="var(--color-accent)" strokeWidth={1.5} strokeDasharray="2 3" {...NS} />
             )}
-            <circle cx={r.x} cy={r.y} r={10 * k} fill="#ffffff" stroke="#1f4fd6" strokeWidth={2} {...NS} />
-            <MapText x={r.x} y={r.y} k={k} size={11} weight={700} color="#1f4fd6" anchor="middle">
+            <circle cx={r.x} cy={r.y} r={10 * k} fill="var(--color-panel)" stroke="var(--color-accent)" strokeWidth={2} {...NS} />
+            <MapText x={r.x} y={r.y} k={k} size={11} weight={700} color="var(--color-accent)" anchor="middle">
               {i + 1}
             </MapText>
           </g>
@@ -301,7 +301,7 @@ export function FocusPulse({ focus, k }: { focus: { seq: number; x: number; y: n
   }, [focus]);
   if (!shown) return null;
   return (
-    <circle key={shown.seq} cx={shown.x} cy={shown.y} r={14 * k} fill="none" stroke="#1f4fd6" strokeWidth={2} {...NS} className="pointer-events-none">
+    <circle key={shown.seq} cx={shown.x} cy={shown.y} r={14 * k} fill="none" stroke="var(--color-accent)" strokeWidth={2} {...NS} className="pointer-events-none">
       <animate attributeName="r" values={`${40 * k};${14 * k};${20 * k};${14 * k}`} dur="1.1s" repeatCount="2" />
       <animate attributeName="opacity" values="0;1;0.8;0" dur="1.1s" repeatCount="2" />
     </circle>
@@ -393,7 +393,7 @@ export function PlanLayer({
               width={22 * k}
               height={22 * k}
               rx={6 * k}
-              fill="#ffffff"
+              fill="var(--color-panel)"
               stroke={dead ? TONE.crit.hex : c}
               strokeWidth={2}
               strokeDasharray="4 2.5"
@@ -403,7 +403,7 @@ export function PlanLayer({
               {i + 1}
             </MapText>
             {r && (
-              <MapText x={d.x + 15 * k} y={d.y} k={k} size={11} weight={600} color={dead ? TONE.crit.hex : "#344054"}>
+              <MapText x={d.x + 15 * k} y={d.y} k={k} size={11} weight={600} color={dead ? TONE.crit.hex : "var(--color-ink-2)"}>
                 {dead ? "No unit free" : r.eta_min ? aboutMinutes(r.eta_min) : "now"}
               </MapText>
             )}

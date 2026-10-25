@@ -4,11 +4,13 @@ import "./index.css";
 import Console from "./console/Console";
 import Control from "./control/Control";
 import Projector from "./projector/Projector";
+import { initTheme } from "./shared/theme";
 
 // One bundle, three windows: the operator's console (the product), exercise
 // control (stands in for the real world: fire, weather, the table) and the
 // projector. ?view= picks one; the console is the default.
 const view = new URLSearchParams(window.location.search).get("view");
+if (view !== "projector") initTheme();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
