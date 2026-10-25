@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 25
+PROTOCOL_VERSION = 26
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -95,7 +95,6 @@ class Hello(Model):
     map_height: int
     sim_minutes_per_tick: float
     forecast_horizons_min: list[float]  # order of the grids in a FORECAST_GRID frame
-    speech_to_text: bool  # push-to-talk works (the engine has the voice extra installed)
     stations: list["StationInfo"]  # where fire units come from (#104); air bases may be off the map
 
 
@@ -486,14 +485,6 @@ class CommanderMessage(Model):
     event: EventKind | None  # what triggered a briefing
 
 
-class Transcript(Model):
-    """What push-to-talk heard. A non-empty text is also asked of the commander."""
-
-    type: Literal["transcript"] = "transcript"
-    text: str
-    error: str | None  # why there's no text: not installed, no mic, didn't catch that
-
-
 
 class KofN(Model):
     """How many of the forecast's simulations something happened in, with a
@@ -579,7 +570,7 @@ class PlanResult(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          Transcript, Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope, Drafts],
+          Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope, Drafts],
     Field(discriminator="type"),
 ]
 
@@ -656,24 +647,12 @@ class StepOnce(Model):
 
 
 class CommanderQuery(Model):
-    """A question for the incident commander, typed or transcribed. A new
+    """A question for the incident commander, typed in the console. A new
     question cancels one still being answered."""
 
     type: Literal["commander_query"] = "commander_query"
     text: str = Field(min_length=1, max_length=500)
 
-
-
-class PttStart(Model):
-    """Push-to-talk pressed: the engine starts recording and the commander stops talking."""
-
-    type: Literal["ptt_start"] = "ptt_start"
-
-
-class PttStop(Model):
-    """Push-to-talk released: the engine transcribes and asks the commander."""
-
-    type: Literal["ptt_stop"] = "ptt_stop"
 
 
 class AcceptRecommendation(Model):
@@ -758,8 +737,6 @@ ClientMessage = Annotated[
         OrderEvacuation,
         DraftAction,
         RequestBriefing,
-        PttStart,
-        PttStop,
         CalibrationStep,
         EvaluatePlan,
     ],

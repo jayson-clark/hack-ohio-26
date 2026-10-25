@@ -10,7 +10,7 @@ install:
 	cd tools/agent_board/web && pnpm install
 
 # Python engine (WebSocket server on ws://localhost:8765). ENGINE_EXTRAS in .env
-# picks optional extras, e.g. "ml voice" for the fire emulator and push-to-talk.
+# picks optional extras, e.g. "ml" for the fire emulator.
 engine:
 	cd engine && uv run $(addprefix --extra ,$(ENGINE_EXTRAS)) server.py
 

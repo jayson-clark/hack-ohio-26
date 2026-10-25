@@ -7,7 +7,7 @@ From the repo root:
 
 - `make install` once (or after pulling dependency changes).
 - `make dev` runs the engine and the Tauri app together. Or run `make engine` and `make app` in two terminals.
-- Optional engine extras: set `ENGINE_EXTRAS="ml voice"` in `.env` (or `make engine ENGINE_EXTRAS=ml`). `ml` turns on the learned fire emulator (instant forecast previews, crew-spot screening); `voice` turns on push-to-talk. A plain `uv run server.py` drops extras.
+- Optional engine extra: set `ENGINE_EXTRAS=ml` in `.env` (or `make engine ENGINE_EXTRAS=ml`). It turns on the learned fire emulator (instant forecast previews, crew-spot screening). A plain `uv run server.py` drops extras.
 - No Tauri? `make engine` + `make web`, then open `http://localhost:1420/?view=console` (the operator console), `?view=control` (exercise control) and `?view=projector`.
 
 Check it works: the console header shows "Engine connected". The console is the operator's view and can't light fires: click "Exercise control ↗" in its header, then ignite on the 3D virtual table there (I, then click). Within a few seconds the console's decision queue and town board fill in. In the console, keys 1–4 pick an order tool (a click sends that unit), Esc goes back to looking, M/P/R switch Monitor/Plan/Review, and holding Space talks to the commander. In exercise control, 1–4 pick a token type, I ignites, and Space pauses.
