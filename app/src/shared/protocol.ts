@@ -16,7 +16,8 @@ export type EngineMessage =
   | PlanResult
   | Calibration
   | ForecastEnvelope
-  | Drafts;
+  | Drafts
+  | Incidents;
 export type TokenType = "crew" | "firebreak" | "water" | "bus";
 export type TokenSource = "vision" | "virtual";
 export type RouteStatus = "clear" | "risky" | "cut";
@@ -33,12 +34,12 @@ export type EventKind =
   | "tankers_grounded"
   | "evacuate_now"
   | "draft_sent";
-export type RecAction = "place" | "move";
+export type RecAction = "place" | "move" | "relieve";
 export type CameraState = "off" | "no_signal" | "ok";
 export type RoundPhase = "sandbox" | "running" | "ended";
 export type EndReason = "time" | "contained" | "stopped";
 export type CommanderKind = "briefing" | "answer";
-export type UnitStatus = "available" | "en_route" | "working" | "blocked" | "grounded";
+export type UnitStatus = "available" | "en_route" | "working" | "blocked" | "grounded" | "reloading" | "resting";
 export type EvacStatus = "watch" | "order_soon" | "order_now" | "late" | "evacuating" | "clear" | "trapped";
 export type CalibrationPhase = "none" | "pattern" | "review" | "calibrated";
 export type ClientMessage =
@@ -60,7 +61,9 @@ export type ClientMessage =
   | DraftAction
   | RequestBriefing
   | CalibrationStep
-  | EvaluatePlan;
+  | EvaluatePlan
+  | RequestMutualAid
+  | RelieveOrder;
 export type CalibrationAction = "start" | "save" | "check" | "cancel" | "clear";
 
 /**
@@ -181,6 +184,7 @@ export interface Recommendation {
   worsens: TownEffect[];
   protects: TownShare[];
   text: string;
+  incident: string | null;
 }
 export interface TownEffect {
   town: string;
@@ -227,6 +231,7 @@ export interface Score {
   structures_lost: number;
   acres_burned: number;
   towns: TownScore[];
+  mutual_aid: MutualAid | null;
 }
 export interface ResourceUse {
   token_type: TokenType;
@@ -243,6 +248,14 @@ export interface TownScore {
   evacuated: number;
   structures: number;
   structures_lost: number;
+}
+/**
+ * Crews requested from outside the map (#178), against the round's budget.
+ */
+export interface MutualAid {
+  used: number;
+  limit: number | null;
+  pending: number;
 }
 /**
  * Something the incident commander says: an answer or a briefing, about two sentences.
@@ -275,6 +288,9 @@ export interface UnitInfo {
   eta_min: number | null;
   path: number[][];
   line: number[][];
+  fatigue: number;
+  ready_in_min: number | null;
+  incident: string | null;
 }
 /**
  * When each town has to be ordered out (#121): fire arrival from a long
@@ -340,6 +356,7 @@ export interface TownThreat {
   route_status: RouteStatus | null;
   exit: string | null;
   drive_min: number | null;
+  incident: string | null;
 }
 /**
  * How many of the forecast's simulations something happened in, with a
@@ -445,6 +462,30 @@ export interface Draft {
   grounded: boolean;
   tick: number;
   sent_tick: number | null;
+}
+/**
+ * Every incident so far (#179). Sent when one starts, merges or goes out,
+ * and with the score while any burns.
+ */
+export interface Incidents {
+  type: "incidents";
+  tick: number;
+  incidents: Incident[];
+}
+/**
+ * One fire on a map that can hold several (#179). Each ignition opens one,
+ * named after the nearest place; when two burn into each other, the older
+ * id survives.
+ */
+export interface Incident {
+  id: string;
+  name: string;
+  acres: number;
+  growth_ac_h: number;
+  x: number;
+  y: number;
+  started_tick: number;
+  active: boolean;
 }
 export interface VirtualTokenAdd {
   type: "virtual_token_add";
@@ -581,4 +622,20 @@ export interface PlanOrder {
   token_type: TokenType;
   x: number;
   y: number;
+}
+/**
+ * Ask for one more unit of this type from outside the map (#178). It
+ * arrives at a staging point after a delay, if the round's budget allows.
+ */
+export interface RequestMutualAid {
+  type: "request_mutual_aid";
+  token_type: TokenType;
+}
+/**
+ * Send a fresh unit to take over a crew order (#178). The tired crew keeps
+ * working until the fresh one arrives, then goes back to rest.
+ */
+export interface RelieveOrder {
+  type: "relieve_order";
+  token_id: string;
 }

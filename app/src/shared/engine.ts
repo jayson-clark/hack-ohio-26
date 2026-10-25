@@ -25,6 +25,7 @@ import type {
   Token,
   VisionStatus,
   WindState,
+  Incident,
 } from "./protocol";
 
 const ENGINE_URL = import.meta.env.VITE_ENGINE_URL ?? "ws://localhost:8765";
@@ -73,6 +74,8 @@ export interface EngineState {
   dispatchDrafts: Draft[];
   /** Fire units (#104): where each is, and its route and ETA while en route. */
   units: UnitInfo[];
+  /** Separate fires on the map (#179), oldest first. */
+  incidents: Incident[];
   /** Recent events, oldest first. Cleared on reconnect. */
   events: Event[];
   /** Crew placement recommendations, best first (cards and markers: #45). */
@@ -105,6 +108,7 @@ let state: EngineState = {
   envelope: null,
   dispatchDrafts: [],
   units: [],
+  incidents: [],
   events: [],
   recommendations: [],
   vision: null,
@@ -139,6 +143,7 @@ function handleMessage(msg: EngineMessage) {
           envelope: null,
           dispatchDrafts: [],
           units: [],
+          incidents: [],
           events: [],
           recommendations: [],
           transcript: [],
@@ -158,6 +163,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "units":
       setState({ units: msg.units });
+      break;
+    case "incidents":
+      setState({ incidents: msg.incidents });
       break;
     case "routes":
       setState({ routes: msg.routes });
