@@ -305,6 +305,7 @@ That table was measured at `C2` 0.22, where the replay burned about 1.5–1.7x t
   - **Per scenario:** the knob learns per scenario. A scenario switch restarts from `ENVELOPE_WARM`, because a new map is a new distribution and conformal promises only transfer within one. A map reset keeps what was learned.
   - **Real units:** misses are counted in area, so the promise keeps its meaning across resolutions.
   - **On the wire:** the `forecast_envelope` message carries the cutoffs, margins and running miss rates.
+  - **Simulator only.** Both calibrators learn from and apply to Monte Carlo forecasts. Neither needs the learned emulator, and the engine calibrates the same with or without the `ml` extra. An emulator preview is sent as a `FORECAST_PREVIEW` frame (protocol 28), and the console draws the plain 50% edge around it, not the calibrated line, since the cutoff and margin were learned on 32-run Monte Carlo probabilities.
 - **Calibrated time-to-impact ranges (#13, `ArrivalCalibrator` in `engine/uq/conformal.py`).** Each threatened town shows "fire likely arrives in 25–40 min (90%)".
   - **The range:** the long forecast's 5–95% arrival, widened or narrowed by an online conformal correction (CQR) per lead-time bucket (<30, 30–120, >120 min).
   - **Calibration units:** towns catch fire too rarely to calibrate on, so the units are town-sized disks (radius 8 cells) dropped on unburned ground. Each is scored, like a town, by the first time fire touches it. Single cells held their own 90% but transferred badly to towns.

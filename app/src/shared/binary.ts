@@ -6,6 +6,9 @@
 // - ForecastGrid: one width*height uint8 grid per Hello.forecast_horizons_min
 //   entry, stacked in that order; P(burned by the horizon) as 0-255. The
 //   header's tick is the sim tick the forecast started from.
+// - ForecastPreview: the same layout, from the learned emulator while a Monte
+//   Carlo forecast is on its way. The calibrated envelope is learned on Monte
+//   Carlo only, so it isn't drawn around a preview.
 // - PlanGrid: two width*height uint8 grids, P(burned by the plan's horizon)
 //   without then with the plan's orders. The header's tick is the plan id.
 // - CameraFrame: one JPEG of the webcam with the vision overlay drawn in;
@@ -16,6 +19,7 @@ export const BinaryType = {
   ForecastGrid: 2,
   CameraFrame: 3,
   PlanGrid: 4,
+  ForecastPreview: 5,
 } as const;
 
 export const HEADER_BYTES = 12;
