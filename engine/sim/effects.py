@@ -126,6 +126,10 @@ class TimedLayer:
     # A crew's shift (#178): from dt = fade_at it fades linearly to
     # FATIGUE_FLOOR of cap over FADE_TICKS. None never fades.
     fade_at: int | None = None
+    # A relief crew takes over at dt = relief_at (#178): already dug in on the
+    # same ground and line, so full strength, on a fresh shift from then.
+    # Recommendations use it to score "relieve this crew".
+    relief_at: int | None = None
 
     def level(self, dt: int) -> float:
         if dt < self.t_on:
@@ -133,8 +137,11 @@ class TimedLayer:
         if dt == self.t_on and self.first is not None:
             return self.first
         lvl = min(self.cap, max(0.0, self.level0 + self.slope * (dt - self.t_on)))
-        if self.fade_at is not None and dt > self.fade_at:
-            lvl = min(lvl, self.cap * max(FATIGUE_FLOOR, 1.0 - (1.0 - FATIGUE_FLOOR) * (dt - self.fade_at) / FADE_TICKS))
+        fade_at = self.fade_at
+        if self.relief_at is not None and dt >= self.relief_at:
+            lvl, fade_at = self.cap, self.relief_at + SHIFT_TICKS
+        if fade_at is not None and dt > fade_at:
+            lvl = min(lvl, self.cap * max(FATIGUE_FLOOR, 1.0 - (1.0 - FATIGUE_FLOOR) * (dt - fade_at) / FADE_TICKS))
         return lvl
 
     def grid(self, dt: int) -> np.ndarray | None:
