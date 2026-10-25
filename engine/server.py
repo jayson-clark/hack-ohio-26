@@ -58,6 +58,7 @@ from protocol import (
     ResourceUse,
     RoundPhase,
     ScenarioState,
+    MutualAid,
     Incidents,
     Score,
     SetRunning,
@@ -101,7 +102,7 @@ from sim.effects import CREW_RADIUS, SuppressionSchedule, TokenEffects
 from sim.fire import BURNING, SIM_MINUTES_PER_TICK, FireSim, Wind
 from uq.conformal import ArrivalCalibrator, EnvelopeLedger
 from uq.mc import wilson
-from sim.dispatch import Dispatcher
+from sim.dispatch import DISPATCHED, Dispatcher
 from sim.incidents import IncidentTracker
 from sim.game import Game, GameTown
 from routing.units import TURNOUT_MIN, Station, UnitRouter
@@ -368,6 +369,10 @@ class Engine:
                           structures=t.structures, structures_lost=lost)
                 for t, e, lost in zip(g.towns, g.evacuated, g.structures_lost)
             ],
+            mutual_aid=MutualAid(
+                used=g.aid_used, limit=None if sandbox else g.config["mutual_aid"],
+                pending=sum(u.aid and u.status == "resting" for u in self.dispatcher.units),
+            ) if self.dispatcher.units else None,
         )
 
     def clock_msg(self) -> str:
@@ -504,7 +509,7 @@ class Engine:
                 self.virtual.handle(msg)
             case Ignite():
                 self.fire.ignite(msg.x, msg.y)
-                self.incidents.ignite(msg.x, msg.y, self.fire.tick)
+                self.incidents.ignite(msg.x, msg.y, self.fire.tick, state=self.fire.state)
                 self._ignitions += 1
                 # Send the map now: while paused no step would, and the new fire wouldn't show.
                 broadcast(self.clients, self.sim_grid_frame())
@@ -524,7 +529,7 @@ class Engine:
                 self.reset_map()
                 if (ig := self.game.ignition) is not None:
                     self.fire.ignite(*ig)
-                    self.incidents.ignite(*ig, self.fire.tick)
+                    self.incidents.ignite(*ig, self.fire.tick, state=self.fire.state)
                 broadcast(self.clients, self.state_msg())
             case EndRound():
                 phase = self.game.phase
@@ -551,9 +556,9 @@ class Engine:
             case RequestBriefing():
                 self._new_draft(self.drafts.briefing(self))
             case RequestMutualAid():
-                log.info("mutual aid requested (%s); not offered yet (#178)", msg.token_type)
+                self.request_mutual_aid(msg.token_type)
             case RelieveOrder():
-                log.info("relief requested for %s; not offered yet (#178)", msg.token_id)
+                self.relieve(msg.token_id)
             case EvaluatePlan():
                 self._plan_latest = msg.id
                 asyncio.create_task(self.evaluate_plan(msg))
@@ -743,11 +748,11 @@ class Engine:
             tokens = self.active_tokens()
             closed = self._closed if self.roads is not None else None
             self._acting = self.dispatcher.update(tokens, self.fire.tick, self.fire.wind.speed_ms, closed)
-            self.fire.set_suppression(self.effects.update(self._acting, self.fire.tick))
+            self.fire.set_suppression(self.effects.update(self._acting, self.fire.tick, self.dispatcher.starts()))
             self.fire.step()
             for x, y in self.game.due_ignitions(self.fire.tick):  # a second fire (#179)
                 self.fire.ignite(x, y)
-                self.incidents.ignite(x, y, self.fire.tick)
+                self.incidents.ignite(x, y, self.fire.tick, state=self.fire.state)
             self.incidents.update(self.fire.state, self.fire.tick, self.incident_envelope())
             lit = self.fire.state >= BURNING
             self._burn_tick[lit & np.isinf(self._burn_tick)] = self.fire.tick
@@ -838,8 +843,9 @@ class Engine:
             for t in active:
                 if t.token_type != TokenType.CREW:
                     continue
-                others = self.effects.schedule([o for o in active if o.id != t.id], tick)
-                [keep] = self.effects.schedule([t], tick).layers  # this crew, carrying on where it is
+                starts = self.dispatcher.starts()
+                others = self.effects.schedule([o for o in active if o.id != t.id], tick, starts)
+                [keep] = self.effects.schedule([t], tick, starts).layers  # this crew, carrying on where it is
                 without = dataclasses.replace(snapshot, suppression=others.at(0), schedule=others)
                 eta = self.dispatcher.eta_from(t.x, t.y) if self.dispatcher.units else None
                 crews.append(PlacedCrew(t.id, t.x, t.y, without, keep, eta))
@@ -866,7 +872,7 @@ class Engine:
         it, so forecasts credit crews still digging in and drops drying out
         (#56), plus units still on their way, from when they'll arrive (#104)."""
         tick = self.fire.tick
-        sched = self.effects.schedule(self._acting, tick)
+        sched = self.effects.schedule(self._acting, tick, self.dispatcher.starts())
         tokens = {t.id: t for t in self.tracker.tokens}
         for u in self.dispatcher.pending():
             t = tokens.get(u.token_id)
@@ -886,6 +892,9 @@ class Engine:
                 eta_min=round((u.arrive_tick - tick) * mpt, 1) if u.status == "en_route" else None,
                 path=u.path if u.status == "en_route" else [],
                 line=self.effects.line_of(u.token_id, tick) if u.status == "working" and u.token_id else [],
+                fatigue=round(self.effects.fatigue_of(u.token_id, tick), 2)
+                if u.status == "working" and u.token_type == TokenType.CREW and u.token_id else 0.0,
+                ready_in_min=round((u.ready_tick - tick) * mpt, 1) if u.status in ("reloading", "resting") else None,
                 incident=self.incidents.of(*u.target) if u.target is not None and u.token_id else None,
             ))
         return Units(tick=tick, units=units).model_dump_json()
@@ -893,8 +902,8 @@ class Engine:
     def flush_dispatch(self) -> None:
         """Send dispatch events (arrived, blocked, grounded) and unit positions,
         and draft an order for every unit just sent (#132)."""
-        kinds = {"arrived": EventKind.UNIT_ARRIVED, "blocked": EventKind.UNIT_BLOCKED,
-                 "grounded": EventKind.TANKERS_GROUNDED}
+        kinds = {"arrived": EventKind.UNIT_ARRIVED, "relieved": EventKind.UNIT_ARRIVED,
+                 "blocked": EventKind.UNIT_BLOCKED, "grounded": EventKind.TANKERS_GROUNDED}
         events, sent = [], []
         for e in self.dispatcher.take_events():
             if e.kind == "sent":
@@ -906,7 +915,9 @@ class Engine:
             self._new_draft(self.drafts.unit_order(self, unit))
         sig = tuple((u.id, u.status, u.token_id, u.arrive_tick) for u in self.dispatcher.units)
         # Units go out again while they move and while crews' lines grow (#159).
-        moving = any(u.status == "en_route" for u in self.dispatcher.units) or self.effects.line_growing(self.fire.tick)
+        # Reloading and resting units count down their ready time (#178).
+        moving = (any(u.status in ("en_route", "reloading", "resting") for u in self.dispatcher.units)
+                  or self.effects.line_growing(self.fire.tick))
         if sig != self._units_sig or (moving and self.tick % 3 == 0):
             self._units_sig = sig
             broadcast(self.clients, self.units_msg())
@@ -1000,11 +1011,45 @@ class Engine:
         )
         broadcast(self.clients, msg.model_dump_json())
 
+    def relieve(self, token_id: str | None) -> bool:
+        """Send a fresh crew to take over a working crew order (#178)."""
+        if token_id is None:
+            return False
+        ok = self.dispatcher.relieve(token_id, self.fire.tick, self.fire.wind.speed_ms, self.game.active(self.tracker.tokens))
+        if ok:
+            self.flush_dispatch()
+        return ok
+
+    def request_mutual_aid(self, token_type: TokenType) -> None:
+        """One more unit from outside the map (#178), within the round's budget.
+        Ground units stage at the first exit road, tankers at the air base."""
+        g = self.game
+        if token_type not in DISPATCHED or not self.dispatcher.units:
+            return
+        if g.phase != RoundPhase.SANDBOX and g.aid_used >= g.config["mutual_aid"]:
+            return
+        air = token_type == TokenType.WATER
+        base = next((st for st in self.stations if (st.kind == "air") == air), None)
+        if not air and self.roads is not None and self.roads.safe_zones:
+            z = self.roads.safe_zones[0]
+            base = Station(name=f"Mutual aid staging ({z.name})", x=z.x, y=z.y, kind="ground", units={})
+        if base is None:
+            return
+        self.dispatcher.mutual_aid(token_type, self.fire.tick, base)
+        g.aid_used += 1
+        if g.phase != RoundPhase.SANDBOX and g.limits.get(token_type) is not None:
+            g.limits[token_type] += 1
+        broadcast(self.clients, self.score_msg())
+        broadcast(self.clients, self.units_msg())
+
     def accept_recommendation(self, rec_id: str) -> None:
         rec = next((r for r in self.recs if r.id == rec_id), None)
         if rec is None or not rec.auto:
             return  # stale card, or a physical token the operator has to move by hand
-        if rec.action == RecAction.MOVE:
+        if rec.action == RecAction.RELIEVE:
+            if not self.relieve(rec.move_token):
+                return  # no crew free, or that order is gone
+        elif rec.action == RecAction.MOVE:
             if not any(t.id == rec.move_token for t in self.tracker.tokens):
                 return  # that crew has been picked up since
             self.virtual.handle(VirtualTokenMove(id=rec.move_token, x=rec.x, y=rec.y))
