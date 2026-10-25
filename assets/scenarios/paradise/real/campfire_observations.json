@@ -3044,6 +3044,14 @@
   },
   {
    "t_min": 166.0,
+   "x": 180.92,
+   "y": 206.51,
+   "type": "S",
+   "residual": false,
+   "source": "911-223-1"
+  },
+  {
+   "t_min": 166.0,
    "x": 212.19,
    "y": 188.54,
    "type": "S",
@@ -5553,6 +5561,14 @@
    "type": "C",
    "residual": false,
    "source": "VTD-26"
+  },
+  {
+   "t_min": 270.0,
+   "x": 176.63,
+   "y": 220.27,
+   "type": "O",
+   "residual": false,
+   "source": "TD-014"
   },
   {
    "t_min": 270.0,
@@ -8228,6 +8244,14 @@
   },
   {
    "t_min": 380.0,
+   "x": 176.63,
+   "y": 220.27,
+   "type": "O",
+   "residual": true,
+   "source": "TD-026"
+  },
+  {
+   "t_min": 380.0,
    "x": 238.75,
    "y": 182.95,
    "type": "R",
@@ -8577,6 +8601,14 @@
    "type": "O",
    "residual": false,
    "source": "TD-084"
+  },
+  {
+   "t_min": 397.0,
+   "x": 165.94,
+   "y": 214.52,
+   "type": "S",
+   "residual": false,
+   "source": "Radio Log"
   },
   {
    "t_min": 398.0,
@@ -9057,6 +9089,14 @@
    "type": "O",
    "residual": false,
    "source": "TD-210"
+  },
+  {
+   "t_min": 425.0,
+   "x": 246.54,
+   "y": 257.26,
+   "type": "V",
+   "residual": false,
+   "source": "TD-046"
   },
   {
    "t_min": 425.0,
@@ -9628,6 +9668,30 @@
   },
   {
    "t_min": 455.0,
+   "x": 187.14,
+   "y": 196.17,
+   "type": "V",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 455.0,
+   "x": 188.86,
+   "y": 202.09,
+   "type": "O",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 455.0,
+   "x": 189.59,
+   "y": 199.2,
+   "type": "O",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 455.0,
    "x": 278.53,
    "y": 247.66,
    "type": "V",
@@ -9940,6 +10004,22 @@
   },
   {
    "t_min": 463.0,
+   "x": 251.17,
+   "y": 273.12,
+   "type": "V",
+   "residual": false,
+   "source": "TD-132"
+  },
+  {
+   "t_min": 463.0,
+   "x": 253.99,
+   "y": 268.14,
+   "type": "V",
+   "residual": false,
+   "source": "TD-141"
+  },
+  {
+   "t_min": 463.0,
    "x": 287.58,
    "y": 180.63,
    "type": "C",
@@ -9961,6 +10041,14 @@
    "type": "V",
    "residual": false,
    "source": "VTD-20"
+  },
+  {
+   "t_min": 464.0,
+   "x": 253.99,
+   "y": 268.14,
+   "type": "V",
+   "residual": false,
+   "source": "TD-141"
   },
   {
    "t_min": 464.0,
@@ -10001,6 +10089,30 @@
    "type": "V",
    "residual": false,
    "source": "VTD-20"
+  },
+  {
+   "t_min": 466.0,
+   "x": 246.74,
+   "y": 257.03,
+   "type": "V",
+   "residual": false,
+   "source": "TD-110"
+  },
+  {
+   "t_min": 466.0,
+   "x": 246.74,
+   "y": 257.03,
+   "type": "O",
+   "residual": false,
+   "source": "TD-132"
+  },
+  {
+   "t_min": 466.0,
+   "x": 246.7,
+   "y": 257.07,
+   "type": "V",
+   "residual": false,
+   "source": "TD-133"
   },
   {
    "t_min": 466.0,
@@ -11532,6 +11644,14 @@
   },
   {
    "t_min": 515.0,
+   "x": 243.11,
+   "y": 270.06,
+   "type": "V",
+   "residual": false,
+   "source": "TD-110"
+  },
+  {
+   "t_min": 515.0,
    "x": 316.43,
    "y": 219.59,
    "type": "V",
@@ -11939,6 +12059,14 @@
    "source": "TD-074"
   },
   {
+   "t_min": 532.0,
+   "x": 238.35,
+   "y": 273.33,
+   "type": "V",
+   "residual": false,
+   "source": "TD-208"
+  },
+  {
    "t_min": 533.0,
    "x": 229.88,
    "y": 190.2,
@@ -12017,6 +12145,22 @@
    "type": "C",
    "residual": false,
    "source": "TD-141"
+  },
+  {
+   "t_min": 543.0,
+   "x": 238.12,
+   "y": 280.6,
+   "type": "V",
+   "residual": false,
+   "source": "TD-210"
+  },
+  {
+   "t_min": 543.0,
+   "x": 234.56,
+   "y": 293.27,
+   "type": "S",
+   "residual": false,
+   "source": "TD-210"
   },
   {
    "t_min": 543.0,
@@ -12156,6 +12300,22 @@
   },
   {
    "t_min": 555.0,
+   "x": 177.8,
+   "y": 156.74,
+   "type": "S",
+   "residual": false,
+   "source": "TD-007"
+  },
+  {
+   "t_min": 555.0,
+   "x": 231.54,
+   "y": 257.79,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 555.0,
    "x": 329.71,
    "y": 198.74,
    "type": "O",
@@ -12292,6 +12452,14 @@
   },
   {
    "t_min": 560.0,
+   "x": 234.84,
+   "y": 259.81,
+   "type": "V",
+   "residual": false,
+   "source": "TD-110"
+  },
+  {
+   "t_min": 560.0,
    "x": 271.63,
    "y": 120.28,
    "type": "V",
@@ -12412,6 +12580,14 @@
   },
   {
    "t_min": 568.0,
+   "x": 232.05,
+   "y": 257.23,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 568.0,
    "x": 254.47,
    "y": 178.05,
    "type": "C",
@@ -12449,6 +12625,46 @@
    "type": "C",
    "residual": false,
    "source": "TD-123"
+  },
+  {
+   "t_min": 575.0,
+   "x": 183.55,
+   "y": 205.57,
+   "type": "O",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 575.0,
+   "x": 181.87,
+   "y": 191.64,
+   "type": "O",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 575.0,
+   "x": 175.87,
+   "y": 209.88,
+   "type": "R",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 575.0,
+   "x": 151.42,
+   "y": 227.95,
+   "type": "O",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 575.0,
+   "x": 160.7,
+   "y": 231.29,
+   "type": "V",
+   "residual": false,
+   "source": "TD-114"
   },
   {
    "t_min": 575.0,
@@ -12585,6 +12801,14 @@
    "type": "V",
    "residual": false,
    "source": "TD-104"
+  },
+  {
+   "t_min": 589.0,
+   "x": 246.36,
+   "y": 286.54,
+   "type": "O",
+   "residual": false,
+   "source": "TD-210"
   },
   {
    "t_min": 590.0,
@@ -12788,6 +13012,14 @@
   },
   {
    "t_min": 608.0,
+   "x": 237.21,
+   "y": 257.91,
+   "type": "V",
+   "residual": false,
+   "source": "TD-119"
+  },
+  {
+   "t_min": 608.0,
    "x": 249.74,
    "y": 177.07,
    "type": "R",
@@ -12809,6 +13041,14 @@
    "type": "R",
    "residual": true,
    "source": "TD-141"
+  },
+  {
+   "t_min": 609.0,
+   "x": 188.29,
+   "y": 174.93,
+   "type": "S",
+   "residual": false,
+   "source": "TD-076"
   },
   {
    "t_min": 609.0,
@@ -12921,6 +13161,30 @@
    "type": "O",
    "residual": false,
    "source": "TD-114"
+  },
+  {
+   "t_min": 613.0,
+   "x": 230.19,
+   "y": 258.44,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 614.0,
+   "x": 231.74,
+   "y": 257.73,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 614.0,
+   "x": 232.05,
+   "y": 257.23,
+   "type": "V",
+   "residual": true,
+   "source": "TD-102"
   },
   {
    "t_min": 615.0,
@@ -13044,11 +13308,27 @@
   },
   {
    "t_min": 623.0,
+   "x": 242.83,
+   "y": 259.97,
+   "type": "V",
+   "residual": false,
+   "source": "VTD-18"
+  },
+  {
+   "t_min": 623.0,
    "x": 236.89,
    "y": 182.85,
    "type": "C",
    "residual": false,
    "source": "TD-142"
+  },
+  {
+   "t_min": 624.0,
+   "x": 229.98,
+   "y": 265.35,
+   "type": "V",
+   "residual": false,
+   "source": "VTD-18"
   },
   {
    "t_min": 624.0,
@@ -13139,6 +13419,14 @@
    "source": "TD-014"
   },
   {
+   "t_min": 630.0,
+   "x": 234.25,
+   "y": 258.13,
+   "type": "O",
+   "residual": false,
+   "source": "TD-120"
+  },
+  {
    "t_min": 632.0,
    "x": 287.72,
    "y": 180.99,
@@ -13169,6 +13457,22 @@
    "type": "R",
    "residual": false,
    "source": "TD-020"
+  },
+  {
+   "t_min": 635.0,
+   "x": 234.39,
+   "y": 258.46,
+   "type": "V",
+   "residual": false,
+   "source": "TD-120"
+  },
+  {
+   "t_min": 635.0,
+   "x": 232.91,
+   "y": 261.31,
+   "type": "V",
+   "residual": false,
+   "source": "TD-120"
   },
   {
    "t_min": 635.0,
@@ -13233,6 +13537,30 @@
    "type": "V",
    "residual": false,
    "source": "TD-108"
+  },
+  {
+   "t_min": 638.0,
+   "x": 236.07,
+   "y": 273.37,
+   "type": "V",
+   "residual": true,
+   "source": "TD-211"
+  },
+  {
+   "t_min": 638.0,
+   "x": 233.46,
+   "y": 256.65,
+   "type": "V",
+   "residual": true,
+   "source": "TD-120"
+  },
+  {
+   "t_min": 638.0,
+   "x": 232.79,
+   "y": 257.84,
+   "type": "V",
+   "residual": true,
+   "source": "TD-120"
   },
   {
    "t_min": 640.0,
@@ -13340,6 +13668,14 @@
   },
   {
    "t_min": 650.0,
+   "x": 233.99,
+   "y": 259.26,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 650.0,
    "x": 275.44,
    "y": 135.95,
    "type": "R",
@@ -13361,6 +13697,22 @@
    "type": "R",
    "residual": false,
    "source": "TD-091"
+  },
+  {
+   "t_min": 653.0,
+   "x": 190.4,
+   "y": 239.83,
+   "type": "V",
+   "residual": false,
+   "source": "TD-106"
+  },
+  {
+   "t_min": 653.0,
+   "x": 190.4,
+   "y": 239.83,
+   "type": "V",
+   "residual": false,
+   "source": "VTD-01"
   },
   {
    "t_min": 653.0,
@@ -13628,9 +13980,25 @@
   },
   {
    "t_min": 665.0,
+   "x": 174.7,
+   "y": 258.96,
+   "type": "V",
+   "residual": false,
+   "source": "TD-106"
+  },
+  {
+   "t_min": 665.0,
    "x": 274.84,
    "y": 250.96,
    "type": "O",
+   "residual": false,
+   "source": "TD-121"
+  },
+  {
+   "t_min": 665.0,
+   "x": 266.96,
+   "y": 261.93,
+   "type": "V",
    "residual": false,
    "source": "TD-121"
   },
@@ -13715,6 +14083,14 @@
    "source": "TD-045"
   },
   {
+   "t_min": 671.0,
+   "x": 232.97,
+   "y": 261.4,
+   "type": "V",
+   "residual": false,
+   "source": "TD-119"
+  },
+  {
    "t_min": 673.0,
    "x": 249.71,
    "y": 187.04,
@@ -13747,6 +14123,22 @@
    "source": "TD-209"
   },
   {
+   "t_min": 675.0,
+   "x": 227.76,
+   "y": 286.54,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 675.0,
+   "x": 217.54,
+   "y": 299.23,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
    "t_min": 677.0,
    "x": 262.92,
    "y": 127.3,
@@ -13769,6 +14161,14 @@
    "type": "C",
    "residual": false,
    "source": "TD-201"
+  },
+  {
+   "t_min": 680.0,
+   "x": 229.2,
+   "y": 274.61,
+   "type": "O",
+   "residual": false,
+   "source": "TD-119"
   },
   {
    "t_min": 684.0,
@@ -13801,6 +14201,14 @@
    "type": "R",
    "residual": true,
    "source": "TD-108"
+  },
+  {
+   "t_min": 685.0,
+   "x": 218.52,
+   "y": 300.16,
+   "type": "V",
+   "residual": false,
+   "source": "TD-065"
   },
   {
    "t_min": 685.0,
@@ -13956,6 +14364,14 @@
   },
   {
    "t_min": 695.0,
+   "x": 131.18,
+   "y": 291.06,
+   "type": "V",
+   "residual": false,
+   "source": "TD-042"
+  },
+  {
+   "t_min": 695.0,
    "x": 313.71,
    "y": 223.56,
    "type": "V",
@@ -14009,6 +14425,22 @@
    "type": "C",
    "residual": false,
    "source": "TD-043"
+  },
+  {
+   "t_min": 707.0,
+   "x": 182.93,
+   "y": 160.63,
+   "type": "V",
+   "residual": false,
+   "source": "TD-012"
+  },
+  {
+   "t_min": 709.0,
+   "x": 145.01,
+   "y": 279.79,
+   "type": "V",
+   "residual": true,
+   "source": "TD-091"
   },
   {
    "t_min": 709.0,
@@ -14068,11 +14500,27 @@
   },
   {
    "t_min": 718.0,
+   "x": 227.06,
+   "y": 273.67,
+   "type": "V",
+   "residual": false,
+   "source": "TD-120"
+  },
+  {
+   "t_min": 718.0,
    "x": 283.91,
    "y": 145.83,
    "type": "R",
    "residual": true,
    "source": "TD-014"
+  },
+  {
+   "t_min": 721.0,
+   "x": 225.39,
+   "y": 274.87,
+   "type": "V",
+   "residual": false,
+   "source": "TD-120"
   },
   {
    "t_min": 721.0,
@@ -14089,6 +14537,38 @@
    "type": "C",
    "residual": true,
    "source": "TD-103"
+  },
+  {
+   "t_min": 722.0,
+   "x": 154.37,
+   "y": 285.03,
+   "type": "V",
+   "residual": false,
+   "source": "TD-091"
+  },
+  {
+   "t_min": 722.0,
+   "x": 224.84,
+   "y": 274.83,
+   "type": "V",
+   "residual": false,
+   "source": "TD-120"
+  },
+  {
+   "t_min": 722.0,
+   "x": 225.39,
+   "y": 274.87,
+   "type": "V",
+   "residual": false,
+   "source": "TD-120"
+  },
+  {
+   "t_min": 723.0,
+   "x": 145.08,
+   "y": 279.83,
+   "type": "V",
+   "residual": false,
+   "source": "TD-092"
   },
   {
    "t_min": 725.0,
@@ -14235,6 +14715,54 @@
    "source": "TD-124"
   },
   {
+   "t_min": 740.0,
+   "x": 234.58,
+   "y": 320.24,
+   "type": "V",
+   "residual": false,
+   "source": "TD-110"
+  },
+  {
+   "t_min": 742.0,
+   "x": 171.66,
+   "y": 323.34,
+   "type": "V",
+   "residual": false,
+   "source": "TD-076"
+  },
+  {
+   "t_min": 742.0,
+   "x": 172.68,
+   "y": 320.97,
+   "type": "V",
+   "residual": false,
+   "source": "TD-071"
+  },
+  {
+   "t_min": 742.0,
+   "x": 168.73,
+   "y": 323.8,
+   "type": "V",
+   "residual": false,
+   "source": "TD-076"
+  },
+  {
+   "t_min": 745.0,
+   "x": 218.54,
+   "y": 302.11,
+   "type": "V",
+   "residual": false,
+   "source": "TD-069"
+  },
+  {
+   "t_min": 745.0,
+   "x": 143.79,
+   "y": 303.9,
+   "type": "V",
+   "residual": false,
+   "source": "Radio Log"
+  },
+  {
    "t_min": 753.0,
    "x": 247.44,
    "y": 165.87,
@@ -14284,6 +14812,22 @@
   },
   {
    "t_min": 755.0,
+   "x": 218.54,
+   "y": 302.11,
+   "type": "V",
+   "residual": false,
+   "source": "TD-064"
+  },
+  {
+   "t_min": 755.0,
+   "x": 137.3,
+   "y": 295.16,
+   "type": "V",
+   "residual": false,
+   "source": "TD-106"
+  },
+  {
+   "t_min": 755.0,
    "x": 267.94,
    "y": 113.53,
    "type": "V",
@@ -14307,12 +14851,92 @@
    "source": "TD-114"
   },
   {
+   "t_min": 759.0,
+   "x": 220.58,
+   "y": 288.3,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 759.0,
+   "x": 222.11,
+   "y": 289.53,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 760.0,
+   "x": 144.4,
+   "y": 306.89,
+   "type": "V",
+   "residual": false,
+   "source": "TD-201"
+  },
+  {
+   "t_min": 760.0,
+   "x": 160.37,
+   "y": 320.0,
+   "type": "V",
+   "residual": false,
+   "source": "TD-201"
+  },
+  {
+   "t_min": 760.0,
+   "x": 147.39,
+   "y": 298.45,
+   "type": "V",
+   "residual": false,
+   "source": "TD-201"
+  },
+  {
+   "t_min": 762.0,
+   "x": 186.21,
+   "y": 321.66,
+   "type": "V",
+   "residual": false,
+   "source": "TD-211"
+  },
+  {
+   "t_min": 762.0,
+   "x": 135.51,
+   "y": 296.94,
+   "type": "V",
+   "residual": false,
+   "source": "TD-092"
+  },
+  {
+   "t_min": 765.0,
+   "x": 128.9,
+   "y": 294.95,
+   "type": "V",
+   "residual": false,
+   "source": "TD-091"
+  },
+  {
+   "t_min": 765.0,
+   "x": 135.51,
+   "y": 296.94,
+   "type": "V",
+   "residual": false,
+   "source": "TD-106"
+  },
+  {
    "t_min": 766.0,
    "x": 264.23,
    "y": 130.13,
    "type": "R",
    "residual": true,
    "source": "TD-143"
+  },
+  {
+   "t_min": 769.0,
+   "x": 133.12,
+   "y": 299.84,
+   "type": "V",
+   "residual": false,
+   "source": "TD-211"
   },
   {
    "t_min": 769.0,
@@ -14371,6 +14995,22 @@
    "source": "TD-014"
   },
   {
+   "t_min": 779.0,
+   "x": 225.7,
+   "y": 329.67,
+   "type": "V",
+   "residual": false,
+   "source": "TD-110"
+  },
+  {
+   "t_min": 779.0,
+   "x": 225.81,
+   "y": 331.66,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
    "t_min": 780.0,
    "x": 229.16,
    "y": 210.27,
@@ -14393,6 +15033,14 @@
    "type": "V",
    "residual": false,
    "source": "TD-087"
+  },
+  {
+   "t_min": 785.0,
+   "x": 285.6,
+   "y": 270.76,
+   "type": "V",
+   "residual": false,
+   "source": "TD-121"
   },
   {
    "t_min": 785.0,
@@ -14419,6 +15067,14 @@
    "source": "TD-123"
   },
   {
+   "t_min": 800.0,
+   "x": 129.2,
+   "y": 291.2,
+   "type": "V",
+   "residual": false,
+   "source": "VTD-01"
+  },
+  {
    "t_min": 806.0,
    "x": 227.58,
    "y": 175.88,
@@ -14441,6 +15097,14 @@
    "type": "O",
    "residual": false,
    "source": "TD-123"
+  },
+  {
+   "t_min": 815.0,
+   "x": 278.8,
+   "y": 257.36,
+   "type": "V",
+   "residual": false,
+   "source": "TD-020"
   },
   {
    "t_min": 815.0,
@@ -14483,6 +15147,22 @@
    "source": "TD-205"
   },
   {
+   "t_min": 828.0,
+   "x": 196.27,
+   "y": 320.74,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 832.0,
+   "x": 115.94,
+   "y": 256.85,
+   "type": "V",
+   "residual": false,
+   "source": "TD-201"
+  },
+  {
    "t_min": 833.0,
    "x": 264.87,
    "y": 125.82,
@@ -14500,11 +15180,43 @@
   },
   {
    "t_min": 835.0,
+   "x": 209.69,
+   "y": 306.07,
+   "type": "V",
+   "residual": false,
+   "source": "TD-054"
+  },
+  {
+   "t_min": 835.0,
    "x": 275.01,
    "y": 123.66,
    "type": "V",
    "residual": false,
    "source": "TD-089"
+  },
+  {
+   "t_min": 837.0,
+   "x": 228.41,
+   "y": 276.05,
+   "type": "O",
+   "residual": false,
+   "source": "TD-120"
+  },
+  {
+   "t_min": 837.0,
+   "x": 228.46,
+   "y": 274.09,
+   "type": "V",
+   "residual": false,
+   "source": "TD-120"
+  },
+  {
+   "t_min": 842.0,
+   "x": 204.21,
+   "y": 365.62,
+   "type": "V",
+   "residual": false,
+   "source": "Radio Log"
   },
   {
    "t_min": 845.0,
@@ -14529,6 +15241,14 @@
    "type": "V",
    "residual": false,
    "source": "TD-087"
+  },
+  {
+   "t_min": 855.0,
+   "x": 211.59,
+   "y": 310.03,
+   "type": "V",
+   "residual": false,
+   "source": "TD-054"
   },
   {
    "t_min": 858.0,
@@ -14580,6 +15300,14 @@
   },
   {
    "t_min": 875.0,
+   "x": 185.54,
+   "y": 155.38,
+   "type": "O",
+   "residual": false,
+   "source": "TD-009"
+  },
+  {
+   "t_min": 875.0,
    "x": 284.14,
    "y": 251.51,
    "type": "R",
@@ -14627,6 +15355,30 @@
    "source": "TD-045"
   },
   {
+   "t_min": 879.0,
+   "x": 115.94,
+   "y": 256.85,
+   "type": "V",
+   "residual": false,
+   "source": "TD-201"
+  },
+  {
+   "t_min": 882.0,
+   "x": 151.42,
+   "y": 227.95,
+   "type": "R",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 883.0,
+   "x": 147.41,
+   "y": 231.22,
+   "type": "O",
+   "residual": false,
+   "source": "TD-009"
+  },
+  {
    "t_min": 884.0,
    "x": 287.99,
    "y": 112.19,
@@ -14651,6 +15403,14 @@
    "source": "TD-141"
   },
   {
+   "t_min": 887.0,
+   "x": 202.13,
+   "y": 320.13,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
    "t_min": 888.0,
    "x": 287.95,
    "y": 112.06,
@@ -14667,12 +15427,28 @@
    "source": "TD-030"
   },
   {
+   "t_min": 903.0,
+   "x": 117.46,
+   "y": 256.2,
+   "type": "V",
+   "residual": false,
+   "source": "TD-091"
+  },
+  {
    "t_min": 904.0,
    "x": 227.19,
    "y": 210.78,
    "type": "R",
    "residual": false,
    "source": "TD-104"
+  },
+  {
+   "t_min": 915.0,
+   "x": 112.87,
+   "y": 264.19,
+   "type": "V",
+   "residual": false,
+   "source": "TD-201"
   },
   {
    "t_min": 926.0,
@@ -14708,11 +15484,51 @@
   },
   {
    "t_min": 935.0,
+   "x": 120.45,
+   "y": 222.23,
+   "type": "O",
+   "residual": false,
+   "source": "TD-117"
+  },
+  {
+   "t_min": 935.0,
+   "x": 212.26,
+   "y": 300.54,
+   "type": "R",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 935.0,
+   "x": 219.82,
+   "y": 292.24,
+   "type": "R",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
+   "t_min": 935.0,
    "x": 259.69,
    "y": 133.69,
    "type": "V",
    "residual": false,
    "source": "TD-126"
+  },
+  {
+   "t_min": 937.0,
+   "x": 121.89,
+   "y": 192.94,
+   "type": "V",
+   "residual": false,
+   "source": "TD-009"
+  },
+  {
+   "t_min": 937.0,
+   "x": 119.75,
+   "y": 193.56,
+   "type": "V",
+   "residual": false,
+   "source": "TD-012"
   },
   {
    "t_min": 940.0,
@@ -14721,6 +15537,22 @@
    "type": "V",
    "residual": false,
    "source": "TD-062"
+  },
+  {
+   "t_min": 941.0,
+   "x": 108.98,
+   "y": 200.58,
+   "type": "V",
+   "residual": false,
+   "source": "TD-009"
+  },
+  {
+   "t_min": 959.0,
+   "x": 204.21,
+   "y": 365.62,
+   "type": "V",
+   "residual": false,
+   "source": "Radio Log"
   },
   {
    "t_min": 965.0,
@@ -14753,6 +15585,14 @@
    "type": "O",
    "residual": false,
    "source": "TD-132"
+  },
+  {
+   "t_min": 969.0,
+   "x": 121.29,
+   "y": 192.84,
+   "type": "V",
+   "residual": false,
+   "source": "TD-012"
   },
   {
    "t_min": 970.0,
@@ -14859,6 +15699,14 @@
    "source": "TD-104"
   },
   {
+   "t_min": 1013.0,
+   "x": 212.71,
+   "y": 295.74,
+   "type": "R",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
    "t_min": 1016.0,
    "x": 328.55,
    "y": 214.15,
@@ -14873,6 +15721,14 @@
    "type": "V",
    "residual": false,
    "source": "TD-137"
+  },
+  {
+   "t_min": 1017.0,
+   "x": 126.76,
+   "y": 190.6,
+   "type": "V",
+   "residual": false,
+   "source": "TD-009"
   },
   {
    "t_min": 1018.0,
@@ -14915,12 +15771,28 @@
    "source": "TD-008"
   },
   {
+   "t_min": 1024.0,
+   "x": 212.71,
+   "y": 295.74,
+   "type": "R",
+   "residual": false,
+   "source": "TD-102"
+  },
+  {
    "t_min": 1025.0,
    "x": 284.89,
    "y": 106.94,
    "type": "S",
    "residual": false,
    "source": "TD-126"
+  },
+  {
+   "t_min": 1027.0,
+   "x": 118.38,
+   "y": 244.33,
+   "type": "R",
+   "residual": false,
+   "source": "TD-201"
   },
   {
    "t_min": 1035.0,
@@ -14956,11 +15828,27 @@
   },
   {
    "t_min": 1055.0,
+   "x": 133.5,
+   "y": 240.91,
+   "type": "R",
+   "residual": false,
+   "source": "TD-201"
+  },
+  {
+   "t_min": 1055.0,
    "x": 320.31,
    "y": 240.23,
    "type": "V",
    "residual": false,
    "source": "TD-013"
+  },
+  {
+   "t_min": 1055.0,
+   "x": 311.31,
+   "y": 266.55,
+   "type": "V",
+   "residual": false,
+   "source": "TD-027"
   },
   {
    "t_min": 1055.0,
@@ -15089,6 +15977,14 @@
    "type": "V",
    "residual": false,
    "source": "TD-043"
+  },
+  {
+   "t_min": 1086.0,
+   "x": 131.42,
+   "y": 301.62,
+   "type": "O",
+   "residual": false,
+   "source": "TD-201"
   },
   {
    "t_min": 1092.0,
@@ -15267,6 +16163,14 @@
    "source": "TD-041"
   },
   {
+   "t_min": 1130.0,
+   "x": 204.21,
+   "y": 365.62,
+   "type": "V",
+   "residual": false,
+   "source": "Radio Log"
+  },
+  {
    "t_min": 1132.0,
    "x": 267.74,
    "y": 112.08,
@@ -15387,6 +16291,14 @@
    "source": "TD-040"
   },
   {
+   "t_min": 1156.0,
+   "x": 203.99,
+   "y": 311.52,
+   "type": "O",
+   "residual": false,
+   "source": "TD-201"
+  },
+  {
    "t_min": 1157.0,
    "x": 272.12,
    "y": 177.89,
@@ -15497,6 +16409,14 @@
    "type": "V",
    "residual": false,
    "source": "TD-209"
+  },
+  {
+   "t_min": 1168.0,
+   "x": 201.85,
+   "y": 309.84,
+   "type": "V",
+   "residual": false,
+   "source": "TD-102"
   },
   {
    "t_min": 1168.0,
@@ -15921,6 +16841,14 @@
    "type": "O",
    "residual": false,
    "source": "TD-089"
+  },
+  {
+   "t_min": 1390.0,
+   "x": 315.02,
+   "y": 265.58,
+   "type": "V",
+   "residual": false,
+   "source": "TD-013"
   },
   {
    "t_min": 1392.0,
