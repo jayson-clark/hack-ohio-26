@@ -35,6 +35,13 @@ CONTROL_URL = os.environ.get("DEMO_CONTROL_URL", "http://localhost:1420/?view=co
 OUT_DIR = Path(os.environ.get("DEMO_OUT_DIR", "~/Movies/fireline-demo")).expanduser()
 # The windows a take can drive, each a Chrome app window: name -> (title, URL).
 WINDOWS = {"console": ("Fireline", CONSOLE_URL), "control": ("Fireline · Exercise control", CONTROL_URL)}
+# Or the desktop app's own windows, used when they're open (DEMO_APP=chrome to
+# skip them). They have no title bar to crop, so they're sized to a Chrome
+# app window's content, 1668x1056, and the takes' window points move up by
+# the title bar.
+APP_WINDOWS = {"console": "Fireline Console", "control": "Fireline Exercise Control"}
+APP_SIZE = (1668, 1056)
+DEMO_APP = os.environ.get("DEMO_APP", "auto")
 TITLEBAR_PT = 28  # a Chrome app window's title bar, cropped out of the video
 # The frame around the window: a wallpaper with room around the window, so a
 # wide shot looks like a Mac screenshot and the zooms have somewhere to go.
@@ -371,10 +378,37 @@ def resolve(t: str, scenes: list[dict], duration: float) -> float:
 # --- Running a take -------------------------------------------------------------
 
 
+def find_app_windows(rec: Recordly, names: list[str]) -> tuple[dict[str, dict], dict] | None:
+    """The desktop app's windows, if they're all open on this desktop: sized
+    to a Chrome window's content and stacked on one rectangle."""
+    if DEMO_APP == "chrome":
+        return None
+    sources = rec.call("list_sources")
+    app = [s for s in sources if s.get("type") == "window" and s.get("appName") == "fireline" and s.get("onScreen")]
+    wins = {n: next((s for s in app if s.get("windowTitle") == APP_WINDOWS[n]), None) for n in names}
+    if not all(wins.values()):
+        if DEMO_APP == "app":
+            raise TakeError(f"Open the app's {', '.join(APP_WINDOWS[n] for n in names)} window(s) on this desktop")
+        return None
+    screens = [s for s in sources if s.get("type") == "screen"]
+    screen = next(s for s in screens if s.get("primary")) if any(s.get("primary") for s in screens) else screens[0]
+    w, h = APP_SIZE
+    x, y = screen["x"] + (screen["width"] - w) // 2, screen["y"] + 33 + (screen["height"] - 33 - h) // 2
+    for win in wins.values():
+        frame = rec.call("set_window_bounds", source=win["id"], x=x, y=y, width=w, height=h).get("frame") or {}
+        win.update({k: frame.get(k, v) for k, v in (("x", x), ("y", y), ("width", w), ("height", h))})
+        win["app"] = True
+    return wins, screen
+
+
 def find_windows(rec: Recordly, names: list[str]) -> tuple[dict[str, dict], dict]:
     """The take's windows, opened if missing, and the screen they're on. A
     second window is moved onto the first's bounds, so the crop holds when the
     take cuts between them."""
+    found = find_app_windows(rec, names)
+    if found:
+        return found
+
     def look():
         sources = rec.call("list_sources")
         chrome = [s for s in sources if s.get("type") == "window" and s.get("appName") == "Google Chrome"]
@@ -410,12 +444,53 @@ def find_windows(rec: Recordly, names: list[str]) -> tuple[dict[str, dict], dict
     return wins, screen
 
 
-def reload_window(title: str) -> None:
+def reload_window(rec: Recordly, name: str, win: dict) -> None:
     """Reload a window so the last take's selection, zoom, plan, dock and
-    autopilot are gone. Keys don't reach a Chrome app window, so AppleScript."""
-    script = f'tell application "Google Chrome" to tell (first window whose title is "{title}") to reload active tab'
+    autopilot are gone. Keys don't reach a Chrome app window, so AppleScript;
+    the desktop app takes Cmd+R."""
+    if win.get("app"):
+        # Keys reach the app's page only once something in it has been clicked.
+        # Cmd+R may not reload the app, so Escape closes whatever's open too.
+        rec.perform([FOCUS, {"action": "key", "key": "r", "modifiers": ["cmd"]},
+                     {"action": "key", "key": "escape", "repeat": 2}], "brisk")
+        time.sleep(2)
+        if name == "console":
+            ensure_demo_bar(rec)
+        return
+    script = f'tell application "Google Chrome" to tell (first window whose title is "{WINDOWS[name][0]}") to reload active tab'
     subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
     time.sleep(1)
+
+
+def ensure_demo_bar(rec: Recordly) -> None:
+    """The console's demo bar (the clock keys the takes use). The desktop app
+    can't take ?demo=1, so toggle it with Shift+D when it isn't showing."""
+    for _ in range(10):
+        if rec.call("find_elements", text="Autopilot").get("elements"):
+            return
+        time.sleep(1)
+    rec.perform([FOCUS, {"action": "key", "key": "d", "modifiers": ["shift"]}], "brisk")
+
+
+# A harmless click that gives the desktop app's page keyboard focus: the
+# Fireline name in the header.
+FOCUS = {"action": "click", "target": {"text": "Fireline"}}
+
+
+def app_points(steps: list[dict], win: dict) -> list[dict]:
+    return shift_points(steps, -TITLEBAR_PT) if win.get("app") else steps
+
+
+def shift_points(steps: list[dict], dy: float) -> list[dict]:
+    """Move window points by dy (the desktop app has no title bar above them)."""
+    out = []
+    for st in steps:
+        st = dict(st)
+        for k in ("y", "fromY", "toY"):
+            if k in st:
+                st[k] = max(0.0, st[k] + dy)
+        out.append(st)
+    return out
 
 
 def run_items(rec: Recordly, block: Block, wins: dict[str, dict], cur: list[str]) -> None:
@@ -423,10 +498,10 @@ def run_items(rec: Recordly, block: Block, wins: dict[str, dict], cur: list[str]
     steps: list[dict] = []
     for item in block.items:
         if isinstance(item, tuple):
-            rec.perform(steps, block.pace)
+            rec.perform(app_points(steps, wins[cur[0]]), block.pace)
             steps = []
             if item[0] == "reload":
-                reload_window(WINDOWS[cur[0]][0])
+                reload_window(rec, cur[0], wins[cur[0]])
             elif item[0] == "window":
                 # The screen is what's recorded; this raises the window and drives it.
                 cur[0] = item[1][0]
@@ -435,7 +510,7 @@ def run_items(rec: Recordly, block: Block, wins: dict[str, dict], cur: list[str]
                 engine(item[1])
         else:
             steps.append(item)
-    rec.perform(steps, block.pace)
+    rec.perform(app_points(steps, wins[cur[0]]), block.pace)
 
 
 def editor_ready(rec: Recordly, video: str) -> dict:
@@ -525,9 +600,16 @@ def run_take(rec: Recordly, take: Take, rehearse: bool, out_dir: Path) -> None:
         st = editor_ready(rec, video)
 
     sw, sh = screen["width"], screen["height"]
-    x, y = win["x"] - screen["x"], win["y"] - screen["y"] + TITLEBAR_PT
-    crop = {"x": x / sw, "y": y / sh, "width": min(win["width"], sw - x) / sw, "height": min(win["height"] - TITLEBAR_PT, sh - y) / sh}
-    rec.call("set_look", op="set", fields={**LOOK, **take.look, "crop": crop})
+    bar = 0 if win.get("app") else TITLEBAR_PT
+    x, y = win["x"] - screen["x"], win["y"] - screen["y"] + bar
+    crop = {"x": x / sw, "y": y / sh, "width": min(win["width"], sw - x) / sw, "height": min(win["height"] - bar, sh - y) / sh}
+    # Recordly's webcam inset only if a take asks for it: left on, it puts
+    # whatever the Mac's camera sees (the room, people) in the corner.
+    fields = {**LOOK, **take.look, "crop": crop}
+    webcam = rec.call("get_editor_state", include=["look"], clips="none")["look"].get("webcam") or {}
+    if webcam:
+        fields["webcam"] = {**webcam, "enabled": bool(take.look.get("webcam"))}
+    rec.call("set_look", op="set", fields=fields)
     rec.call("set_look", op="motion", fields=MOTION)
 
     # Trim first, then place everything on the trimmed timeline's scene times.
