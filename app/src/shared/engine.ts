@@ -3,7 +3,6 @@
 
 import { useSyncExternalStore } from "react";
 import { BinaryType, parseBinaryFrame, type BinaryFrame } from "./binary";
-import { interrupt, speak } from "./speech";
 import type {
   Calibration,
   CalibrationAction,
@@ -24,7 +23,6 @@ import type {
   Token,
   Transcript,
   VisionStatus,
-  VoiceMode,
   WindState,
 } from "./protocol";
 
@@ -88,8 +86,6 @@ export interface EngineState {
   score: Score | null;
   /** What the commander has said (briefings and answers), oldest first. For #29. */
   transcript: CommanderMessage[];
-  /** How the commander speaks (off by default); remembered per browser. */
-  voiceMode: VoiceMode;
   /** Push-to-talk: held down now, and what it heard last time (cleared when pressed again). */
   listening: boolean;
   heard: Transcript | null;
@@ -114,7 +110,6 @@ let state: EngineState = {
   plan: { pending: 0, result: null, grids: null },
   score: null,
   transcript: [],
-  voiceMode: loadVoiceMode(),
   listening: false,
   heard: null,
 };
@@ -171,9 +166,6 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "transcript":
       setState({ heard: msg });
-      break;
-    case "commander_speech":
-      if (state.voiceMode === "console") speak(msg);
       break;
     case "commander_message":
       setState({ transcript: [...state.transcript, msg].slice(-MAX_TRANSCRIPT) });
@@ -243,7 +235,6 @@ function connect() {
 
   socket.onopen = () => {
     setState({ status: "open", events: [] });
-    send({ type: "set_voice", mode: state.voiceMode });
   };
   socket.onclose = () => {
     ws = null;
@@ -263,33 +254,9 @@ export function send(msg: ClientMessage) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
-const VOICE_KEY = "firewatch.voiceMode";
-
-function loadVoiceMode(): VoiceMode {
-  try {
-    const v = localStorage.getItem(VOICE_KEY);
-    if (v === "console" || v === "mac") return v;
-  } catch {
-    // storage can be blocked; voice just starts off
-  }
-  return "off";
-}
-
-/** Turn the commander's voice off, on in this console, or on through the Mac's `say`. */
-export function setVoiceMode(mode: VoiceMode) {
-  try {
-    localStorage.setItem(VOICE_KEY, mode);
-  } catch {
-    // not remembered, but still applied
-  }
-  setState({ voiceMode: mode });
-  send({ type: "set_voice", mode });
-}
-
-/** Push-to-talk down: the commander stops talking and the engine starts recording. */
+/** Push-to-talk down: the engine starts recording. */
 export function pttStart() {
   if (state.listening) return;
-  interrupt();
   setState({ listening: true, heard: null });
   send({ type: "ptt_start" });
 }

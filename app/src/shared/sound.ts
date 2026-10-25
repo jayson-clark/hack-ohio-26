@@ -2,9 +2,7 @@
 // chirps for urgent events, a soft blip for reroutes, and a chime when a round
 // ends. Everything is synthesized with Web Audio, so there are no asset files.
 //
-// Only the console makes sound (one window, like speech in #40), it's off by
-// default, and it ducks while the commander is speaking in the browser
-// (speechSynthesis.speaking), so effects never talk over a briefing.
+// Only the console makes sound (one window), and it's off by default.
 
 import type { EventKind } from "./protocol";
 
@@ -12,7 +10,7 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let crackle: GainNode | null = null;
 let enabled = false;
-let target = 0; // crackle level from the fire, before ducking
+let target = 0; // crackle level from the fire
 
 const STORAGE_KEY = "firewatch.sound";
 
@@ -68,11 +66,10 @@ function start() {
   src.connect(band).connect(crackle).connect(master);
   src.start();
 
-  // Duck under speech, checked a few times a second.
+  // Follow the fire's level a few times a second, smoothly.
   window.setInterval(() => {
     if (!ctx || !crackle) return;
-    const duck = "speechSynthesis" in window && window.speechSynthesis.speaking ? 0.3 : 1;
-    crackle.gain.setTargetAtTime(target * duck, ctx.currentTime, 0.4);
+    crackle.gain.setTargetAtTime(target, ctx.currentTime, 0.4);
   }, 250);
 }
 

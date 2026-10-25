@@ -10,7 +10,6 @@ export type EngineMessage =
   | VisionStatus
   | Score
   | CommanderMessage
-  | CommanderSpeech
   | Transcript
   | Units
   | EvacClock
@@ -56,12 +55,10 @@ export type ClientMessage =
   | StepOnce
   | CommanderQuery
   | OrderEvacuation
-  | SetVoice
   | PttStart
   | PttStop
   | CalibrationStep
   | EvaluatePlan;
-export type VoiceMode = "off" | "console" | "mac";
 export type CalibrationAction = "start" | "save" | "check" | "cancel" | "clear";
 
 /**
@@ -243,7 +240,7 @@ export interface TownScore {
   structures_lost: number;
 }
 /**
- * Something the incident commander says. Short enough to speak aloud.
+ * Something the incident commander says: an answer or a briefing, about two sentences.
  */
 export interface CommanderMessage {
   type: "commander_message";
@@ -252,18 +249,6 @@ export interface CommanderMessage {
   text: string;
   grounded: boolean;
   event: EventKind | null;
-}
-/**
- * Text for the console to speak (voice mode "console"). An answer
- * streams as several of these with the same `utterance`, one per sentence;
- * a briefing is one. Already rewritten for speech ("Highway 70").
- */
-export interface CommanderSpeech {
-  type: "commander_speech";
-  utterance: string;
-  kind: CommanderKind;
-  text: string;
-  urgent: boolean;
 }
 /**
  * What push-to-talk heard. A non-empty text is also asked of the commander.
@@ -522,13 +507,6 @@ export interface OrderEvacuation {
   type: "order_evacuation";
   town: string;
   ordered: boolean;
-}
-/**
- * How the commander speaks. Off by default; the console sends its saved choice on connect.
- */
-export interface SetVoice {
-  type: "set_voice";
-  mode: VoiceMode;
 }
 /**
  * Push-to-talk pressed: the engine starts recording and the commander stops talking.

@@ -7,7 +7,7 @@ asker said. Rounding the way people speak is fine: "about 230 acres" for
 ("24 of 32" as "75 percent"). Anything else is ungrounded.
 
 SentenceGate applies this sentence by sentence while an answer streams, so
-text-to-speech only ever receives sentences that passed.
+streaming consumers only ever receive sentences that passed.
 """
 
 import math

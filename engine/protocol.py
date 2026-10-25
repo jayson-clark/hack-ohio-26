@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 18
+PROTOCOL_VERSION = 20
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -425,7 +425,7 @@ class CommanderKind(StrEnum):
 
 
 class CommanderMessage(Model):
-    """Something the incident commander says. Short enough to speak aloud."""
+    """Something the incident commander says: an answer or a briefing, about two sentences."""
 
     type: Literal["commander_message"] = "commander_message"
     kind: CommanderKind
@@ -444,17 +444,6 @@ class Transcript(Model):
     text: str
     error: str | None  # why there's no text: not installed, no mic, didn't catch that
 
-
-class CommanderSpeech(Model):
-    """Text for the console to speak (voice mode "console"). An answer
-    streams as several of these with the same `utterance`, one per sentence;
-    a briefing is one. Already rewritten for speech ("Highway 70")."""
-
-    type: Literal["commander_speech"] = "commander_speech"
-    utterance: str  # sentences with the same id belong to one answer or briefing
-    kind: CommanderKind
-    text: str
-    urgent: bool  # a briefing worth a radio tone first (threatened town, no way out)
 
 
 class KofN(Model):
@@ -536,7 +525,7 @@ class PlanResult(Model):
 
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          CommanderSpeech, Transcript, Units, EvacClock, Situation, PlanResult, Calibration],
+          Transcript, Units, EvacClock, Situation, PlanResult, Calibration],
     Field(discriminator="type"),
 ]
 
@@ -620,18 +609,6 @@ class CommanderQuery(Model):
     text: str = Field(min_length=1, max_length=500)
 
 
-class VoiceMode(StrEnum):
-    OFF = "off"
-    CONSOLE = "console"  # the console window speaks commander_speech (Web Speech API)
-    MAC = "mac"  # the engine speaks with macOS `say` (fallback if the webview's voices are poor)
-
-
-class SetVoice(Model):
-    """How the commander speaks. Off by default; the console sends its saved choice on connect."""
-
-    type: Literal["set_voice"] = "set_voice"
-    mode: VoiceMode
-
 
 class PttStart(Model):
     """Push-to-talk pressed: the engine starts recording and the commander stops talking."""
@@ -710,7 +687,6 @@ ClientMessage = Annotated[
         StartRound, EndRound, SetRunning, SetSpeed, StepOnce,
         CommanderQuery,
         OrderEvacuation,
-        SetVoice,
         PttStart,
         PttStop,
         CalibrationStep,

@@ -4,10 +4,9 @@
 // here are kept locally and slotted in where they were asked.
 
 import { useEffect, useRef, useState } from "react";
-import { askCommander, pttStart, pttStop, setVoiceMode, useEngine } from "../shared/engine";
-import type { CommanderMessage, VoiceMode } from "../shared/protocol";
+import { askCommander, pttStart, pttStop, useEngine } from "../shared/engine";
+import type { CommanderMessage } from "../shared/protocol";
 import { formatSimMinutes } from "../shared/round";
-import { speechSupported } from "../shared/speech";
 import { Icon } from "./icons";
 import { Floating, IconButton } from "./ui";
 
@@ -19,7 +18,7 @@ interface Asked {
 }
 
 export default function CommanderDock() {
-  const { status, hello, transcript, voiceMode, listening, heard } = useEngine();
+  const { status, hello, transcript, listening, heard } = useEngine();
   const [open, setOpen] = useState(false);
   const [asked, setAsked] = useState<Asked[]>([]);
   const [draft, setDraft] = useState("");
@@ -91,7 +90,6 @@ export default function CommanderDock() {
           <Icon name="message" size={14} />
         </span>
         <span className="flex-1 text-[13px] font-semibold text-ink">Commander</span>
-        <VoiceMenu mode={voiceMode} />
         <IconButton icon="chevronDown" title="Minimize" onClick={() => setOpen(false)} />
       </header>
 
@@ -211,17 +209,3 @@ function Message({ m, perTick }: { m: CommanderMessage; perTick: number }) {
 }
 
 // Off by default: an operator mostly wants briefings on screen.
-function VoiceMenu({ mode }: { mode: VoiceMode }) {
-  return (
-    <select
-      value={mode}
-      onChange={(e) => setVoiceMode(e.target.value as VoiceMode)}
-      title="Read briefings and answers aloud"
-      className="h-7 rounded-md border border-line bg-panel px-1.5 text-xs text-ink-2 outline-none hover:border-line-strong"
-    >
-      <option value="off">Voice off</option>
-      {speechSupported && <option value="console">Speak here</option>}
-      <option value="mac">Mac speaker</option>
-    </select>
-  );
-}

@@ -17,9 +17,30 @@ names as a prompt.
 """
 
 import logging
+import re
 import threading
 
 import numpy as np
+
+# Spoken forms of map names ("Oroville (Hwy 70)" -> "Oroville via Highway 70"),
+# so the transcriber's vocabulary prompt matches how people say them.
+_REPLACEMENTS = [
+    (re.compile(r"\bHwy\b"), "Highway"),
+    (re.compile(r"\bRd\b"), "Road"),
+    (re.compile(r"\bm/s\b"), "meters per second"),
+    (re.compile(r"\bmph\b"), "miles per hour"),
+    (re.compile(r"(\d)\s*%"), r"\1 percent"),
+    (re.compile(r"~\s*"), "about "),
+    (re.compile(r"\bCA (\d+)"), r"State Route \1"),
+]
+_PAREN_ROUTE = re.compile(r"(\w[\w .'-]*?) \(([^)]+)\)")
+
+
+def speakable(text: str) -> str:
+    """'Evacuate toward Oroville (Hwy 70).' -> 'Evacuate toward Oroville via Highway 70.'"""
+    for pattern, repl in _REPLACEMENTS:
+        text = pattern.sub(repl, text)
+    return _PAREN_ROUTE.sub(r"\1 via \2", text)
 
 log = logging.getLogger("listen")
 
