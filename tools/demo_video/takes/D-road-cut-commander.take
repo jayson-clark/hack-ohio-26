@@ -22,8 +22,10 @@ scene "Open the commander's briefings"
   key period
   hold 1.5
 
-zoom 1@5..1@12 depth=3 at=0.64,0.54
-zoom 2@0.5..end depth=3 at=0.75,0.69
+# Wide while the fire takes off, then the west front, Paradise and its roads;
+# pan to the commander's dock.
+zoom 1@5..2@0.5 depth=3 at=0.64,0.50
+zoom 2@0.5..end depth=4 at=0.71,0.74
 label "2× · 20 sim-min/s" 1@1.5..2@end-1.5
 label "Paused" 2@end-1.5..end
 export D-road-cut-commander.mp4

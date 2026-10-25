@@ -512,7 +512,7 @@ Virtual table mode means nobody is blocked waiting for hardware.
 
 ## Demo Script
 
-Judging is virtual, so the demo is a recorded video. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record the console with `?demo=1`: start the fire from exercise control off-camera, slow the clock to show a feature, speed it up to let the fire run, and turn on Autopilot where clicking every card would drag. The Camp Fire scenario outruns any operator above 1× (10 sim-minutes a second), so most of the video runs at 0.25–0.5×.
+Judging is virtual, so the demo is a recorded video. The full 3-minute script, shot flow and footage list are in [`tools/demo_video/SCRIPT.md`](tools/demo_video/SCRIPT.md); the outline below is the short version. Lead with the operator console; the table appears as the stand-in for the real world seen from above, like drone footage. Record the console with `?demo=1`: start the fire from exercise control off-camera, slow the clock to show a feature, speed it up to let the fire run, and turn on Autopilot where clicking every card would drag. The Camp Fire scenario outruns any operator above 1× (10 sim-minutes a second), so most of the video runs at 0.25–0.5×.
 
 1. Open on the table under the projector, a fire starting at the Camp Fire origin: "this is what a drone sees."
 2. Cut to the operator console, Monitor. The decision queue fills: Concow likely to see fire in about 40 minutes, evacuate via Highway 70; crew recommendations with stations and ETAs. The town board shows every town's time until fire, with ranges.
