@@ -20,7 +20,26 @@ After the takes, three scripts finish the cut (all from `engine/`, with `uv run 
 
 - `split.py`: the synced table shot, the phone's video beside take F's camera view, lined up on the slate's grid flash and colour-graded.
 - `cards.py ~/Movies/fireline-demo/cards`: the Camp Fire replay over the real perimeters (the default replay, measured as it's drawn), the limits card and the end card.
-- `assemble.py`: a silent 3:00 rough cut on SCRIPT.md's clock, with each line burned in as a caption. Which footage fills each line's slot, and from where, is `SHOTS` at its top; re-pick the in-points after re-recording a take. Record the voiceover with the prompter, then lay it under this cut.
+- `assemble.py`: a silent 3:00 rough cut on SCRIPT.md's clock, with each line burned in as a caption. Which footage fills each line's slot, and from where, is `SHOTS` at its top; re-pick the in-points after re-recording a take. Record the voiceover with the prompter (below), then lay it under this cut.
+
+## Recording the voiceover
+
+`make prompter` opens the karaoke prompter on `http://127.0.0.1:8792`. Beyond reading along, it records the voiceover one line at a time so you never have to nail a 3:00 take in one go:
+
+1. Press **K** (or the **● Record** button) to enter record mode. The browser asks for the microphone once; allow it. (Mic access needs a secure context, which `127.0.0.1` is.)
+2. **Space** runs a 1-2-3 count-in, then records just the current line over its cue window and auto-stops at the line's end, parking on the next line. The line turns green (`● recorded`).
+3. The 20 lines are grouped into **three** roughly equal thirds. The prompter pauses with a banner between groups, so you can breathe and reset. Space continues.
+4. **Re-take any line:** step to it with **←** / **→** and record again; it overwrites that line's clip. (This is the "delete a segment and redo it" — one line, not the whole take.)
+5. **Save clips** downloads every take as `vo_<index>_<start>.webm` plus a `manifest.json` (the cue times), by default into `~/Downloads`.
+6. Stitch them into one cohesive 3:00 track, each clip placed at its line's start on SCRIPT.md's clock with the gaps padded with silence:
+
+   ```sh
+   python3 tools/demo_video/stitch_vo.py ~/Downloads -o ~/Movies/fireline-demo/fireline-vo.m4a
+   ```
+
+   It warns if a take overran its line's slot (trim it tighter or re-record) and prints the `ffmpeg` line to mux the audio under the rough cut. Needs `ffmpeg` (`brew install ffmpeg`).
+
+Because every clip is pinned to its cue start, the result lines up with the burned-in captions automatically. Two lines quote numbers from the footage (Pulga's "22 of 32" and the "28%" spike), so if you re-record those, check the line still matches what's on screen.
 
 ## The window
 
