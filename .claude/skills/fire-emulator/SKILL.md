@@ -12,7 +12,7 @@ Retrain (needed whenever the fire model changes, since it learned the old one):
 cd engine
 uv run python -m emulator.data --samples 6000 --out emulator/data/train          # ~45 min on 11 cores
 uv run python -m emulator.data --samples 400 --out emulator/data/test --seed 1 --with-32
-uv run --extra ml python -u -m emulator.train --epochs 12 > emulator/data/train.log   # ~25 min; tail -f the log
+uv run --extra ml python -u -m emulator.train > emulator/data/train.log   # 12 epochs, batch 16, ~15 min; tail -f the log
 uv run --extra ml python -m emulator.evaluate                                     # Brier, IoU, calibration, speed
 ```
 Commit the new `weights/fire_emulator.safetensors` and `.json` (training history). `emulator/data/` is gitignored.
@@ -20,6 +20,11 @@ Commit the new `weights/fire_emulator.safetensors` and `.json` (training history
 Device: training and `evaluate` print the device they use, and the `.json` records it under `trained_on`. `--device auto` (the default) picks MLX's GPU: Metal on Apple silicon, which is what PyTorch calls MPS, or CUDA on NVIDIA. With no GPU it falls back to the CPU, which is slow (`emulator/device.py`). `--device gpu` fails instead of falling back, and `--device cpu` forces the CPU.
 
 Training on an NVIDIA machine (e.g. a cluster) is optional. The repo is macOS-only, so the `ml` extra only installs on Apple silicon. On Linux, sync normally, run `uv pip install "mlx[cuda]"`, then `uv run --no-sync python -m emulator.train --device gpu`. The weights are plain safetensors, so they load on a Mac whichever GPU trained them.
+
+Training speed (#193): inputs are built once, a thread prefetches batches, and the step is compiled (`mx.compile`), so an epoch of 5,200 fires takes ~72 s at batch 16 (was ~125 s at batch 8).
+- **Batch 16 is the sweet spot on an M2 Max.** Batch 32 took 264 s an epoch at full map size and learned less per epoch.
+- **Don't crop to many shapes.** MLX compiles kernels per input shape; 24 crop shapes never finished 100 steps in 10 min.
+- **Map size barely matters.** On a map twice as wide and tall, predictions moved 0.006 on average (Brier +3%), so bigger maps need no special handling.
 
 Gotchas:
 - Don't run data generation, training and the test suite at once. They fight over CPU and GPU, and training slowed 10x (1.6 s/step instead of 0.16 s).
