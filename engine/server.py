@@ -52,6 +52,7 @@ from protocol import (
     PlanResult,
     PlanTown,
     RequestBriefing,
+    RequestMutualAid,
     Reset,
     ResourceUse,
     RoundPhase,
@@ -523,6 +524,8 @@ class Engine:
                 self.draft_action(msg)
             case RequestBriefing():
                 self._new_draft(self.drafts.briefing(self))
+            case RequestMutualAid():
+                log.info("mutual aid requested (%s); not offered yet (#178)", msg.token_type)
             case EvaluatePlan():
                 self._plan_latest = msg.id
                 asyncio.create_task(self.evaluate_plan(msg))

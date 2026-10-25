@@ -35,7 +35,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-PROTOCOL_VERSION = 26
+PROTOCOL_VERSION = 27
 
 
 # --- Binary frames ---------------------------------------------------------
@@ -278,6 +278,7 @@ class Recommendation(Model):
     worsens: list[TownEffect]  # the reverse: the placement deflects fire onto the town
     protects: list[TownShare]  # towns where less burns with it, biggest drop first
     text: str  # one sentence for a card or a briefing
+    incident: str | None = None  # the incident it works on (#179); None with a single fire
 
 
 class StationInfo(Model):
@@ -293,6 +294,8 @@ class UnitStatus(StrEnum):
     WORKING = "working"
     BLOCKED = "blocked"  # no open road gets there; retrying
     GROUNDED = "grounded"  # tankers can't fly in this wind; retrying
+    RELOADING = "reloading"  # a tanker flying back to base to reload before its next drop (#178)
+    RESTING = "resting"  # a crew relieved after its shift, back at its station (#178)
 
 
 class UnitInfo(Model):
@@ -306,6 +309,9 @@ class UnitInfo(Model):
     eta_min: float | None  # sim minutes until it arrives, while en route
     path: list[list[float]]  # its route, origin to target, while en route
     line: list[list[float]]  # a working crew's cut line so far, as its two ends (#159); empty if none
+    fatigue: float = 0.0  # 0 fresh .. 1 spent: how far a working crew has faded past its shift (#178)
+    ready_in_min: float | None = None  # sim minutes until a reloading or resting unit can go again (#178)
+    incident: str | None = None  # the incident its order is on (#179)
 
 
 class Units(Model):
@@ -433,6 +439,14 @@ class ResourceUse(Model):
     used: int  # tokens of this type that are taking effect
 
 
+class MutualAid(Model):
+    """Crews requested from outside the map (#178), against the round's budget."""
+
+    used: int
+    limit: int | None  # None = unlimited (the sandbox)
+    pending: int  # requested and still on their way
+
+
 class WaterCooldown(Model):
     id: str  # water token id
     ready_in_min: float  # sim minutes until it can drop again (0 = ready once moved)
@@ -465,6 +479,7 @@ class Score(Model):
     structures_lost: int
     acres_burned: float
     towns: list[TownScore]
+    mutual_aid: MutualAid | None = None  # None until the engine offers it (#178)
 
 
 class CommanderKind(StrEnum):
@@ -513,6 +528,7 @@ class TownThreat(Model):
     route_status: RouteStatus | None  # None when the scenario has no roads
     exit: str | None  # the safe zone the route leads to
     drive_min: float | None
+    incident: str | None = None  # the incident that reaches it first in the median simulation (#179)
 
 
 class Situation(Model):
@@ -568,9 +584,33 @@ class PlanResult(Model):
     error: str | None  # set (and everything else empty) when the plan couldn't run
 
 
+class Incident(Model):
+    """One fire on a map that can hold several (#179). Each ignition opens one,
+    named after the nearest place; when two burn into each other, the older
+    id survives."""
+
+    id: str
+    name: str  # e.g. "Pulga Fire"
+    acres: float  # burning or burned
+    growth_ac_h: float  # over the last sim hour
+    x: float  # map coords of where it's burning now (centroid of the burning cells)
+    y: float
+    started_tick: int  # the fire's tick at ignition
+    active: bool  # still burning
+
+
+class Incidents(Model):
+    """Every incident so far (#179). Sent when one starts, merges or goes out,
+    and with the score while any burns."""
+
+    type: Literal["incidents"] = "incidents"
+    tick: int
+    incidents: list[Incident]
+
+
 EngineMessage = Annotated[
     Union[Hello, ScenarioState, Tokens, Routes, Events, Recommendations, VisionStatus, Score, CommanderMessage,
-          Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope, Drafts],
+          Units, EvacClock, Situation, PlanResult, Calibration, ForecastEnvelope, Drafts, Incidents],
     Field(discriminator="type"),
 ]
 
@@ -729,6 +769,14 @@ class EvaluatePlan(Model):
     horizon_min: float = 120
 
 
+class RequestMutualAid(Model):
+    """Ask for one more unit of this type from outside the map (#178). It
+    arrives at a staging point after a delay, if the round's budget allows."""
+
+    type: Literal["request_mutual_aid"] = "request_mutual_aid"
+    token_type: TokenType
+
+
 ClientMessage = Annotated[
     Union[
         VirtualTokenAdd, VirtualTokenMove, VirtualTokenRemove, Ignite, Reset, LoadScenario, SetWind, AcceptRecommendation,
@@ -739,6 +787,7 @@ ClientMessage = Annotated[
         RequestBriefing,
         CalibrationStep,
         EvaluatePlan,
+        RequestMutualAid,
     ],
     Field(discriminator="type"),
 ]

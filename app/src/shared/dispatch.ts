@@ -10,6 +10,8 @@ export const UNIT_STATUS: Record<UnitStatus, { label: string; color: string }> =
   working: { label: "On scene", color: "#4ade80" },
   blocked: { label: "No road in", color: "#f87171" },
   grounded: { label: "Grounded", color: "#38bdf8" },
+  reloading: { label: "Reloading", color: "#38bdf8" },
+  resting: { label: "Resting", color: "#9aa1ab" },
 };
 
 /** The unit serving an order token, if dispatch is on and one is assigned. */
