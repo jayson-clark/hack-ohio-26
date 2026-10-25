@@ -10,6 +10,7 @@ import type {
   CommanderMessage,
   EngineMessage,
   EvacClock,
+  Draft,
   ForecastEnvelope,
   Event,
   Hello,
@@ -69,6 +70,8 @@ export interface EngineState {
   evacClock: EvacClock | null;
   /** The calibrated burn envelope's cutoffs and running miss rates (#12). */
   envelope: ForecastEnvelope | null;
+  /** Drafted dispatch orders and evacuation alerts awaiting the operator (#132). */
+  dispatchDrafts: Draft[];
   /** Fire units (#104): where each is, and its route and ETA while en route. */
   units: UnitInfo[];
   /** Recent events, oldest first. Cleared on reconnect. */
@@ -104,6 +107,7 @@ let state: EngineState = {
   routes: [],
   evacClock: null,
   envelope: null,
+  dispatchDrafts: [],
   units: [],
   events: [],
   recommendations: [],
@@ -139,6 +143,7 @@ function handleMessage(msg: EngineMessage) {
           routes: [],
           evacClock: null,
           envelope: null,
+          dispatchDrafts: [],
           units: [],
           events: [],
           recommendations: [],
@@ -165,6 +170,9 @@ function handleMessage(msg: EngineMessage) {
       break;
     case "evac_clock":
       setState({ evacClock: msg });
+      break;
+    case "drafts":
+      setState({ dispatchDrafts: msg.drafts });
       break;
     case "forecast_envelope":
       setState({ envelope: msg });
@@ -290,6 +298,16 @@ export function calibrationStep(action: CalibrationAction) {
 /** Order a town out (or take the order back). */
 export function orderEvacuation(town: string, ordered: boolean) {
   send({ type: "order_evacuation", town, ordered });
+}
+
+/** Send, dismiss or edit a drafted order or alert (#132). Nothing goes out for real. */
+export function draftAction(id: string, action: "send" | "dismiss" | "edit", text?: string) {
+  send({ type: "draft_action", id, action, text: text ?? null });
+}
+
+/** Ask the engine to draft a situation briefing (#132). */
+export function requestBriefing() {
+  send({ type: "request_briefing" });
 }
 
 // Plan ids only need to be unique per window and session; start somewhere

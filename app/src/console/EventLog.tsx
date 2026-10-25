@@ -34,6 +34,7 @@ const KIND: Record<EventKind, { tone: Tone; icon: IconName }> = {
   unit_blocked: { tone: "crit", icon: "route" },
   tankers_grounded: { tone: "warn", icon: "air" },
   evacuate_now: { tone: "crit", icon: "users" },
+  draft_sent: { tone: "ok", icon: "send" },
 };
 
 /** Urgent events without a decision card pop up over the map for a few
