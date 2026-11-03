@@ -125,14 +125,19 @@ def loss_fn(net, x, y, m):
 
 
 def batches(shapes: list[tuple[int, int]], size: int, rng):
-    """Shuffled batches of indices, each of a single input shape."""
+    """Shuffled batches of indices, each of a single input shape. `size` is
+    the batch for a WINDOW x WINDOW input; bigger inputs (a fire whose reach
+    doesn't fit a window, on a 512 x 480 map) get proportionally fewer per
+    batch, so a batch's GPU memory stays about the same. At batch 16, whole
+    512 x 480 inputs swapped the machine (#226)."""
     by_shape: dict[tuple, list[int]] = {}
     for i, sh in enumerate(shapes):
         by_shape.setdefault(sh, []).append(i)
     out = []
-    for idx in by_shape.values():
+    for (h, w), idx in by_shape.items():
         idx = rng.permutation(idx)
-        out += [idx[j : j + size] for j in range(0, len(idx), size)]
+        n = max(1, min(size, round(size * WINDOW * WINDOW / (h * w))))
+        out += [idx[j : j + n] for j in range(0, len(idx), n)]
     return [out[i] for i in rng.permutation(len(out))]
 
 
