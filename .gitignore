@@ -11,3 +11,12 @@ calibration.json
 
 # Fire emulator training data (regenerate with python -m emulator.data)
 engine/emulator/data/
+
+# Local eval caches, reports and logs (eval.wind_ensemble, eval.conformal_compare, emulator.evaluate);
+# the published copies live in docs/
+engine/wind_*.pkl
+engine/wind_*.md
+engine/wind_*.json
+engine/wind_*.log
+engine/emulator_compare.json
+engine/emulator_compare.log
