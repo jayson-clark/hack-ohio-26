@@ -1,6 +1,7 @@
 """Train the fire emulator on emulator.data shards (#113).
 
-    cd engine && uv run --extra ml python -m emulator.train --epochs 15
+    cd engine && uv run --extra ml python -m emulator.train --epochs 15     # Mac: MLX on the GPU (Metal)
+    cd engine && uv run python -m emulator.train --backend torch --device gpu   # NVIDIA: PyTorch on CUDA
     cd engine && uv run --extra ml python -m emulator.train --device cpu   # force a device
     cd engine && uv run --extra ml python -u -m emulator.train --wind-aware \
         --train emulator/data/train_wind --test emulator/data/test_wind      # -> weights/fire_emulator_wind.* (#229)
@@ -10,8 +11,14 @@ planes (the label's future-wind uncertainty, features.wind_code) on
 emulator.data --wind-aware shards. It writes its own weights file and never
 overwrites an existing one unless --overwrite is given.
 
-It trains on whatever GPU MLX finds (emulator/device.py): Metal on Apple
-silicon, or CUDA on an NVIDIA machine with mlx[cuda]; otherwise the CPU.
+Backends (emulator/backends.py), one recipe: --backend auto uses PyTorch
+when it sees a CUDA GPU, else MLX (Metal on Apple silicon), else PyTorch on
+the CPU. MLX doesn't install on most Linux GPU servers (glibc, GPU age), so
+NVIDIA training goes through PyTorch: `uv pip install torch` (on a V100, a
+CUDA 12 build, e.g. --index-url https://download.pytorch.org/whl/cu126;
+CUDA 13 builds dropped Volta). Either way the weights are saved in MLX's
+layout (emulator.weights_io), which the engine loads; the two networks give
+the same outputs for the same weights (tests/test_emulator.py).
 
 Loss is binary cross-entropy against the Monte Carlo labels, only on the
 cells the net has to predict (features.masks): burning and burned cells are
@@ -21,8 +28,9 @@ held-out Brier score next to a 32-rollout forecast's, so it's clear whether
 the net is as good as what the engine draws today.
 
 Speed (#193): BUILDERS threads build upcoming batches while the GPU runs the
-current one, and the training step is compiled (mx.compile), once per input
-shape. Loss masks are computed once; inputs are rebuilt per batch, because
+current one, and with MLX the training step is compiled (mx.compile), once
+per input shape. With PyTorch, --torch-compile and --amp (float16) are
+optional speedups, off by default. Loss masks are computed once; inputs are rebuilt per batch, because
 holding every input of a 512 x 480 map in memory would take tens of GB.
 
 Map size: the net is fully convolutional, so it runs on any map. On a map
@@ -40,23 +48,18 @@ import json
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 
-import mlx.core as mx
-import mlx.nn as nn
-import mlx.optimizers as optim
 import numpy as np
-from mlx.utils import tree_flatten
 
-from emulator import device as D
+from emulator import backends
 from emulator import features as F
 from emulator.data import _scenario, load
-from emulator.model import WEIGHTS, WIND_WEIGHTS, FireUNet, pad_to
+from emulator.model import WEIGHTS, WIND_WEIGHTS, pad_to
 from sim.fire import BURNING, Wind
 
 WINDOW = 256  # cells: on bigger maps, train on a square this size around the fire
 REACH = max(F.HORIZONS) + 16  # the fire's reach by the longest horizon, plus context
-BUILDERS = 4  # threads building batches ahead of the GPU
+BUILDERS = 4  # threads building batches ahead of the GPU (--builders)
 
 
 def prepare(r: dict, wind_aware: bool = False) -> dict:
@@ -106,7 +109,7 @@ def piece(s: dict, win: tuple[slice, slice]) -> tuple[np.ndarray, np.ndarray, np
 
 
 def tensors(samples: list[dict], wins: list[tuple[slice, slice]], flips: list[tuple[bool, bool]] | None = None):
-    """(x, y, mask) as (B, H, W, C) MLX arrays, for same-shaped windows."""
+    """(x, y, mask) as (B, C, H, W) float32 NumPy arrays, for same-shaped windows."""
     xs, ys, ms = [], [], []
     for i, s in enumerate(samples):
         x, y, m = piece(s, wins[i])
@@ -116,7 +119,7 @@ def tensors(samples: list[dict], wins: list[tuple[slice, slice]], flips: list[tu
         xs.append(pad_to(x)[0])
         ys.append(pad_to(y)[0])
         ms.append(pad_to(m)[0])
-    t = lambda a: mx.array(np.stack(a).transpose(0, 2, 3, 1).astype(np.float32))  # noqa: E731
+    t = lambda a: np.stack(a).astype(np.float32)  # noqa: E731
     return t(xs), t(ys), t(ms)
 
 
@@ -132,11 +135,6 @@ def prefetched(make, items, pool: ThreadPoolExecutor, ahead: int = 2 * BUILDERS)
         yield pending.popleft().result()
 
 
-def loss_fn(net, x, y, m):
-    bce = nn.losses.binary_cross_entropy(net(x), y, with_logits=True, reduction="none")
-    return (bce * m).sum() / mx.maximum(m.sum(), 1.0)
-
-
 def batches(shapes: list[tuple[int, int]], size: int, rng):
     """Shuffled batches of indices, each of a single input shape."""
     by_shape: dict[tuple, list[int]] = {}
@@ -149,19 +147,19 @@ def batches(shapes: list[tuple[int, int]], size: int, rng):
     return [out[i] for i in rng.permutation(len(out))]
 
 
-def evaluate(net, test: list[dict], rows: list[dict]) -> dict:
+def evaluate(trainer, test: list[dict], rows: list[dict]) -> dict:
     """Masked Brier on held-out samples: emulator vs the label (64 rollouts),
     and a 32-rollout forecast vs the same label when stored."""
     se_emu = se_32 = cells = 0.0
     wins = [window(s) for s in test]
     for b in batches([shape_of(w) for w in wins], 8, np.random.default_rng(0)):
         x, y, m = tensors([test[i] for i in b], [wins[i] for i in b])
-        p = mx.sigmoid(net(x))
+        p = trainer.probs(x)
         se_emu += float(((p - y) ** 2 * m).sum())
         cells += float(m.sum())
         if "p32" in rows[b[0]]:
             p32 = np.stack([pad_to(rows[i]["p32"] / 255.0)[0] for i in b])
-            se_32 += float(((mx.array(p32.transpose(0, 2, 3, 1)) - y) ** 2 * m).sum())
+            se_32 += float(((p32 - y) ** 2 * m).sum())
     out = {"brier_emulator": se_emu / cells}
     if "p32" in rows[0]:
         out["brier_32_rollouts"] = se_32 / cells
@@ -175,51 +173,45 @@ def main() -> None:
     p.add_argument("--epochs", type=int, default=12)
     p.add_argument("--batch", type=int, default=16)
     p.add_argument("--lr", type=float, default=1.5e-3)
-    p.add_argument("--no-compile", action="store_true", help="run the training step uncompiled")
+    p.add_argument("--no-compile", action="store_true", help="MLX: run the training step uncompiled")
+    p.add_argument("--backend", default="auto", choices=("auto", "mlx", "torch"),
+                   help="auto: PyTorch if it sees a CUDA GPU, else MLX, else PyTorch on the CPU")
+    p.add_argument("--torch-compile", action="store_true", help="PyTorch: torch.compile the network")
+    p.add_argument("--amp", action="store_true", help="PyTorch on CUDA: float16 mixed precision")
+    p.add_argument("--builders", type=int, default=BUILDERS, help="threads building batches")
     p.add_argument("--max-steps", type=int, default=0, help="stop each epoch after this many steps (timing runs)")
     p.add_argument("--out", help=f"weights file (default {WEIGHTS.name}, or {WIND_WEIGHTS.name} with --wind-aware)")
     p.add_argument("--wind-aware", action="store_true", help="train the wind-aware model (#229)")
     p.add_argument("--overwrite", action="store_true", help="allow replacing an existing weights file")
     p.add_argument("--seed", type=int, default=0, help="shuffling, windows and flips")
     p.add_argument("--device", default="auto", choices=("auto", "gpu", "cpu"),
-                   help="auto: Metal or CUDA GPU if MLX has one, else CPU")
+                   help="auto: the backend's GPU if there is one, else CPU; gpu fails without one")
     args = p.parse_args()
     args.out = args.out or str(WIND_WEIGHTS if args.wind_aware else WEIGHTS)
     from pathlib import Path
 
     if Path(args.out).exists() and not args.overwrite:
         raise SystemExit(f"{args.out} exists; pass --overwrite or a new --out (keeps the baseline weights safe)")
-    dev = D.select(args.device)
-    print(f"training on {D.describe(dev)}", flush=True)
+    backend = backends.pick(args.backend, args.device)
     t0 = time.perf_counter()
     train = [prepare(r, args.wind_aware) for r in load(sorted(glob.glob(f"{args.train}/*.npz")))]
     test_rows = load(sorted(glob.glob(f"{args.test}/*.npz")))
     test = [prepare(r, args.wind_aware) for r in test_rows]
     print(f"{len(train)} training samples, {len(test)} test; prepared in {time.perf_counter() - t0:.0f} s", flush=True)
-    mx.random.seed(args.seed)
     rng = np.random.default_rng(args.seed)
-    net = FireUNet(cin=F.N_CHANNELS_WIND if args.wind_aware else F.N_CHANNELS)
-    mx.eval(net.parameters())
-    n_params = sum(v.size for _, v in tree_flatten(net.parameters()))
+    cin = F.N_CHANNELS_WIND if args.wind_aware else F.N_CHANNELS
     probe = np.random.default_rng(1)
     steps = args.epochs * len(batches([shape_of(window(s, probe)) for s in train], args.batch, probe))
-    opt = optim.AdamW(learning_rate=optim.cosine_decay(args.lr, steps), weight_decay=1e-4)
-    loss_and_grad = nn.value_and_grad(net, loss_fn)
-    print(f"{n_params:,} parameters", flush=True)
-    state = [net.state, opt.state]
-
-    def train_step(x, y, m):
-        loss, grads = loss_and_grad(net, x, y, m)
-        grads, _ = optim.clip_grad_norm(grads, 1.0)
-        opt.update(net, grads)
-        return loss
-
-    if not args.no_compile:
-        train_step = partial(mx.compile, inputs=state, outputs=state)(train_step)
+    if args.max_steps:
+        steps = min(steps, args.epochs * args.max_steps)
+    trainer = backends.make(backend, cin, args.lr, steps, args.seed, args.device,
+                            compile=args.torch_compile if backend == "torch" else not args.no_compile, amp=args.amp)
+    dev = trainer.info
+    print(f"training with {backend} on {dev['device']} ({dev['backend']}); {trainer.n_params:,} parameters", flush=True)
     history = []
-    pool = ThreadPoolExecutor(BUILDERS)
+    pool = ThreadPoolExecutor(args.builders)
     for epoch in range(args.epochs):
-        net.train()
+        trainer.train()
         t0, total, count = time.perf_counter(), 0.0, 0
         wins = [window(s, rng) for s in train]
         order = batches([shape_of(w) for w in wins], args.batch, rng)
@@ -227,22 +219,22 @@ def main() -> None:
             order = order[: args.max_steps]
         flips = [[(bool(rng.integers(2)), bool(rng.integers(2))) for _ in b] for b in order]
         make = lambda k: tensors([train[i] for i in order[k]], [wins[i] for i in order[k]], flips[k])  # noqa: E731
-        for x, y, m in prefetched(make, range(len(order)), pool):
-            loss = train_step(x, y, m)
-            mx.eval(state, loss)
-            total, count = total + float(loss), count + 1
+        for x, y, m in prefetched(make, range(len(order)), pool, ahead=2 * args.builders):
+            total, count = total + trainer.step(x, y, m), count + 1
             if count % 100 == 0:
                 print(f"epoch {epoch + 1} step {count}: loss {total / count:.4f} ({time.perf_counter() - t0:.0f} s)", flush=True)
         train_s = time.perf_counter() - t0
-        net.eval()
-        ev = evaluate(net, test, test_rows)
+        trainer.eval()
+        ev = evaluate(trainer, test, test_rows)
         history.append({"epoch": epoch + 1, "train_bce": total / count, **ev})
         print(json.dumps({**history[-1], "train_seconds": round(train_s), "seconds": round(time.perf_counter() - t0)}),
               flush=True)
-        net.save_weights(args.out)
+        trainer.save(args.out)
     with open(args.out.replace(".safetensors", ".json"), "w") as f:
-        json.dump({"parameters": n_params, "trained_on": dev, "train_samples": len(train), "test_samples": len(test),
+        json.dump({"parameters": trainer.n_params, "framework": backend, "trained_on": dev,
+                   "train_samples": len(train), "test_samples": len(test),
                    "epochs": args.epochs, "batch": args.batch, "lr": args.lr, "seed": args.seed,
+                   "amp": bool(args.amp and backend == "torch"),
                    "train_data": args.train, "test_data": args.test,
                    "wind_aware": args.wind_aware,
                    "input_channels": F.N_CHANNELS_WIND if args.wind_aware else F.N_CHANNELS,

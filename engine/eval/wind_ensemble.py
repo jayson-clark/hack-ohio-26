@@ -61,16 +61,25 @@ TUNE = {
     "shifts 1/h": {"wind_model": WindScenarios(shift_rate_per_h=1.0)},
 }
 FINAL = {"constant": {}, "ensemble": {"wind_model": WindScenarios()}}
+# --explore: the 1/h shift rate, looked at only after the held-out result for
+# the selected 0.25/h setting was known. Exploratory, not a validated choice:
+# it was not selected by the tuning rule, and these are the same seeds 4-11.
+EXPLORE_RATE = 1.0
+EXPLORE = {"ensemble 1/h (exploratory)": {"wind_model": WindScenarios(shift_rate_per_h=EXPLORE_RATE)}}
 PHASES = {"tune": (TUNE, range(0, 4)), "final": (FINAL, range(4, 12))}
 THETAS = np.linspace(-0.2, 1.0, 1201)
 
 
-def emulator_forecasters() -> dict:
-    """The two emulators as eval forecasters (snapshot -> rounded probability)."""
+def emulator_forecasters(explore: bool = False) -> dict:
+    """The emulators as eval forecasters (snapshot -> rounded probability).
+    The wind-aware one is told the wind setting it stands in for."""
     from emulator.model import WEIGHTS, WIND_WEIGHTS, Emulator
 
+    spec = [("U-Net original", WEIGHTS, None), ("U-Net wind-aware", WIND_WEIGHTS, WindScenarios())]
+    if explore:
+        spec.append(("U-Net wind-aware 1/h (exploratory)", WIND_WEIGHTS, WindScenarios(shift_rate_per_h=EXPLORE_RATE)))
     out = {}
-    for name, path, wm in (("U-Net original", WEIGHTS, None), ("U-Net wind-aware", WIND_WEIGHTS, WindScenarios())):
+    for name, path, wm in spec:
         emu = Emulator(path, wind_model=wm)
         out[name] = lambda snap, emu=emu: np.round(emu.forecast(snap) * 256) / 256
     return out
@@ -214,12 +223,16 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--dtaci", action="store_true", help="also replay the DtACI-inspired controller")
     p.add_argument("--emulators", action="store_true", help="also the original and wind-aware U-Nets (#229)")
+    p.add_argument("--explore", action="store_true",
+                   help="phase final: also the 1/h shift rate, exploratory (chosen after seeing held-out results)")
     p.add_argument("--cache", help="pickle of recorded episodes for this phase: reused if present")
     p.add_argument("--out")
     p.add_argument("--json")
     args = p.parse_args()
     forecasters, seeds = PHASES[args.phase]
-    eps = None
+    if args.explore:
+        forecasters = forecasters | EXPLORE
+    eps: list[cc.Episode] = []
     if args.cache:
         try:
             with open(args.cache, "rb") as f:
@@ -227,26 +240,34 @@ def main() -> None:
             print(f"loaded {len(eps)} episodes from {args.cache}")
         except FileNotFoundError:
             pass
-    if eps is None:
-        jobs = [(s, seed, args.ticks, args.every, N_ROLLOUTS, forecasters) for s in SCHEDULES for seed in seeds]
-        print(f"recording {len(jobs)} fires x {len(forecasters)} forecasters on {args.workers} workers")
-        with ProcessPoolExecutor(args.workers) as pool:
-            eps = [e for group in pool.map(_job, jobs) for e in group]
+
+    def save():
         if args.cache:
             with open(args.cache, "wb") as f:
                 pickle.dump(eps, f)
+
+    # Record only the forecasters the cache lacks; every one sees the same seeded fires.
+    have = {e.forecaster for e in eps}
+    missing = {k: v for k, v in forecasters.items() if k not in have}
+    if missing:
+        jobs = [(s, seed, args.ticks, args.every, N_ROLLOUTS, missing) for s in SCHEDULES for seed in seeds]
+        print(f"recording {len(jobs)} fires x {len(missing)} forecasters on {args.workers} workers", flush=True)
+        with ProcessPoolExecutor(args.workers) as pool:
+            eps += [e for group in pool.map(_job, jobs) for e in group]
+        save()
     names = list(forecasters)
     if args.emulators:
-        emus = emulator_forecasters()
+        emus = emulator_forecasters(args.explore)
         names += list(emus)
-        if not any(e.forecaster in emus for e in eps):
-            print(f"recording {len(SCHEDULES) * len(seeds)} fires x {len(emus)} emulators in this process", flush=True)
+        todo = {k: v for k, v in emus.items() if k not in have}
+        if todo:
+            print(f"recording {len(SCHEDULES) * len(seeds)} fires x {len(todo)} emulators in this process", flush=True)
             for sched in SCHEDULES:
                 for seed in seeds:
-                    eps += cc.record(sched, seed, args.ticks, args.every, N_ROLLOUTS, forecasters=emus)
-            if args.cache:
-                with open(args.cache, "wb") as f:
-                    pickle.dump(eps, f)
+                    t0 = time.perf_counter()
+                    eps += cc.record(sched, seed, args.ticks, args.every, N_ROLLOUTS, forecasters=todo)
+                    print(f"  recorded {sched} seed {seed} ({time.perf_counter() - t0:.0f} s)", flush=True)
+            save()
     methods = ["static", "aci"] + (["dtaci"] if args.dtaci else [])
     summary = summarize(eps, names, methods, N_ROLLOUTS)
     text = report(summary, args.phase, f"{seeds.start}-{seeds.stop - 1}", methods)

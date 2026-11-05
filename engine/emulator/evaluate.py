@@ -104,9 +104,14 @@ def main() -> None:
     p.add_argument("--device", default="auto", choices=("auto", "gpu", "cpu"))
     p.add_argument("--compare", action="store_true", help="four predictors vs both targets on a --wind-aware test set")
     args = p.parse_args()
-    from emulator import device as D
+    try:  # MLX on a Mac; elsewhere the emulator runs on PyTorch (emulator.model.Emulator)
+        from emulator import device as D
 
-    dev = D.select(args.device)
+        dev = D.select(args.device)
+    except ImportError:
+        from emulator import torch_model as T
+
+        dev = T.describe(T.device(args.device))
     if args.compare:
         out = compare(load(sorted(glob.glob(f"{args.test}/*.npz"))))
         out["device"] = dev

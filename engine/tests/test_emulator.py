@@ -235,3 +235,109 @@ def test_wind_aware_emulator_loads_and_forecasts(tmp_path):
     p = emu.forecast(snap)
     assert p.shape == (2, *snap.state.shape) and (p[1] >= p[0] - 1e-6).all()
     assert (p[:, snap.state >= BURNING] == 1).all()
+
+
+# --- Training backends: MLX (Metal) and PyTorch (CUDA) ---------------------------------
+
+def test_weights_file_round_trips_and_converts_layouts(tmp_path):
+    from emulator import weights_io
+
+    rng = np.random.default_rng(0)
+    t = {"e1.a.weight": rng.random((32, 3, 3, 18), np.float32), "e1.a.bias": rng.random(32, np.float32)}
+    weights_io.write(tmp_path / "w.safetensors", t)
+    back = weights_io.read(tmp_path / "w.safetensors")
+    assert set(back) == set(t) and all(np.array_equal(back[k], t[k]) for k in t)
+    torch_layout = weights_io.to_torch(back)
+    assert torch_layout["e1.a.weight"].shape == (32, 18, 3, 3)
+    assert np.array_equal(weights_io.to_mlx(torch_layout)["e1.a.weight"], t["e1.a.weight"])
+
+
+def test_pytorch_unet_matches_mlx_unet_on_the_same_weights(tmp_path):
+    import pytest
+
+    pytest.importorskip("mlx.core")
+    torch = pytest.importorskip("torch")
+    import mlx.core as mx
+
+    from emulator import torch_model as T
+    from emulator import weights_io
+    from emulator.model import FireUNet
+
+    for cin in (F.N_CHANNELS, F.N_CHANNELS_WIND):
+        net = FireUNet(cin=cin)
+        mx.eval(net.parameters())
+        path = tmp_path / f"w{cin}.safetensors"
+        net.save_weights(str(path))
+        ours = weights_io.read(path)
+        assert all(np.array_equal(ours[k], np.array(v)) for k, v in mx.load(str(path)).items())
+        tn = T.FireUNet(cin=cin)
+        T.load(tn, path)
+        tn.eval()
+        x = np.random.default_rng(cin).random((2, cin, 64, 48)).astype(np.float32)
+        a = np.array(net(mx.array(x.transpose(0, 2, 3, 1)))).transpose(0, 3, 1, 2)
+        b = tn(torch.from_numpy(x)).detach().numpy()
+        assert np.abs(a - b).max() < 1e-4  # float rounding only
+        T.save(tn, tmp_path / "back.safetensors")  # and back into MLX's layout
+        net2 = FireUNet(cin=cin)
+        net2.load_weights(str(tmp_path / "back.safetensors"))
+        c = np.array(net2(mx.array(x.transpose(0, 2, 3, 1)))).transpose(0, 3, 1, 2)
+        assert np.abs(c - b).max() < 1e-4
+
+
+def _tiny_wind_data(tmp_path, monkeypatch):
+    from emulator import data
+
+    monkeypatch.setattr(data, "LABEL_ROLLOUTS", 4)
+    d = tmp_path / "data"
+    d.mkdir()
+    seeds = [s for s in range(40) if data.sample(s) is not None][:3]
+    assert data._shard((str(d), 0, seeds, False, True))
+    return d
+
+
+def _train(argv, monkeypatch):
+    import sys
+
+    from emulator import train
+
+    monkeypatch.setattr(sys, "argv", ["emulator.train", *argv])
+    train.main()
+
+
+def test_training_runs_on_each_backend_and_weights_load_in_either(tmp_path, monkeypatch):
+    """A couple of steps per backend (on the CPU): the run writes MLX-layout
+    weights and a sidecar, and either framework's Emulator loads them and
+    gives the same forecast."""
+    import json
+
+    import pytest
+
+    from emulator.model import Emulator
+
+    d = _tiny_wind_data(tmp_path, monkeypatch)
+    have = [b for b, mod in (("mlx", "mlx.core"), ("torch", "torch")) if _importable(mod)]
+    if not have:
+        pytest.skip("neither MLX nor PyTorch installed")
+    snap = burning_sim().snapshot()
+    for backend in have:
+        out = tmp_path / f"{backend}.safetensors"
+        _train(["--backend", backend, "--device", "cpu", "--wind-aware", "--train", str(d), "--test", str(d),
+                "--epochs", "1", "--batch", "2", "--max-steps", "2", "--out", str(out), "--builders", "1"], monkeypatch)
+        meta = json.loads(out.with_suffix(".json").read_text())
+        assert meta["framework"] == backend and meta["wind_aware"] and meta["input_channels"] == F.N_CHANNELS_WIND
+        assert np.isfinite(meta["history"][0]["train_bce"])
+        with pytest.raises(SystemExit):  # never overwrites weights by accident
+            _train(["--backend", backend, "--device", "cpu", "--wind-aware", "--train", str(d), "--test", str(d),
+                    "--epochs", "1", "--out", str(out)], monkeypatch)
+        preds = [Emulator(out, backend=b).forecast(snap) for b in have]
+        assert preds[0].shape == (2, *snap.state.shape)
+        assert all(np.abs(p - preds[0]).max() < 1e-4 for p in preds)
+
+
+def _importable(mod: str) -> bool:
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(mod) is not None
+    except ModuleNotFoundError:
+        return False
