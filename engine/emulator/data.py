@@ -20,6 +20,19 @@ the nominal constants.
     cd engine && uv run python -m emulator.data --samples 6000 --out emulator/data/train
     cd engine && uv run python -m emulator.data --samples 400 --out emulator/data/test --seed 1 --with-32
 
+Wind-aware data (#229): with --wind-aware, each sample draws its own
+future-wind uncertainty (WIND_PRIOR: abrupt-shift rate, direction and speed
+wander; ZERO_SHARE of samples none), and its label is the forecast under
+forecast.wind.WindScenarios at that uncertainty: each rollout follows its own
+wind path from the wind at issue. The uncertainty is stored ("wind_model")
+and becomes the model's 3 extra inputs; samples with none get exactly the
+original label. Test sets (--with-32) also store the constant-wind label
+("label_const") and 32-rollout forecasts of both kinds ("p32", "p32_wind"),
+so every predictor can be scored against both targets.
+
+    cd engine && uv run python -m emulator.data --wind-aware --samples 3000 --out emulator/data/train_wind --seed 2
+    cd engine && uv run python -m emulator.data --wind-aware --samples 400 --out emulator/data/test_wind --seed 3 --with-32
+
 Shards are .npz files of compact arrays (uint8 grids). Inputs are rebuilt
 from them at load time (features.inputs), so the format doesn't change when
 the features do.
@@ -36,6 +49,7 @@ import numpy as np
 
 from emulator.features import HORIZONS, SUP_TICKS
 from forecast.rollout import WindSpread
+from forecast.wind import WindScenarios
 from forecast.runner import run_forecast
 from protocol import Token, TokenSource, TokenType
 from scenario import load_scenario
@@ -52,6 +66,12 @@ SHARD = 100  # samples per file
 C2_RANGE = (0.22, 0.4)
 P_H_SCALE = (0.85, 1.15)
 LABEL_WIND = WindSpread()  # each rollout's wind: +/-20% speed, +/-15 deg
+# Wind-aware data (#229): the range of future-wind uncertainty a sample's
+# label may be simulated under (uniform per sample), with the other
+# WindScenarios settings at their defaults. Covers the engine's default
+# (forecast.wind) and settings either side of it.
+WIND_PRIOR = {"shift_rate_per_h": (0.0, 1.0), "dir_sd_deg": (5.0, 30.0), "speed_sd": (0.05, 0.3)}
+ZERO_SHARE = 0.2  # samples labelled at constant wind (the original label)
 
 _cache: dict = {}
 
@@ -98,7 +118,13 @@ def _schedule(state, w, h, rng, wind_from: float) -> SuppressionSchedule:
     return SuppressionSchedule(static, layers)
 
 
-def sample(seed: int, with_32: bool = False) -> dict | None:
+def draw_wind_model(rng) -> WindScenarios | None:
+    if rng.random() < ZERO_SHARE:
+        return None
+    return WindScenarios(**{k: float(rng.uniform(*r)) for k, r in WIND_PRIOR.items()})
+
+
+def sample(seed: int, with_32: bool = False, wind_aware: bool = False) -> dict | None:
     rng = np.random.default_rng(seed)
     name = rng.choice(list(SCENARIOS), p=list(SCENARIOS.values()))
     scen, layers = _scenario(name)
@@ -124,7 +150,11 @@ def sample(seed: int, with_32: bool = False) -> dict | None:
     sched = _schedule(sim.state, w, h, rng, wind.from_deg)
     snap = replace(sim.snapshot(), suppression=sched.at(0), schedule=sched)
     c2, ph = float(rng.uniform(*C2_RANGE)), float(rng.uniform(*P_H_SCALE))
-    label = _label(snap, c2, ph, int(rng.integers(1 << 31)))
+    label_seed = int(rng.integers(1 << 31))
+    # Drawn after everything the original data drew, so the same seed gives
+    # the same fire, tokens and constants with or without --wind-aware.
+    wm = draw_wind_model(rng) if wind_aware else None
+    label = _label(snap, c2, ph, label_seed, wm)
     out = {
         "scenario": name,
         "state": snap.state.astype(np.uint8),
@@ -134,26 +164,38 @@ def sample(seed: int, with_32: bool = False) -> dict | None:
         "label": np.round(label * 255).astype(np.uint8),
         "model": np.array([c2, ph], np.float32),  # the label's C2 and P_H scale
     }
+    if wind_aware:
+        from emulator.features import wind_code
+
+        out["wind_model"] = wind_code(wm)
     if with_32:  # what the live engine shows, to compare the emulator with
-        out["p32"] = np.round(run_forecast(snap, seed=int(rng.integers(1 << 31))).probability * 255).astype(np.uint8)
+        s32 = int(rng.integers(1 << 31))
+        out["p32"] = np.round(run_forecast(snap, seed=s32, wind_model=None).probability * 255).astype(np.uint8)
+        if wind_aware:
+            q = lambda a: np.round(a * 255).astype(np.uint8)  # noqa: E731
+            out["p32_wind"] = q(run_forecast(snap, seed=s32, wind_model=wm).probability)
+            out["label_const"] = out["label"] if wm is None else q(_label(snap, c2, ph, label_seed, None))
     return out
 
 
-def _label(snap, c2: float, ph: float, seed: int) -> np.ndarray:
+def _label(snap, c2: float, ph: float, seed: int, wind_model: WindScenarios | None = None) -> np.ndarray:
     """The forecast under one draw of the model's constants (P_H scales the
-    precomputed spread layers; C2 is read when wind factors are computed)."""
+    precomputed spread layers; C2 is read when wind factors are computed).
+    Per-rollout wind: LABEL_WIND, or wind paths under `wind_model`."""
     noisy = replace(snap, layers=replace(snap.layers, spread=snap.layers.spread * np.float32(ph)))
     nominal = fire_model.C2
     fire_model.C2 = c2
     try:
-        return run_forecast(noisy, n=LABEL_ROLLOUTS, seed=seed, wind_spread=LABEL_WIND).probability
+        if wind_model is None:
+            return run_forecast(noisy, n=LABEL_ROLLOUTS, seed=seed, wind_spread=LABEL_WIND, wind_model=None).probability
+        return run_forecast(noisy, n=LABEL_ROLLOUTS, seed=seed, wind_spread=None, wind_model=wind_model).probability
     finally:
         fire_model.C2 = nominal
 
 
 def _shard(args) -> str | None:
-    out_dir, index, seeds, with_32 = args
-    rows = [s for s in (sample(int(seed), with_32) for seed in seeds) if s is not None]
+    out_dir, index, seeds, with_32, wind_aware = args
+    rows = [s for s in (sample(int(seed), with_32, wind_aware) for seed in seeds) if s is not None]
     if not rows:
         return None
     path = Path(out_dir) / f"shard-{index:04d}.npz"
@@ -175,7 +217,8 @@ def load(paths) -> list[dict]:
         z = np.load(p)
         for i in range(int(z["n"])):
             row = {"scenario": str(z["scenario"][i])}
-            for key in ("state", "burn_left", "wind", "sup", "label", "p32", "model"):
+            for key in ("state", "burn_left", "wind", "sup", "label", "p32", "model", "wind_model", "p32_wind",
+                        "label_const"):
                 if f"{key}_{i}" in z:
                     row[key] = z[f"{key}_{i}"]
             out.append(row)
@@ -189,10 +232,14 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     p.add_argument("--with-32", action="store_true", help="also store a 32-rollout forecast (test sets)")
+    p.add_argument("--wind-aware", action="store_true", help="labels under future-wind scenarios (#229)")
     args = p.parse_args()
+    if Path(args.out).exists() and any(Path(args.out).glob("*.npz")):
+        raise SystemExit(f"{args.out} already has shards; pick a new --out rather than mixing datasets")
     Path(args.out).mkdir(parents=True, exist_ok=True)
     seeds = np.random.default_rng(args.seed).integers(1 << 62, size=args.samples)
-    jobs = [(args.out, i, seeds[j : j + SHARD], args.with_32) for i, j in enumerate(range(0, args.samples, SHARD))]
+    jobs = [(args.out, i, seeds[j : j + SHARD], args.with_32, args.wind_aware)
+            for i, j in enumerate(range(0, args.samples, SHARD))]
     done = 0
     with ProcessPoolExecutor(args.workers) as pool:
         for path in pool.map(_shard, jobs):

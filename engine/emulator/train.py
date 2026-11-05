@@ -2,6 +2,13 @@
 
     cd engine && uv run --extra ml python -m emulator.train --epochs 15
     cd engine && uv run --extra ml python -m emulator.train --device cpu   # force a device
+    cd engine && uv run --extra ml python -u -m emulator.train --wind-aware \
+        --train emulator/data/train_wind --test emulator/data/test_wind      # -> weights/fire_emulator_wind.* (#229)
+
+--wind-aware trains the wind-aware model: the same U-Net with 3 more input
+planes (the label's future-wind uncertainty, features.wind_code) on
+emulator.data --wind-aware shards. It writes its own weights file and never
+overwrites an existing one unless --overwrite is given.
 
 It trains on whatever GPU MLX finds (emulator/device.py): Metal on Apple
 silicon, or CUDA on an NVIDIA machine with mlx[cuda]; otherwise the CPU.
@@ -44,7 +51,7 @@ from mlx.utils import tree_flatten
 from emulator import device as D
 from emulator import features as F
 from emulator.data import _scenario, load
-from emulator.model import WEIGHTS, FireUNet, pad_to
+from emulator.model import WEIGHTS, WIND_WEIGHTS, FireUNet, pad_to
 from sim.fire import BURNING, Wind
 
 WINDOW = 256  # cells: on bigger maps, train on a square this size around the fire
@@ -52,11 +59,17 @@ REACH = max(F.HORIZONS) + 16  # the fire's reach by the longest horizon, plus co
 BUILDERS = 4  # threads building batches ahead of the GPU
 
 
-def prepare(r: dict) -> dict:
-    """A sample with its loss mask (computed once) and the fire's bounding box."""
+def prepare(r: dict, wind_aware: bool = False) -> dict:
+    """A sample with its loss mask (computed once) and the fire's bounding box.
+    For the wind-aware model, also its wind-uncertainty planes' values."""
     _, open_ = F.masks(r["state"])
     ys, xs = np.nonzero(r["state"] >= BURNING)
-    return {"row": r, "m": open_, "box": (ys.min(), ys.max(), xs.min(), xs.max())}
+    out = {"row": r, "m": open_, "box": (ys.min(), ys.max(), xs.min(), xs.max())}
+    if wind_aware:
+        if "wind_model" not in r:
+            raise SystemExit("--wind-aware needs emulator.data --wind-aware shards (no wind_model in this data)")
+        out["wind_unc"] = r["wind_model"]
+    return out
 
 
 def window(s: dict, rng: np.random.Generator | None = None) -> tuple[slice, slice]:
@@ -88,7 +101,7 @@ def piece(s: dict, win: tuple[slice, slice]) -> tuple[np.ndarray, np.ndarray, np
     r, (ys, xs) = s["row"], win
     _, layers = _scenario(r["scenario"])
     x = F.inputs(r["state"][ys, xs], r["burn_left"][ys, xs], layers.spread[:, ys, xs],
-                 Wind(*map(float, r["wind"])), r["sup"][:, ys, xs] / 255.0)
+                 Wind(*map(float, r["wind"])), r["sup"][:, ys, xs] / 255.0, s.get("wind_unc"))
     return x, r["label"][:, ys, xs] / 255.0, s["m"][:, ys, xs]
 
 
@@ -164,19 +177,28 @@ def main() -> None:
     p.add_argument("--lr", type=float, default=1.5e-3)
     p.add_argument("--no-compile", action="store_true", help="run the training step uncompiled")
     p.add_argument("--max-steps", type=int, default=0, help="stop each epoch after this many steps (timing runs)")
-    p.add_argument("--out", default=str(WEIGHTS))
+    p.add_argument("--out", help=f"weights file (default {WEIGHTS.name}, or {WIND_WEIGHTS.name} with --wind-aware)")
+    p.add_argument("--wind-aware", action="store_true", help="train the wind-aware model (#229)")
+    p.add_argument("--overwrite", action="store_true", help="allow replacing an existing weights file")
+    p.add_argument("--seed", type=int, default=0, help="shuffling, windows and flips")
     p.add_argument("--device", default="auto", choices=("auto", "gpu", "cpu"),
                    help="auto: Metal or CUDA GPU if MLX has one, else CPU")
     args = p.parse_args()
+    args.out = args.out or str(WIND_WEIGHTS if args.wind_aware else WEIGHTS)
+    from pathlib import Path
+
+    if Path(args.out).exists() and not args.overwrite:
+        raise SystemExit(f"{args.out} exists; pass --overwrite or a new --out (keeps the baseline weights safe)")
     dev = D.select(args.device)
     print(f"training on {D.describe(dev)}", flush=True)
     t0 = time.perf_counter()
-    train = [prepare(r) for r in load(sorted(glob.glob(f"{args.train}/*.npz")))]
+    train = [prepare(r, args.wind_aware) for r in load(sorted(glob.glob(f"{args.train}/*.npz")))]
     test_rows = load(sorted(glob.glob(f"{args.test}/*.npz")))
-    test = [prepare(r) for r in test_rows]
+    test = [prepare(r, args.wind_aware) for r in test_rows]
     print(f"{len(train)} training samples, {len(test)} test; prepared in {time.perf_counter() - t0:.0f} s", flush=True)
-    rng = np.random.default_rng(0)
-    net = FireUNet()
+    mx.random.seed(args.seed)
+    rng = np.random.default_rng(args.seed)
+    net = FireUNet(cin=F.N_CHANNELS_WIND if args.wind_aware else F.N_CHANNELS)
     mx.eval(net.parameters())
     n_params = sum(v.size for _, v in tree_flatten(net.parameters()))
     probe = np.random.default_rng(1)
@@ -220,7 +242,10 @@ def main() -> None:
         net.save_weights(args.out)
     with open(args.out.replace(".safetensors", ".json"), "w") as f:
         json.dump({"parameters": n_params, "trained_on": dev, "train_samples": len(train), "test_samples": len(test),
-                   "epochs": args.epochs, "batch": args.batch,
+                   "epochs": args.epochs, "batch": args.batch, "lr": args.lr, "seed": args.seed,
+                   "train_data": args.train, "test_data": args.test,
+                   "wind_aware": args.wind_aware,
+                   "input_channels": F.N_CHANNELS_WIND if args.wind_aware else F.N_CHANNELS,
                    "history": history}, f, indent=2)
 
 

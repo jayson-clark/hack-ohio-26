@@ -175,7 +175,7 @@ def screen(snapshot, p30, towns, masks, emulator, eta=None, k: int = N_CANDIDATE
     from emulator.features import SUP_TICKS, from_snapshot
 
     h, w = snapshot.state.shape
-    base = from_snapshot(snapshot)
+    base = emulator.inputs(snapshot) if hasattr(emulator, "inputs") else from_snapshot(snapshot)
     batch = np.repeat(base[None], len(pool) + 1, axis=0)
     for i, (x, y) in enumerate(pool, start=1):
         layer = crew_layer(w, h, x, y, t_on=_arrival(eta, x, y)[0], wind_from=snapshot.wind.from_deg)

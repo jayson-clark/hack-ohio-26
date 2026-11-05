@@ -155,3 +155,83 @@ def test_emulator_off_switch(monkeypatch):
     for value in ("", "on", "1"):
         monkeypatch.setenv("EMULATOR", value)
         assert not model.disabled()
+
+
+# --- Wind-aware emulator (#229) --------------------------------------------------------
+
+def test_wind_planes_extend_the_inputs_without_touching_the_rest():
+    from forecast.wind import WindScenarios
+
+    snap = burning_sim().snapshot()
+    sup = np.zeros((4, *snap.state.shape), np.float32)
+    base = F.inputs(snap.state, snap.burn_left, snap.layers.spread, snap.wind, sup)
+    m = WindScenarios(shift_rate_per_h=0.5, dir_sd_deg=15.0, speed_sd=0.15)
+    code = F.wind_code(m)
+    assert np.allclose(code, [0.5, 0.5, 0.5]) and np.array_equal(F.wind_code(None), np.zeros(3))
+    x = F.inputs(snap.state, snap.burn_left, snap.layers.spread, snap.wind, sup, code)
+    assert base.shape[0] == F.N_CHANNELS and x.shape[0] == F.N_CHANNELS_WIND
+    assert np.array_equal(x[: F.N_CHANNELS], base)  # the original channels are unchanged
+    assert all(np.all(x[F.N_CHANNELS + i] == code[i]) for i in range(3))  # constant planes
+    # Flips leave the (isotropic) planes alone and still swap the directional channels.
+    f = F.flip(x, True, False)
+    assert np.array_equal(f[F.N_CHANNELS:], x[F.N_CHANNELS:])
+    assert np.allclose(f[: F.N_CHANNELS], F.flip(base, True, False))
+
+
+def _cheap_labels(monkeypatch):
+    from emulator import data
+
+    monkeypatch.setattr(data, "LABEL_ROLLOUTS", 4)
+    return data
+
+
+def test_wind_aware_samples_are_reproducible_and_keep_the_original_fire(monkeypatch):
+    data = _cheap_labels(monkeypatch)
+    seed = next(s for s in range(50) if data.sample(s) is not None)
+    a = data.sample(seed, with_32=True, wind_aware=True)
+    b = data.sample(seed, with_32=True, wind_aware=True)
+    orig = data.sample(seed)
+    for k in ("state", "label", "wind_model", "p32", "p32_wind", "label_const"):
+        assert np.array_equal(a[k], b[k]), k  # reproducible
+    # Same fire, tokens and wind at issue as the original data for this seed.
+    for k in ("state", "burn_left", "wind", "sup", "model"):
+        assert np.array_equal(a[k], orig[k]), k
+    assert np.array_equal(a["label_const"], orig["label"])  # the constant-wind target is the original label
+    assert a["label"].shape == a["p32_wind"].shape == (2, *a["state"].shape)
+    assert a["wind_model"].shape == (3,) and (a["wind_model"] >= 0).all()
+
+
+def test_zero_uncertainty_samples_get_the_original_label(monkeypatch):
+    data = _cheap_labels(monkeypatch)
+    for seed in range(200):
+        a = data.sample(seed, wind_aware=True)
+        if a is not None and not a["wind_model"].any():
+            assert np.array_equal(a["label"], data.sample(seed)["label"])
+            return
+    raise AssertionError("no zero-uncertainty sample in 200 seeds")
+
+
+def test_wind_aware_emulator_loads_and_forecasts(tmp_path):
+    """Untrained weights in the wind-aware layout load from their sidecar,
+    build 18-channel inputs and give engine-shaped forecasts."""
+    import json
+
+    import pytest
+
+    pytest.importorskip("mlx.core")
+    import mlx.core as mx
+
+    from emulator.model import Emulator, FireUNet
+    from forecast.wind import WindScenarios
+
+    path = tmp_path / "wind.safetensors"
+    net = FireUNet(cin=F.N_CHANNELS_WIND)
+    mx.eval(net.parameters())
+    net.save_weights(str(path))
+    path.with_suffix(".json").write_text(json.dumps({"wind_aware": True, "input_channels": F.N_CHANNELS_WIND}))
+    snap = burning_sim().snapshot()
+    emu = Emulator(path, wind_model=WindScenarios())
+    assert emu.wind_aware and emu.inputs(snap).shape[0] == F.N_CHANNELS_WIND
+    p = emu.forecast(snap)
+    assert p.shape == (2, *snap.state.shape) and (p[1] >= p[0] - 1e-6).all()
+    assert (p[:, snap.state >= BURNING] == 1).all()
