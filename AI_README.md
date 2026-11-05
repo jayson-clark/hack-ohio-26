@@ -9,7 +9,7 @@ This page covers everything in the engine that forecasts, recommends, plans or t
 | Feature | What it is | Model | Where |
 |---|---|---|---|
 | Fire forecast | P(burn by T+30 / T+60) for every cell, plus a 10 h forecast for evacuation | Monte Carlo over the stochastic fire model (32 runs) | `forecast/rollout.py`, `forecast/runner.py`, `sim/fire.py` |
-| Calibrated burn outline | The forecast outline, adjusted so about 90% of new fire lands inside it | Online conformal risk control | `uq/conformal.py` (`EnvelopeLedger`) |
+| Calibrated burn outline | The forecast outline, adjusted so about 90% of new fire lands inside it | Online ACI on a conformal-risk-control (CRC) style missed-area loss | `uq/conformal.py` (`EnvelopeLedger`) |
 | Town arrival ranges | "Fire likely arrives in 25–40 min (90%)" | Online conformalized quantiles (CQR) | `uq/conformal.py` (`ArrivalCalibrator`) |
 | Evacuation routes | The best way out per town, avoiding roads that will burn by the time traffic gets there | Dijkstra on a burn-risk cost | `routing/evac.py`, `routing/tracker.py` |
 | Evacuation order clock | When each town must be ordered out | Fluid traffic queue against forecast fire arrival | `routing/clearance.py` |
@@ -148,9 +148,9 @@ Every probability is a count over a few simulations, and a count over 32 runs is
 The raw forecast assumes the wind and the crews stay as they are. Players change both, so the raw outlines turn out overconfident. Two online calibrators check each forecast against what actually happened once its time comes, and adjust.
 
 **The calibrated burn outline (`EnvelopeLedger`).**
-- **The promise:** of the ground that newly burns in the next 30 or 60 min, at most 10% falls outside the outline, in the long run.
-- **How it works:** each outline is scored when its horizon passes, as burned area outside divided by burned area. One knob per horizon moves by `0.1 × (miss − 0.10)`. The knob is a probability cutoff, and when the cutoff can't go any lower it becomes a margin of extra cells, up to 10. This is adaptive conformal inference (ACI; Gibbs & Candès 2021) applied to a bounded loss (online conformal risk control).
-- **What kind of guarantee this is** (see "The guarantee, precisely" below): a finite-sample bound on the *average* miss over the forecasts scored so far, holding for any sequence of winds and player actions. It is not a promise about any single outline.
+- **The target:** of the ground that newly burns in the next 30 or 60 min, on average at most 10% falls outside the outline. This is an average share of *area*, not a promise that the whole fire stays inside (see "Average missed area is not containment" below).
+- **How it works:** each outline is scored when its horizon passes, as burned area outside divided by burned area. One knob per horizon moves by `0.1 × (miss − 0.10)`. The knob is a probability cutoff, and when the cutoff can't go any lower it becomes a margin of extra cells, up to 10. This is an adaptive conformal inference (ACI) controller run on a conformal-risk-control (CRC) style loss. The method, a multi-rate alternative that was tested, and what is and isn't guaranteed are in "How the outline is calibrated" below.
+- **What kind of guarantee this is:** a finite-sample bound on the *average* miss over the forecasts scored so far. It holds for any sequence of winds and player actions, provided the widest outline is wide enough. It is not a promise about any single outline.
 - **On screen:** the map's layers menu shows "Forecast outline: X% at 30 min, Y% at 60 min of new fire fell outside it lately (target 10%)", over the last 20 forecasts. It is highlighted when a recent miss rate is more than 5 points over target.
 - **Reading the numbers:** a recent miss rate well above 10% usually means the wind just changed. Expect the outline to widen over the next few forecasts.
 - **What it looks like** (`cd engine && uv run python -m eval.envelope_figure`: one Paradise fire on the 512 x 480 map, the wind swinging from north-east to west at minute 60, the engine's own forecaster and calibrator). On the map, the orange **fill** is where at least half the simulations have fire by T+60. That's the raw forecast, not calibrated. The dark orange **line** around it is the calibrated outline.
@@ -175,6 +175,155 @@ The raw forecast assumes the wind and the crews stay as they are. Players change
   All are inside the finite-sample bound below (about 10% + 3.7/T, so up to about 14% at these T). They sit 1–3 points over target because each run starts from the warm start and spends its first forecasts catching up.
 - **Per scenario:** the knob is learned per scenario and restarts from `ENVELOPE_WARM` when the scenario changes.
 
+#### How the outline is calibrated: CRC, ACI and DtACI
+
+**The loss: conformal risk control (CRC) style.** For a forecast issued at time t, let B_t be the ground that newly burns by its horizon and C_t the outline shown. The loss is the share of new fire the outline missed:
+
+```
+L_t = |B_t \ C_t| / |B_t|        (in [0, 1]; measured in area, so it means the same at any map resolution)
+```
+
+The target is an average L_t of α = 0.10. A forecast where nothing new burns (|B_t| = 0) gives 0/0. It carries no information about missed area, so it is counted (`empty`) and skipped.
+
+- **Why missed area:** an operator cares about how much new fire lands outside the line. One stray burning cell outside and half the head outside should not cost the same.
+- **Why not one conformal prediction per pixel:** cells of one fire aren't independent or exchangeable, because spread is contiguous, wind-driven and shared across the whole map. A per-pixel guarantee would hold over pixels pooled across all fires, which isn't a statement about this outline. The area loss is one bounded loss per forecast. It is monotone in the knob: lowering θ only ever adds cells. That is the setting CRC controls (Angelopoulos et al. 2024).
+- **What this is not:** CRC as published is a *split* method. It picks the knob from exchangeable calibration data and proves E[L_{n+1}] ≤ α for the next case. Here the knob is learned online from a stream that isn't exchangeable (the wind changes), so the CRC theorem does not apply. Only the loss is borrowed. The closest published method is online risk control (Feldman et al. 2023), which is ACI applied to a bounded risk.
+
+**Nested outlines and loss curves (`envelope_scores`, `ScoreMap`, `RiskCurve`).** Cutoff, then margin, makes the outlines nested in the knob θ. Each cell therefore has a score: the largest θ whose outline still holds it. For a cell with p ≥ 1/32 the score is p. For a cell d king moves outside that set, the score is just below 1/32 − (d − 1) × 0.02. It is −∞ beyond 10 cells. Then C(θ) = {score ≥ θ}, which matches the old cutoff-plus-dilation code exactly (tested). It also means a matured forecast's loss is known at *every* θ, not just the one shown, which gives three things:
+- each expert below can be scored on the same forecast;
+- the eval can replay any controller on recorded forecasts;
+- a forecast where even the widest outline (θ at its floor, 1/32 − 0.2) misses more than 10% is detected and counted (`infeasible`). So are outlines shown at the widest setting (`saturated`).
+
+**ACI, the controller in use (`OnlineEnvelope`, `method="aci"`).** Gibbs & Candès (2021) adjust a miscoverage level online. Here the same update runs on the knob, per horizon:
+
+```
+θ ← clip(θ − γ (L_t − α), θ_min, 1),        γ = 0.1,  θ_min = 1/32 − 10 × 0.02
+```
+
+Too many misses lower θ, which widens the outline. Feedback is delayed. A T+60 forecast is scored an hour after issue, with about 12 in flight at a forecast every 5 minutes. Each update uses the miss of the outline that was actually shown, and is applied to θ as it is when the score arrives.
+
+**Why one fixed step struggles under abrupt shifts.** One γ trades tracking speed against noise. A small γ is slow to widen after a regime change. A large γ is jumpy in steady wind. The delay makes this worse. After a shift, the hour of forecasts issued under the old wind all mature over the next hour. The controller keeps widening in response to them after the new forecasts, which already use the new wind, no longer need it. It then tightens back at the same fixed rate. The figure above shows this overshoot.
+
+**DtACI-inspired controller, tested but not the default (`DtACIEnvelope`, `method="dtaci"`).** Gibbs & Candès's DtACI (2024) runs k ACI experts with different step sizes and combines them with exponential weights. Here:
+
+- **Experts:** γ_i ∈ {0.0125, 0.025, 0.05, 0.1, 0.2, 0.4}. Each expert is the fixed-step controller with its own knob θ_i, updated on its own counterfactual miss:
+  `θ_i ← clip(θ_i − γ_i (L_s(θ_i(s)) − α), θ_min, 1)`.
+- **Shown knob:** θ = Σ_i w_i θ_i. This is the deterministic average, the paper's Algorithm 2. The outlines are nested, so any θ in range is a valid outline.
+- **Expert loss:** DtACI weights experts by the pinball loss, whose gradient is the ACI step. With a fractional loss, the analogue is the integrated risk
+
+  ```
+  f_s(θ) = ∫_{θ_min}^{θ} (L_s(u) − α) du
+  ```
+
+  This is convex because L_s is non-decreasing, and its gradient is L_s − α, the controller's own step. For a 0/1 loss it reduces to the pinball loss up to a constant. `RiskCurve.integral` computes it exactly.
+- **Weights:** with exponential weights and mixing as in DtACI (fixed share),
+  `w_i ← w_i · exp(−η f_s(θ_i(s)))`, then normalized, then `w_i ← (1 − σ) w_i + σ / k`.
+  - Defaults: σ = 1/(2I) with I = 20 forecasts. η is the standard fixed-share Hedge step for this loss's worst-case range B = 0.9 × (1 − θ_min): η = √(8 ln(2kI)/I) / B ≈ 1.4 (Herbster & Warmuth 1998; Cesa-Bianchi & Lugosi 2006).
+  - The paper's own practical setting was also run: I = 500, σ = 1/1000, and η = √(3/I) · √((log(kI) + 2)/((1 − α)² α²)) ≈ 2.7.
+- **Delay:** each matured forecast charges every expert for the knob it held *at issue*, θ_i(s). The step and the reweighting are applied to the current state. No outcome is used before its horizon has passed.
+- **Why it might help after wind shifts:** fast experts widen quickly in the burst of misses, and slow experts stay put. The weights could then move to whichever expert has been doing better lately, without committing to one rate.
+
+**Fixes made alongside (#227).**
+- *Late scoring:* a forecast that lands after its horizon has passed (slow worker, fast sim) used to be judged on everything burning at scoring time, including fire after its horizon. It is now judged on the engine's burn-tick map, at its own horizon (`mature(..., burn_tick)`).
+- *Ordering:* maturities are processed oldest first, ties broken by issue time.
+- *Reporting:* empty, saturated and infeasible forecasts are now counted.
+
+#### Statistical guarantees
+
+**Proven, for the ACI controller that is running.** The update telescopes. Write θ_1 for the warm start and T for the number of scored forecasts. Then, for any sequence of winds and actions, with any delays and in any scoring order:
+
+```
+(1/T) Σ_t L_t  ≤  α + (θ_1 − θ_min) / (γ T) + E_T / T
+```
+
+- E_T is the excess the floor clip absorbed. It is nonzero only on forecasts scored while θ sat at its widest *and* the miss exceeded α. So the bound is clean exactly when the widest outline is wide enough, and the `infeasible` count says when it wasn't.
+- At T+30 (θ_1 = 0.2) that is 10% + 3.7/T: within 10 points after 37 scored forecasts, within 1 point after 370.
+- It bounds the average over forecasts, each weighted equally, not area pooled across forecasts.
+- The same bound holds for each DtACI expert, but only for the losses its own knob *would have* produced.
+
+**Not proven: the DtACI-inspired controller's shown outline.** Gibbs & Candès prove two results for DtACI:
+- a long-run coverage bound (their Theorem 3.2), for the randomized Algorithm 1 with η_t and σ_t schedules;
+- an interval-regret bound on the pinball loss (Theorem 3.1), which extends to the averaged version (Corollary 3.1).
+
+Both are for 0/1 miscoverage, immediate feedback and unclipped levels, with assumptions on the γ grid. This controller changes the loss, the expert loss, the feedback timing and the clipping. None of those results is claimed for it. (An outer fixed-step correction on the shown loss would restore the telescoping bound; it was not added.)
+
+**Empirically supported** (simulator only, below): average miss near target in steady wind, and the size of the excess under shifts.
+
+**Not guaranteed, by either controller:**
+- any single outline;
+- coverage within a window, e.g. the hour after a shift;
+- coverage when the widest outline can't reach 10%;
+- anything about real fires (layer 3).
+
+**Average missed area is not containment.** "10% of new burning outside on average" does not mean "a 90% chance the whole fire stays inside." Most outlines have *some* fire outside them. With ACI in the eval, 86% of outlines missed something, the median missed 6%, one in ten missed over 36%, and a few missed everything. The target is about the share of area, averaged over forecasts. There is no per-forecast probability that the outline contains everything.
+
+#### Experimental results: fixed-rate ACI vs DtACI-inspired
+
+`eval.conformal_compare` records each episode's forecasts once, then replays every controller on the identical stream. This is fair: the outline never feeds back into the fire. A test checks that the replay gives the same misses as the live ledger.
+
+**Setup:**
+- Paradise, the engine's forecaster at 32 rollouts, a forecast every 5 min for 300 min.
+- 8 seeds (0–7) per schedule, the same seeds and ignitions for every controller.
+- Schedules:
+  - *steady*: 10 m/s throughout;
+  - *reversal*: 180° at minute 120;
+  - *surge*: 7 → 18 m/s at minute 120;
+  - *flipflop*: 180° every 30 min from minute 90;
+  - *gusty*: a new random speed and direction every 15 min.
+- In the surge schedule, the 2 seeds that start at the fourth ignition point burn out in the light wind before minute 120. Its post-surge numbers therefore come from 6 fires.
+- "static" is the warm start, never updated.
+
+Miss is the mean share of new fire outside the outline (target 10%). "Worst 30 min" is the worst run of 6 consecutive scored forecasts, as the console's recent rate would show it, averaged over fires. "vs oracle" is outline area over the area of the tightest outline that would have met 10% on each forecast, in hindsight: 1.0× is as tight as possible, below 1 is too tight.
+
+| Wind | T+30 miss: static / ACI / DtACI | T+60 miss: static / ACI / DtACI | T+60 worst 30 min: ACI / DtACI | T+60 area vs oracle: ACI / DtACI | T+60 shown at widest: ACI / DtACI |
+|---|---|---|---|---|---|
+| Steady | 10.9 / 9.3 / 9.4% | 7.6 / 8.2 / 8.2% | 24.0 / 23.3% | 1.16 / 1.09× | 0.8 / 0% |
+| Reversal | 12.0 / 9.8 / 10.6% | 11.6 / 10.5 / 10.8% | 51.6 / 51.9% | 1.27 / 1.08× | 1.2 / 0% |
+| Surge | 13.3 / 10.4 / 11.1% | 12.7 / 11.8 / 12.4% | 54.9 / 55.2% | 2.21 / 1.54× | 10.2 / 0% |
+| Flip-flop | 29.0 / 14.8 / 18.9% | 38.7 / 20.2 / 24.0% | 64.4 / 65.3% | 0.93 / 0.72× | 18.6 / 0% |
+| Gusty | 24.6 / 13.7 / 16.1% | 25.8 / 15.5 / 18.1% | 40.6 / 42.5% | 1.29 / 0.99× | 8.6 / 0% |
+
+**What this shows:**
+- **DtACI-inspired did not beat the baseline on the target.** It missed more in every shifting schedule, by 2.4–4 points under repeated changes. Its outlines were tighter, closer to the hindsight-tightest (0.7–1.5× against 0.9–2.2×), and it never sat at the widest setting.
+- **It did not recover faster.** Recovery is the minutes after the shift until the 30-min miss of outlines shown from then on stays within 15%. For the reversal it was 24 min for both at T+60 (static: 38). For the surge it was 28–29 min for all three.
+- **So the engine keeps the fixed-rate controller** (`METHOD = "aci"`). DtACI is one argument away (`EnvelopeLedger(..., method="dtaci")`).
+- **Why the weights didn't help:**
+  - With the worst-case η, the experts' per-forecast loss gaps (median ≈ 0.01) are about 100× below the range η is sized for. The weights stay near uniform, and the output is in effect a plain average of the six experts, whose slow members drag it in shifting wind.
+  - Raising η doesn't fix this. It was selected on seeds 0–3 only, over η × {1, 3, 10, 30, 100, 300}. T+60 miss rose from 14.7% to 16.6%, against the baseline's 13.3%. With an hour's delay, the weights chase whichever expert would have done well an hour ago.
+  - The paper's own setting (I = 500) gave 13.0% / 14.6% pooled, against ACI's 11.6% / 13.1%.
+
+**What actually drives the drop after a wind shift.** The table below uses no controller, only the warm-start cutoff. T+60 forecasts, pooled over fires:
+
+| | Issued in the hour *before* the shift ("stale") | Issued in the hour after ("fresh") |
+|---|---|---|
+| Reversal: miss at the warm cutoff | 26.7% | 10.8% |
+| Surge: miss at the warm cutoff | 45.1% | 9.4% |
+| Surge: widest outline still misses > 10% (cap 10 / 20 / 40 cells) | 58% / 29% / 0% of forecasts | 8% / 8% / 6% |
+
+- **The bad outlines are the ones already shown when the wind changed.** Forecasts made after the shift already use the new wind, and they are about on target before any calibration. The outlines that fail were made under the old wind, and their outcomes only arrive up to an hour later.
+- **No online calibrator can fix that, faster or not:** the shift isn't predictable from past misses. That's why every controller, static included, has about the same worst 30-minute window at T+60 (52% for the reversal, 54–55% for the surge).
+- **What the calibrator controls:**
+  - how wide it is *before* a shift, which it learns in regimes where shifts recur (flip-flop and gusty: 20% and 16% miss with ACI, against 39% and 26% static);
+  - how much it over-widens afterwards (ACI's 2.2× in the surge; DtACI's 1.5×).
+- **The 10-cell margin cap matters only for strong surges.** Raising it to 20 lowered ACI's pooled T+60 miss from 13.1% to 12.5% but grew outlines from 1.40× to 1.65× the hindsight-tightest, so the cap was left at 10.
+- **Fixing the shift itself needs a wind forecast,** or an outline that already prices in the chance of a shift. Calibration can't supply either.
+
+Full tables, including the per-horizon recovery times, the I and η sweeps and the cap-20 variants, are in `docs/conformal_compare.md`. Regenerate them with:
+
+```sh
+cd engine
+uv run python -m eval.conformal_compare --episodes 8 --cache /tmp/streams.pkl --out ../docs/conformal_compare.md
+# ~10 min to record on 6 workers; replaying a cached recording takes seconds
+```
+
+**References:**
+- A. N. Angelopoulos, S. Bates, A. Fisch, L. Lei, T. Schuster. *Conformal Risk Control.* ICLR 2024 (arXiv 2208.02814).
+- I. Gibbs, E. Candès. *Adaptive Conformal Inference Under Distribution Shift.* NeurIPS 2021 (arXiv 2106.00170).
+- I. Gibbs, E. Candès. *Conformal Inference for Online Prediction with Arbitrary Distribution Shifts.* arXiv 2208.08401 (2022; v3 2023). Algorithms 1–2, Theorems 3.1–3.2.
+- S. Feldman, L. Ringel, S. Bates, Y. Romano. *Achieving Risk Control in Online Learning Settings.* TMLR 2023.
+- M. Herbster, M. Warmuth. *Tracking the Best Expert.* Machine Learning 32, 1998.
+- N. Cesa-Bianchi, G. Lugosi. *Prediction, Learning, and Games.* Cambridge, 2006.
+
 **Town arrival ranges (`ArrivalCalibrator`).**
 - **Raw range:** each threatened town gets the 5–95% range of fire arrival across the long forecast's runs.
 - **Correction:** a learned correction Q per lead-time bucket (under 30 min, 30–120 min, over 120 min) widens or narrows it to `[lo − Q, hi + Q]`.
@@ -185,7 +334,7 @@ The raw forecast assumes the wind and the crews stay as they are. Players change
 
 **The guarantee, precisely.** Split conformal prediction gives a finite-sample guarantee for each new prediction, P(covered) ≥ 90%, but only if the calibration data and the new case are exchangeable. A fire under shifting wind and player actions isn't, so the console uses the online (ACI) form instead. That trades the per-prediction guarantee for a deterministic one on the running average, with no assumption about the data at all:
 - **Arrival ranges (`OnlineQuantile`, no clipping):** each update moves Q by `lr × (miss − 0.10)`, so the sum telescopes: after T scored disks in a bucket, |miss rate − 10%| = |Q_T − Q_0| / (lr × T). Q stays within about the largest score (the forecast horizon), so the gap shrinks like 1/T. It holds at every T, not just in the limit, but it is loose early on.
-- **Burn outline (`OnlineEnvelope`, knob clipped to [1/32 − 0.2, 1]):** the same telescoping gives average miss ≤ 10% + (θ_0 − θ_min) / (0.1 × T). With the warm start at T+30 (0.2) that's 10% + 3.7/T: within 10 points after 37 scored forecasts, and within 1 point after 370. One condition: the widest outline (P ≥ 1/32 plus 10 cells) must itself miss at most 10%. When it misses more, for example an ember landing far ahead, the clip absorbs the excess and the bound loosens by that amount.
+- **Burn outline (`OnlineEnvelope`, knob clipped to [1/32 − 0.2, 1]):** the same telescoping, with a term for what the floor clip absorbs. See "Statistical guarantees" above.
 - **What it doesn't promise:**
   - any single outline or range;
   - coverage in a particular window, such as the 20 forecasts right after a wind shift (the "short catch-up");
@@ -224,6 +373,7 @@ Layers 1 and 2 measure the simulator against itself plus changes in wind and cre
 cd engine
 uv run python -m eval.run            # forecast skill, envelope miss rate, routing, recommendations (~75 s)
 uv run python -m eval.arrival        # arrival-range coverage per wind schedule (~15 min)
+uv run python -m eval.conformal_compare --cache /tmp/streams.pkl   # outline calibration: fixed-rate ACI vs DtACI under wind shifts (~10 min)
 uv run python -m eval.campfire       # the Camp Fire replay (~3 s)
 uv run python -m eval.marshall --measured   # the Marshall Fire replay
 uv run python -m eval.early_attack   # does crew dispatch contain fires at 3/8/13 m/s

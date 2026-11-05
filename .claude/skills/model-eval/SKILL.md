@@ -23,6 +23,8 @@ Regenerate the real data with `engine/.venv/bin/python -I tools/campfire_to_asse
 
 The calibrated burn envelope (#12) is scored in the same run. Each horizon's `envelope_miss` (target 0.10), its second-half value and its final threshold/margin are in the calibration block. `--envelope-lr` tries other step sizes (0.1 is the default).
 
+To compare envelope controllers under wind shifts (fixed-rate ACI vs the DtACI-inspired one, #227), use `uv run python -m eval.conformal_compare --cache /tmp/streams.pkl`. It records forecasts once (~10 min on 6 workers), then replays every controller on the identical stream in seconds, so pass the same `--cache` when trying a new controller or setting. The output covers miss, worst 30-min window, area vs a hindsight-tightest outline, recovery after the shift, saturation and infeasibility. The cache is only valid for the same `--ticks/--every/--rollouts`; delete it after changing the fire model or forecaster. Results are in `docs/conformal_compare.md` and AI_README.md.
+
 Time-to-impact ranges (#13): do towns' calibrated "fire arrives in X–Y min (90%)" ranges hold?
 ```sh
 cd engine && uv run python -m eval.arrival                     # ~15 min; coverage per schedule and lead-time bucket

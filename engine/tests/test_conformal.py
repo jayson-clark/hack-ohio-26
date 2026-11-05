@@ -1,6 +1,7 @@
 """Online conformal burn envelope (#12)."""
 
 import numpy as np
+import pytest
 
 from uq.conformal import ALPHA, MARGIN_STEP, EnvelopeLedger, OnlineEnvelope, dilate
 
@@ -100,6 +101,210 @@ def test_engine_scores_envelopes_and_sends_them():
             e.recommender.shutdown()
 
     asyncio.run(go())
+
+
+# --- Score maps, loss curves and the DtACI-inspired controller (#227) -------------------
+
+from uq.conformal import (  # noqa: E402
+    DTACI_RATES, MAX_MARGIN, DtACIEnvelope, RiskCurve, ScoreMap, envelope_scores, theta_floor,
+)
+
+
+def _old_envelope(p, theta, lam):
+    """The envelope as it was computed before score maps: cutoff, then dilation."""
+    import math
+    m = 0 if theta >= lam else min(MAX_MARGIN, math.ceil((lam - theta) / MARGIN_STEP))
+    s = p >= max(theta, lam)
+    return dilate(s, m) if m else s
+
+
+def test_score_map_envelope_matches_cutoff_plus_dilation():
+    rng = np.random.default_rng(1)
+    lam = 1 / 32
+    p = (rng.binomial(32, rng.beta(0.3, 3.0, size=(40, 40))) / 32).astype(np.float32)
+    p[:, 30:] = 0  # room for the margin rings
+    sm = ScoreMap.of(p, lam)
+    for theta in np.concatenate([np.linspace(theta_floor(lam) - 0.05, 1.0, 301), [lam, lam - MARGIN_STEP]]):
+        assert (sm.envelope(theta) == _old_envelope(p, theta, lam)).all(), theta
+    assert np.isinf(envelope_scores(np.zeros((5, 5), np.float32), lam)).all()  # nothing to grow from
+
+
+def test_risk_curve_loss_and_integral_match_brute_force():
+    rng = np.random.default_rng(2)
+    s = np.concatenate([rng.choice([0.03, 0.1, 0.5, 0.9], 50), [-np.inf] * 5])
+    v, c = np.unique(s, return_counts=True)
+    curve = RiskCurve(v, c)
+    lo = -0.2
+    for t in (-0.1, 0.05, 0.1, 0.3, 1.0):
+        assert curve.loss(t) == np.mean(s < t)
+        u = np.linspace(lo, t, 20001)
+        brute = np.mean([np.mean(s < x) for x in u]) * (t - lo)
+        assert abs(curve.integral(t, lo) - brute) < 1e-3
+    assert np.allclose(curve.loss(np.array([0.05, 0.3])), [np.mean(s < 0.05), np.mean(s < 0.3)])
+
+
+def test_capped_curve_equals_recording_at_that_cap():
+    rng = np.random.default_rng(3)
+    lam = 1 / 32
+    p = np.zeros((80, 80), np.float32)
+    p[35:45, 35:45] = 0.5
+    cells = rng.random((80, 80)) < 0.3
+    wide = ScoreMap.of(p, lam, max_margin=40).curve(cells).capped(lam, 10)
+    direct = ScoreMap.of(p, lam, max_margin=10).curve(cells)
+    assert np.array_equal(wide.values, direct.values) and np.array_equal(wide.counts, direct.counts)
+
+
+def _curve(scores):
+    v, c = np.unique(np.asarray(scores, np.float64), return_counts=True)
+    return RiskCurve(v, c)
+
+
+def test_every_controller_widens_after_misses_and_tightens_after_clean_forecasts():
+    lam = 1 / 32
+    missed = _curve([0.01] * 9 + [0.9])  # 90% of new fire had p ~ 0.01: missed at any useful cutoff
+    clean = _curve([0.9] * 10)  # all of it inside
+    aci = OnlineEnvelope(lam_min=lam, theta=0.3)
+    dt = DtACIEnvelope(lam_min=lam, theta0=0.3)
+    for env in (aci, dt):
+        before = env.theta
+        experts = env.experts.copy() if env is dt else None
+        env.learn(missed, env.state())
+        assert env.theta < before  # wider
+        if env is dt:
+            assert (dt.experts < experts).all()
+            assert dt.experts[-1] < dt.experts[0]  # the fastest expert moved most
+        before = env.theta
+        env.learn(clean, env.state())
+        assert env.theta > before  # tighter
+
+
+def test_dtaci_weights_move_to_the_expert_that_would_have_done_better():
+    lam = 1 / 32
+    dt = DtACIEnvelope(lam_min=lam, theta0=0.3)
+    # Two forecasts land at once, both issued before the experts moved, so
+    # each is charged with what the expert showed at issue (the same knob).
+    issued = dt.state()
+    dt.learn(_curve([0.01] * 9 + [0.9]), issued)
+    assert np.allclose(dt.weights, 1 / len(DTACI_RATES))  # same knobs at issue: no information
+    # Now the experts differ; a run of big misses favours the ones that went wider.
+    for _ in range(10):
+        dt.learn(_curve([0.05] * 8 + [0.9] * 2), dt.state())
+    assert dt.weights[-1] > dt.weights[0]
+    assert abs(dt.weights.sum() - 1) < 1e-9 and (dt.weights >= dt.sigma / len(dt.weights) - 1e-12).all()
+
+
+def test_dtaci_long_run_miss_reaches_target_for_an_overconfident_forecast():
+    rng = np.random.default_rng(0)
+    env = DtACIEnvelope(lam_min=1 / 32, theta0=0.5)
+    misses = []
+    for _ in range(600):
+        p = rng.beta(0.6, 2.0, size=(32, 32)).astype(np.float32)
+        burned = rng.random((32, 32)) < np.minimum(1.0, 1.8 * p)
+        sm = ScoreMap.of(p, env.lam_min)
+        misses.append(env.learn(sm.curve(burned), env.state()))
+    assert abs(np.mean(misses[200:]) - ALPHA) < 0.02
+
+
+def test_widest_envelope_failing_is_reported_and_the_knob_stays_clipped():
+    lam = 1 / 32
+    for env in (OnlineEnvelope(lam_min=lam, theta=0.2), DtACIEnvelope(lam_min=lam, theta0=0.2)):
+        far = _curve([-np.inf] * 5 + [0.5] * 5)  # half the new fire beyond any margin
+        for _ in range(120):
+            env.learn(far, env.state())
+        assert env.infeasible == 120
+        assert env.theta >= env.floor and env.margin == MAX_MARGIN and env.threshold == lam  # widest, not past it
+        assert env.saturated > 0
+
+
+@pytest.mark.parametrize("method", ["aci", "dtaci"])
+def test_ledger_skips_forecasts_with_nothing_new_burning(method):
+    led = EnvelopeLedger((30.0,), (0.5,), n_rollouts=32, method=method)
+    prob = np.zeros((1, 6, 6), np.float32)
+    lit = np.zeros((6, 6), bool)
+    lit[0, 0] = True
+    led.issue(0, prob, lit, ~lit)
+    theta = led.envs[0].theta
+    assert led.mature(30, lit) == []
+    assert led.envs[0].empty == 1 and led.envs[0].scored == 0 and led.envs[0].theta == theta
+
+
+@pytest.mark.parametrize("method", ["aci", "dtaci"])
+def test_ledger_scores_late_forecasts_at_their_own_horizon_in_order(method):
+    led = EnvelopeLedger((30.0, 60.0), (0.5, 0.5), n_rollouts=32, method=method, record=True)
+    h, w = 10, 10
+    prob = np.zeros((2, h, w), np.float32)
+    prob[:, :, :5] = 0.9
+    lit = np.zeros((h, w), bool)
+    lit[:, 0] = True
+    led.issue(0, prob, lit, ~lit)
+    led.issue(10, prob, lit, ~lit)
+    burn = np.full((h, w), np.inf, np.float32)
+    burn[:, 0] = 0
+    burn[:, 1:5] = 20  # inside the envelope, by tick 20
+    burn[:, 5:9] = 35  # outside it, after the first T+30 horizon
+    now = np.isfinite(burn)
+    # Scored late (tick 100), but each forecast only on what burned by its horizon.
+    out = led.mature(100, now, burn)
+    assert [(s.horizon, s.issue_tick) for s in led.log] == [(0, 0), (0, 10), (1, 0), (1, 10)]
+    assert out[0] == (0, 0.0)  # T+30 from tick 0: only the inside columns had burned by tick 30
+    assert abs(out[1][1] - 4 / 8) < 1e-9  # T+30 from tick 10 (horizon 40): 4 of 8 new columns missed
+    # Without burn ticks the tick-0 forecast would be charged for the later burning too.
+    led2 = EnvelopeLedger((30.0,), (0.5,), n_rollouts=32, method=method)
+    led2.issue(0, prob[:1], lit, ~lit)
+    assert led2.mature(100, now)[0][1] > 0
+
+
+def test_ledger_dtaci_charges_each_expert_with_its_knobs_at_issue():
+    led = EnvelopeLedger((30.0,), (0.3,), n_rollouts=32, method="dtaci")
+    env = led.envs[0]
+    env.experts = np.linspace(0.05, 0.5, len(env.rates))  # experts disagree at issue
+    h, w = 8, 8
+    prob = np.zeros((1, h, w), np.float32)
+    prob[0, :, :4] = 0.4
+    prob[0, :, 4:] = 0.1
+    lit = np.zeros((h, w), bool)
+    lit[:, 0] = True
+    led.issue(0, prob, lit, ~lit)
+    env.experts = np.full(len(env.rates), 0.5)  # moved since: must not matter for this forecast
+    led.mature(30, np.ones((h, w), bool))  # everything burned, half of it at p = 0.1
+    # Experts at issue below 0.1 caught it all; those above missed half: weight moves to the low ones.
+    assert env.weights[0] > env.weights[-1]
+
+
+def test_compare_replay_matches_the_live_ledger():
+    """eval.conformal_compare replays recorded forecasts; it must give the
+    same misses as running the ledger live on the same fire."""
+    from eval import conformal_compare as cc
+    from eval.run import IGNITIONS
+    from forecast.runner import HORIZONS_MIN, horizon_ticks, run_forecast
+    from scenario import load_scenario
+    from sim.fire import BURNING, FUEL, FireSim
+
+    ticks, every, n, seed = 40, 5, 8, 1
+    ep = cc.record("reversal", seed, ticks, every, n)
+    for method in ("aci", "dtaci"):
+        scen = load_scenario("paradise")
+        wind, _ = cc.schedule("reversal", seed)
+        sim = FireSim(scen, seed=seed)
+        sim.set_wind(wind(0))
+        sim.ignite(*IGNITIONS[seed % len(IGNITIONS)], radius=2)
+        led = EnvelopeLedger(tuple(horizon_ticks(m) for m in HORIZONS_MIN), cc.WARM, n, method=method)
+        burn = np.full(sim.state.shape, np.inf, np.float32)
+        burn[sim.state >= BURNING] = 0
+        live = [[], []]
+        for tick in range(ticks + 61):
+            if tick <= ticks and tick % every == 0 and (sim.state == BURNING).any():
+                f = run_forecast(sim.snapshot(), n=n, seed=seed * 1000 + tick)
+                led.issue(tick, f.probability, sim.state >= BURNING, sim.state == FUEL)
+            sim.set_wind(wind(tick))
+            sim.step()
+            burn[(sim.state >= BURNING) & np.isinf(burn)] = sim.tick
+            for hi, miss in led.mature(sim.tick, sim.state >= BURNING, burn):
+                live[hi].append(miss)
+        replayed = cc.replay(ep, method, n=n)
+        for hi in range(2):
+            assert np.allclose(live[hi], [s.miss for s in replayed[hi]])
+            assert len(live[hi]) > 3
 
 
 # --- Time-to-impact intervals (#13) ---------------------------------------------------

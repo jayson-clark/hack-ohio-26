@@ -766,7 +766,8 @@ class Engine:
             lit = self.fire.state >= BURNING
             self._burn_tick[lit & np.isinf(self._burn_tick)] = self.fire.tick
             self.eta_cal.mature(self.fire.tick, self._burn_tick, SIM_MINUTES_PER_TICK)
-            if self.envelope.mature(self.fire.tick, lit):
+            # Scored on burn ticks, so a forecast that landed late is judged at its own horizon.
+            if self.envelope.mature(self.fire.tick, lit, self._burn_tick):
                 self._envelope_dirty = True
             self.check_road_cuts()
             self.score_step(tokens)
