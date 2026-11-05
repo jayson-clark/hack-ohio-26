@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from forecast.rollout import WindSpread, burn_probability, rollout
+from forecast.wind import WindScenarios
 from sim.fire import SIM_MINUTES_PER_TICK, FireSnapshot
 
 HORIZONS_MIN = (30, 60)  # sim-minutes; the ghost shows one layer per horizon
@@ -27,6 +28,10 @@ EVAC_WORKERS = 2
 # Per-rollout wind variation for the live forecast. Off for now; set to
 # WindSpread() to make the ghost hedge against wind shifts (forecast/rollout.py).
 WIND_SPREAD: WindSpread | None = None
+# Future-wind scenarios for the live forecast (#228): each rollout follows its
+# own wind trajectory from the wind at issue (forecast/wind.py). None keeps the
+# constant-wind forecast, the baseline in eval.conformal_compare.
+WIND_MODEL: WindScenarios | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,7 @@ class Forecast:
     probability: np.ndarray
     # The wind variation the rollouts used, or None for the snapshot's wind only.
     wind_spread: WindSpread | None = None
+    wind_model: WindScenarios | None = None
 
 
 def horizon_ticks(minutes: float) -> float:
@@ -48,14 +54,18 @@ def horizon_ticks(minutes: float) -> float:
 
 
 def run_forecast(
-    snapshot: FireSnapshot, n: int = N_ROLLOUTS, seed: int | None = None, wind_spread: WindSpread | None = WIND_SPREAD
+    snapshot: FireSnapshot, n: int = N_ROLLOUTS, seed: int | None = None, wind_spread: WindSpread | None = WIND_SPREAD,
+    wind_model: WindScenarios | None = WIND_MODEL,
 ) -> Forecast:
-    """The worker-side job. Also fine to call in-process (tests, what-ifs)."""
+    """The worker-side job. Also fine to call in-process (tests, what-ifs).
+    Uses only the snapshot (the fire and wind at issue) and the seed."""
     horizons = tuple(horizon_ticks(m) for m in HORIZONS_MIN)
-    first = rollout(snapshot, n, int(np.ceil(max(horizons))), seed=seed, wind_spread=wind_spread)
+    first = rollout(snapshot, n, int(np.ceil(max(horizons))), seed=seed, wind_spread=wind_spread,
+                    wind_model=wind_model)
     prob = np.stack([burn_probability(first, h) for h in horizons])
     return Forecast(
-        tick=snapshot.tick, horizons_ticks=horizons, first_burn=first, probability=prob, wind_spread=wind_spread
+        tick=snapshot.tick, horizons_ticks=horizons, first_burn=first, probability=prob, wind_spread=wind_spread,
+        wind_model=wind_model,
     )
 
 

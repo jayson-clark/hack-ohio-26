@@ -222,6 +222,7 @@ def advance(
     *,
     group: int = 1,
     wind_rows: np.ndarray | None = None,
+    wind_each: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, int, int, tuple | None] | None:
     """One tick, in place, on a batch: state/burn_left are (N, H, W).
 
@@ -234,8 +235,10 @@ def advance(
     random draws: row i of every block sees the same uniforms. That is how
     forecast.rollout_paired compares "crew here" with "no crew" on identical
     luck (common random numbers). `wind_rows`, float32 (8, N), replaces
-    wind_factors(wind) with per-row factors, for an ensemble with wind spread.
-    The defaults draw exactly what they always did, so the live sim is unchanged.
+    wind_factors(wind) with per-row factors, for an ensemble with wind spread;
+    `wind_each`, (speed_ms (N,), from_deg (N,)), gives embers the same per-row
+    wind (else they follow `wind`). The defaults draw exactly what they always
+    did, so the live sim is unchanged.
     """
     burning = state == BURNING
     # Union bounding box over the batch, plus the one-cell ring fire can reach.
@@ -284,19 +287,27 @@ def advance(
     bl[out] = 0
     st[ignite] = BURNING
     bl[ignite] = BURN_TICKS
-    spots = _spot(state, burn_left, layers, wind, suppression, rng, lit, y0, x0, group)
+    spots = _spot(state, burn_left, layers, wind, suppression, rng, lit, y0, x0, group, wind_each)
     return ignite, y0, x0, spots
 
 
-def _spot(state, burn_left, layers, wind, suppression, rng, lit, y0, x0, group):
+def _spot(state, burn_left, layers, wind, suppression, rng, lit, y0, x0, group, wind_each=None):
     """Embers from the cells burning at the start of this tick (`lit`, a crop
     at y0, x0) light fuel cells downwind; see SPOT_RATE. Returns the lit
     (rows, ys, xs), or None. Each source cell's draws are shared across
-    groups, so paired what-ifs keep common random numbers."""
-    v = wind.speed_ms
-    rate = SPOT_RATE * (v - SPOT_MIN_WIND) / 10.0
-    if rate <= 0 or not lit.any():
-        return None
+    groups, so paired what-ifs keep common random numbers. `wind_each` gives
+    each row its own (speed, from) instead of `wind`."""
+    if wind_each is None:
+        v = wind.speed_ms
+        rate = SPOT_RATE * (v - SPOT_MIN_WIND) / 10.0
+        if rate <= 0 or not lit.any():
+            return None
+    else:
+        v_row = np.asarray(wind_each[0], np.float32)
+        rate_row = SPOT_RATE * (v_row - SPOT_MIN_WIND) / 10.0
+        if rate_row.max() <= 0 or not lit.any():
+            return None
+        rate = rate_row[:, None, None]
     n, h, w = lit.shape
     u = rng.random((4, n // group, h, w), dtype=np.float32)
     if group > 1:
@@ -305,8 +316,13 @@ def _spot(state, burn_left, layers, wind, suppression, rng, lit, y0, x0, group):
     if not src.any():
         return None
     rows, sy, sx = np.nonzero(src)
-    f = math.radians(wind.from_deg)
-    to = math.atan2(math.cos(f), -math.sin(f))  # downwind, in map coords (x east, y south)
+    if wind_each is None:
+        f = math.radians(wind.from_deg)
+        to = math.atan2(math.cos(f), -math.sin(f))  # downwind, in map coords (x east, y south)
+    else:
+        v = v_row[rows]
+        f = np.radians(np.asarray(wind_each[1], np.float64)[rows])
+        to = np.arctan2(np.cos(f), -np.sin(f))
     dist = np.minimum(-np.log(np.maximum(u[1][src], 1e-6)) * SPOT_MEAN * v / 10.0, SPOT_MAX)
     ang = to + (u[2][src] * 2 - 1) * math.radians(SPOT_SPREAD_DEG)
     H, W = state.shape[1:]

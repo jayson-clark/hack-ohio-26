@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from forecast.wind import WindPaths, WindScenarios, factors, sample_paths
 from sim.fire import BURNED, BURNING, FireSnapshot, Wind, advance, wind_factors
 
 
@@ -35,10 +36,21 @@ def ensemble_wind(wind: Wind, n: int, spread: WindSpread, rng: np.random.Generat
     return np.stack([wind_factors(Wind(float(v), float(d))) for v, d in zip(speeds, dirs)], axis=1)
 
 
-def _wind_rng(seed: int | None) -> np.random.Generator:
+def _wind_rng(seed: int | None, stream: int = 1) -> np.random.Generator:
     # Separate from the ignition stream, so turning spread on doesn't change
     # which cells catch for a given seed beyond what the wind itself changes.
-    return np.random.default_rng(None if seed is None else (seed, 1))
+    return np.random.default_rng(None if seed is None else (seed, stream))
+
+
+def _wind_input(wind: Wind, n: int, ticks: int, seed, wind_spread, wind_model):
+    """Per-rollout wind for _run: None, fixed rows (WindSpread), or per-tick paths (WindScenarios)."""
+    if wind_spread is not None and wind_model is not None:
+        raise ValueError("use wind_spread or wind_model, not both")
+    if wind_model is not None:
+        return sample_paths(wind, n, ticks, wind_model, _wind_rng(seed, 2))
+    if wind_spread is not None:
+        return ensemble_wind(wind, n, wind_spread, _wind_rng(seed))
+    return None
 
 
 def rollout(
@@ -50,6 +62,7 @@ def rollout(
     extra_suppression: np.ndarray | None = None,
     seed: int | None = None,
     wind_spread: WindSpread | None = None,
+    wind_model: WindScenarios | None = None,
 ) -> np.ndarray:
     """Ticks from now until each cell first burns, float32 (n, H, W).
 
@@ -59,7 +72,9 @@ def rollout(
     hypothetical placement. If the snapshot carries a suppression schedule,
     suppression follows it tick by tick: a crew placed a moment ago digs in
     over the forecast, and wet ground dries out (#56). Without one it stays
-    frozen at the snapshot's grid.
+    frozen at the snapshot's grid. `wind_model` gives each rollout its own
+    future wind trajectory from the wind at issue (forecast/wind.py, #228);
+    without it (or wind_spread) every rollout keeps the snapshot's wind.
     """
     extra = None if extra_suppression is None else extra_suppression.astype(np.float32)
 
@@ -68,7 +83,7 @@ def rollout(
         return base if extra is None else np.maximum(base, extra)
 
     wind = wind or snapshot.wind
-    rows = None if wind_spread is None else ensemble_wind(wind, n, wind_spread, _wind_rng(seed))
+    rows = _wind_input(wind, n, ticks, seed, wind_spread, wind_model)
     sup = sup_at if _varies(snapshot) else sup_at(0)
     return _run(snapshot, n, ticks, sup, wind, rows, np.random.default_rng(seed), group=1)
 
@@ -82,6 +97,7 @@ def rollout_paired(
     wind: Wind | None = None,
     seed: int | None = None,
     wind_spread: WindSpread | None = None,
+    wind_model: WindScenarios | None = None,
 ) -> np.ndarray:
     """First-burn ticks for a baseline and K what-ifs on identical luck,
     float32 (K+1, n, H, W). Index 0 is the baseline (the snapshot as is);
@@ -116,9 +132,11 @@ def rollout_paired(
         return sup
 
     wind = wind or snapshot.wind
-    rows = None
-    if wind_spread is not None:
-        rows = np.tile(ensemble_wind(wind, n, wind_spread, _wind_rng(seed)), (1, k + 1))
+    rows = _wind_input(wind, n, ticks, seed, wind_spread, wind_model)
+    if isinstance(rows, WindPaths):
+        rows = WindPaths(np.tile(rows.speed_ms, (1, k + 1)), np.tile(rows.from_deg, (1, k + 1)))
+    elif rows is not None:
+        rows = np.tile(rows, (1, k + 1))
     # One grid per variant; advance() repeats each over its block of rollouts
     # (variant-major rows: [v0 r0..r(n-1), v1 r0..r(n-1), ...]), and tiling one
     # block of draws (`group`) lines up rollout i across variants.
@@ -146,9 +164,15 @@ def _run(snapshot, n, ticks, suppression, wind, wind_rows, rng, group) -> np.nda
     burn_left = np.repeat(snapshot.burn_left[None], n, axis=0)
     first = np.full(state.shape, np.inf, np.float32)
     first[(state == BURNING) | (state == BURNED)] = 0.0
+    paths = wind_rows if isinstance(wind_rows, WindPaths) else None
+    each = None
     for t in range(1, ticks + 1):
         sup = suppression(t - 1) if callable(suppression) else suppression
-        result = advance(state, burn_left, snapshot.layers, wind, sup, rng, group=group, wind_rows=wind_rows)
+        if paths is not None:  # this tick's wind, per rollout
+            each = paths.at(t - 1)
+            wind_rows = factors(*each)
+        result = advance(state, burn_left, snapshot.layers, wind, sup, rng, group=group, wind_rows=wind_rows,
+                         wind_each=each)
         if result is None:
             break  # every rollout has burned out
         ignited, y0, x0, spots = result
