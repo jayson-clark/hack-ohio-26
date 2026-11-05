@@ -1,0 +1,95 @@
+{
+  "parameters": 1502850,
+  "framework": "torch",
+  "trained_on": {
+    "backend": "cuda (pytorch)",
+    "device": "NVIDIA RTX A6000",
+    "memory_gb": 47.4,
+    "compute_capability": "8.6"
+  },
+  "train_samples": 3063,
+  "test_samples": 301,
+  "epochs": 12,
+  "batch": 16,
+  "lr": 0.0015,
+  "seed": 0,
+  "amp": false,
+  "train_data": "emulator/data/train_wind",
+  "test_data": "emulator/data/test_wind",
+  "wind_aware": true,
+  "input_channels": 18,
+  "history": [
+    {
+      "epoch": 1,
+      "train_bce": 0.1850828222660203,
+      "brier_emulator": 0.015704781569082667,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 2,
+      "train_bce": 0.12301941453406848,
+      "brier_emulator": 0.01230575593497013,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 3,
+      "train_bce": 0.10816479437632265,
+      "brier_emulator": 0.010482519567888482,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 4,
+      "train_bce": 0.09952514430440461,
+      "brier_emulator": 0.007471213012156505,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 5,
+      "train_bce": 0.0964631148724976,
+      "brier_emulator": 0.005822678708013452,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 6,
+      "train_bce": 0.09388889864550354,
+      "brier_emulator": 0.007585289813073324,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 7,
+      "train_bce": 0.09229325036001947,
+      "brier_emulator": 0.0051119575494699,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 8,
+      "train_bce": 0.09063346286357375,
+      "brier_emulator": 0.004463822992736695,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 9,
+      "train_bce": 0.08837565990078017,
+      "brier_emulator": 0.004078912687293527,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 10,
+      "train_bce": 0.08772874193101966,
+      "brier_emulator": 0.003775170016591779,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 11,
+      "train_bce": 0.08721570245960215,
+      "brier_emulator": 0.00362790098064879,
+      "brier_32_rollouts": 0.003130295791134752
+    },
+    {
+      "epoch": 12,
+      "train_bce": 0.08721816462556316,
+      "brier_emulator": 0.0036266400960022153,
+      "brier_32_rollouts": 0.003130295791134752
+    }
+  ]
+}

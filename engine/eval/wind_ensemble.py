@@ -204,7 +204,8 @@ def report(s: dict, phase: str, seeds: str, methods: list[str]) -> str:
                              f"{_f(m.get('area_km2'))} | {_f(m.get('vs_oracle'))}× | {_f(m.get('pre_shift_miss'), True)} | "
                              f"{_f(m.get('pre_shift_area_km2'))} | {_f(m.get('recovery_shown_min'), d=0)} | "
                              f"{_f(m.get('post_miss'), True)} | {_f(m.get('sat'), True)} | {_f(m.get('infeasible'), True)} |")
-    L += ["", "## Runtime (per forecast, one process, while 8 recorders shared the machine)", "",
+    L += ["", "## Runtime (wall time per forecast in one worker; Monte Carlo on the CPU with the other workers "
+          "busy, emulators in the main process on the GPU, so compare across machines with care)", "",
           "| forecaster | forecasts | mean ms | p90 ms |", "|---|---|---|---|"]
     for name, r in fs.items():
         L.append(f"| {name} | {r['forecasts']} | {r['forecast_ms_mean']:.0f} | {r['forecast_ms_p90']:.0f} |")
@@ -223,6 +224,8 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--dtaci", action="store_true", help="also replay the DtACI-inspired controller")
     p.add_argument("--emulators", action="store_true", help="also the original and wind-aware U-Nets (#229)")
+    p.add_argument("--emulators-only", action="store_true",
+                   help="record no Monte Carlo forecasters (they run elsewhere); report only what the cache has")
     p.add_argument("--explore", action="store_true",
                    help="phase final: also the 1/h shift rate, exploratory (chosen after seeing held-out results)")
     p.add_argument("--cache", help="pickle of recorded episodes for this phase: reused if present")
@@ -249,6 +252,9 @@ def main() -> None:
     # Record only the forecasters the cache lacks; every one sees the same seeded fires.
     have = {e.forecaster for e in eps}
     missing = {k: v for k, v in forecasters.items() if k not in have}
+    if args.emulators_only:
+        forecasters = {k: v for k, v in forecasters.items() if k in have}
+        missing = {}
     if missing:
         jobs = [(s, seed, args.ticks, args.every, N_ROLLOUTS, missing) for s in SCHEDULES for seed in seeds]
         print(f"recording {len(jobs)} fires x {len(missing)} forecasters on {args.workers} workers", flush=True)
