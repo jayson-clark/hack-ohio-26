@@ -29,6 +29,7 @@ class ShiftRisk:
     weights: list[float] = field(default_factory=list)
     bias: float = 0.0
     kind: str = "logistic"  # or "constant" / "persistence"
+    train_mean_p: float | None = None  # mean predicted P over the training rows (for budget matching)
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """P(event) for rows of x (n, len(features)), in feature order."""
@@ -96,3 +97,16 @@ def fit(x: np.ndarray, y: np.ndarray, features: list[str], l2: float = 1.0, iter
         if done:
             break
     return ShiftRisk(list(features), mean.tolist(), scale.tolist(), w[:-1].tolist(), float(w[-1]))
+
+
+MAX_RATE_PER_H = 4.0
+
+
+def rate_per_hour(p_within_hour: float | np.ndarray) -> float | np.ndarray:
+    """A shift probability within the next hour as a Poisson rate per hour
+    (forecast.wind.WindScenarios.shift_rate_per_h): P = 1 - exp(-rate), so
+    rate = -ln(1 - P). Fixed in advance, not tuned on fire outcomes; capped
+    at MAX_RATE_PER_H."""
+    p = np.clip(np.asarray(p_within_hour, np.float64), 0.0, 1 - 1e-9)
+    r = np.minimum(-np.log1p(-p), MAX_RATE_PER_H)
+    return float(r) if np.ndim(r) == 0 else r

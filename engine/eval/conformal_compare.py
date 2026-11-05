@@ -105,10 +105,15 @@ class Episode:
     records: list[Record] = field(default_factory=list)
     forecaster: str = "constant"  # which forecast produced the records (eval.wind_ensemble)
     forecast_s: list[float] = field(default_factory=list)  # wall time of each forecast
+    # Per horizon index, the issue ticks whose window held an observed wind
+    # shift (eval.wind_replay); None for scripted schedules (eval.wind_ensemble).
+    pre_shift: dict | None = None
+    info: dict = field(default_factory=dict)  # anything else a recorder wants to keep
 
 
 def record(sched: str, seed: int, ticks: int, every: int, n: int, scenario: str = "paradise",
-           forecasters: dict | None = None) -> Episode | list[Episode]:
+           forecasters: dict | None = None, wind_fn=None, shifts: list[int] | None = None,
+           ignition: tuple[float, float] | None = None) -> Episode | list[Episode]:
     """Record one fire. With `forecasters` ({name: run_forecast kwargs}),
     every forecaster forecasts from the same snapshots of the same fire (the
     fire never depends on a forecast), and one Episode per forecaster is
@@ -118,10 +123,13 @@ def record(sched: str, seed: int, ticks: int, every: int, n: int, scenario: str 
     single = forecasters is None
     forecasters = forecasters or {"constant": {}}
     scen = load_scenario(scenario)
-    wind, shifts = schedule(sched, seed)
+    if wind_fn is None:
+        wind, shifts = schedule(sched, seed)
+    else:  # a given wind (eval.wind_replay: observed wind), with its own shift list
+        wind, shifts = wind_fn, list(shifts or [])
     sim = FireSim(scen, seed=seed)
     sim.set_wind(wind(0))
-    sim.ignite(*IGNITIONS[seed % len(IGNITIONS)], radius=2)
+    sim.ignite(*(ignition or IGNITIONS[seed % len(IGNITIONS)]), radius=2)
     lam = 1.0 / n
     hz = [int(np.ceil(horizon_ticks(m))) for m in HORIZONS_MIN]
     burn_tick = np.full(sim.state.shape, np.inf, np.float32)

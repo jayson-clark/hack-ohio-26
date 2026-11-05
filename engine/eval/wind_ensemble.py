@@ -94,6 +94,8 @@ def _job(args):
 
 
 def _pre_shift(ep: cc.Episode, issue: int, h: int) -> bool:
+    if getattr(ep, "pre_shift", None) is not None:  # observed shifts (eval.wind_replay)
+        return issue in ep.pre_shift[h]
     if ep.sched not in ABRUPT:
         return False
     hz = int(np.ceil(horizon_ticks(HORIZONS_MIN[h])))

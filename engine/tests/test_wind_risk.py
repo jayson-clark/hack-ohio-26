@@ -128,3 +128,56 @@ def test_a_longer_latency_loads_an_older_forecast():
     stale = D.forecast_features(runs, t, 60, np.array([5.0]), np.array([0.0]), latency_h=7.0, max_age_h=19.0)
     assert fresh["f_init"][0] == 6 * 3600.0 and stale["f_init"][0] == 0.0
     assert np.isclose(fresh["f_age"][0], 1.5) and np.isclose(stale["f_age"][0], 7.5)
+
+
+# --- Stage 2: conditional shift rates and the real-wind replay ---------------------------
+
+def test_rate_per_hour_inverts_the_poisson_probability():
+    from forecast.wind_risk import MAX_RATE_PER_H, rate_per_hour
+
+    for p in (0.0, 0.05, 0.22, 0.63):
+        r = rate_per_hour(p)
+        assert np.isclose(1 - np.exp(-r), p)  # P(at least one shift within the hour)
+    assert rate_per_hour(0.9999) == MAX_RATE_PER_H
+
+
+def test_given_wind_paths_replace_sampling_and_are_shared_by_rollouts():
+    from forecast.runner import run_forecast
+    from forecast.wind import WindPaths, WindScenarios
+    from scenario import load_scenario
+    from sim.fire import FireSim, Wind
+
+    sim = FireSim(load_scenario("paradise"), seed=0)
+    sim.set_wind(Wind(12.0, 45.0))
+    sim.ignite(409.3, 118.5, radius=2)
+    for _ in range(10):
+        sim.step()
+    snap = sim.snapshot()
+    turn = WindPaths(np.full((61, 1), 12.0, np.float32), np.full((61, 1), 225.0, np.float32))
+    a = run_forecast(snap, n=6, seed=3, wind_paths=turn)
+    b = run_forecast(snap, n=6, seed=3, wind_paths=turn, wind_model=WindScenarios(shift_rate_per_h=4.0))
+    assert np.array_equal(a.first_burn, b.first_burn)  # given paths win over a sampler
+    same = WindPaths(np.full((61, 1), 12.0, np.float32), np.full((61, 1), 45.0, np.float32))
+    c = run_forecast(snap, n=6, seed=3, wind_paths=same)
+    d = run_forecast(snap, n=6, seed=3, wind_model=None)
+    assert np.array_equal(c.first_burn, d.first_burn)  # a constant given path is the constant-wind forecast
+    assert not np.array_equal(a.first_burn, d.first_burn)
+
+
+def test_replay_wind_holds_gaps_and_uses_observations_in_order():
+    from eval.wind_replay import observed_wind
+
+    t = np.concatenate([np.arange(0, 1200, 60.0), np.arange(3000, 4800, 60.0)])  # a 30-min gap
+    s = _series(t, np.full(len(t), 6.0), np.where(t < 2000, 90.0, 270.0))
+    sp, fr = observed_wind(s, 600.0, 60)
+    assert np.allclose(sp, 6.0) and np.isfinite(fr).all()
+    assert np.allclose(fr[:10], 90.0)  # before the gap: the old wind, then held through the gap
+    assert np.allclose(fr[-5:], 270.0)
+
+
+def test_replay_ignitions_are_near_the_real_origin_and_seeded():
+    from eval.wind_replay import IGNITION_RADIUS, STATIONS, ignition
+
+    scen, origin = STATIONS["BJC"]
+    a, b = ignition(scen, origin, 7), ignition(scen, origin, 7)
+    assert a == b and np.hypot(a[0] - origin[0], a[1] - origin[1]) <= IGNITION_RADIUS + 1

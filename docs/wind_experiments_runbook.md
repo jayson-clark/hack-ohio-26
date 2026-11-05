@@ -148,3 +148,33 @@ uv run --no-sync python -m emulator.evaluate --compare --test emulator/data/test
   - Wind paths start from the wind at issue.
   - The tuning seeds (0-3) and final seeds (4-11) don't overlap.
   - The emulator's test fires (seed 3) are generated separately from its training fires (seed 2).
+
+## 7. Forecast-conditioned wind replay (#231, stage 2)
+
+This tests the conditional wind ensemble on fires driven by real observed 2023-24 winds: 60 fires, 7 forecasters. It's CPU only.
+
+**1. Get the code and the data onto the server.** The data is the station observations plus the HRRR point series, about 60 MB, gitignored. Either copy it from a machine that has it:
+
+```sh
+rsync -a <mac>:<repo>/engine/weather/data/ engine/weather/data/
+```
+
+or refetch it on the server (offline research data; downloads about 30 GB, keeps about 60 MB):
+
+```sh
+cd engine && uv run --with numcodecs python -m weather.fetch --workers 24
+```
+
+**2. Run it, in tmux.** The frozen risk models are committed in `engine/forecast/wind_risk_models/`, so don't refit.
+
+```sh
+cd engine
+git pull
+uv sync
+uv run pytest -q tests/test_wind_risk.py
+uv run python -m eval.wind_replay --workers 24 --cache wind_replay.pkl \
+  --out wind_replay.md --json wind_replay.json > wind_replay.log 2>&1
+pkill -f multiprocessing.forkserver   # once the report has printed, if it doesn't exit
+```
+
+**3. Bring back** `wind_replay.md`, `wind_replay.json`, `wind_replay.pkl` and `wind_replay.log`.

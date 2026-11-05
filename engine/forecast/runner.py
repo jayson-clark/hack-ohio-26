@@ -55,13 +55,15 @@ def horizon_ticks(minutes: float) -> float:
 
 def run_forecast(
     snapshot: FireSnapshot, n: int = N_ROLLOUTS, seed: int | None = None, wind_spread: WindSpread | None = WIND_SPREAD,
-    wind_model: WindScenarios | None = WIND_MODEL,
+    wind_model: WindScenarios | None = WIND_MODEL, wind_paths=None,
 ) -> Forecast:
     """The worker-side job. Also fine to call in-process (tests, what-ifs).
     Uses only the snapshot (the fire and wind at issue) and the seed."""
     horizons = tuple(horizon_ticks(m) for m in HORIZONS_MIN)
+    if wind_paths is not None:
+        wind_model = None  # given paths (e.g. a diagnostic oracle) replace the sampled ones
     first = rollout(snapshot, n, int(np.ceil(max(horizons))), seed=seed, wind_spread=wind_spread,
-                    wind_model=wind_model)
+                    wind_model=wind_model, wind_paths=wind_paths)
     prob = np.stack([burn_probability(first, h) for h in horizons])
     return Forecast(
         tick=snapshot.tick, horizons_ticks=horizons, first_burn=first, probability=prob, wind_spread=wind_spread,
