@@ -20,3 +20,5 @@ engine/wind_*.json
 engine/wind_*.log
 engine/emulator_compare.json
 engine/emulator_compare.log
+# Fetched HRRR point series and station observations (regenerate with python -m weather.fetch)
+engine/weather/data/
