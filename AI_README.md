@@ -8,14 +8,14 @@ This page covers everything in the engine that forecasts, recommends, plans or t
 
 | Feature | What it is | Model | Where |
 |---|---|---|---|
-| Fire forecast | P(burn by T+30 / T+60) for every cell, plus a 10 h forecast for evacuation | Monte Carlo over the stochastic fire model (32 runs) | `forecast/rollout.py`, `forecast/runner.py`, `sim/fire.py` |
+| Fire forecast | P(burn by T+30 / T+60) for every cell, plus a 10 h forecast for evacuation | Monte Carlo over the stochastic fire model (32 runs), at the wind at issue; optional future-wind scenarios (off) | `forecast/rollout.py`, `forecast/runner.py`, `forecast/wind.py`, `sim/fire.py` |
 | Calibrated burn outline | The forecast outline, adjusted so about 90% of new fire lands inside it | Online ACI on a conformal-risk-control (CRC) style missed-area loss | `uq/conformal.py` (`EnvelopeLedger`) |
 | Town arrival ranges | "Fire likely arrives in 25–40 min (90%)" | Online conformalized quantiles (CQR) | `uq/conformal.py` (`ArrivalCalibrator`) |
 | Evacuation routes | The best way out per town, avoiding roads that will burn by the time traffic gets there | Dijkstra on a burn-risk cost | `routing/evac.py`, `routing/tracker.py` |
 | Evacuation order clock | When each town must be ordered out | Fluid traffic queue against forecast fire arrival | `routing/clearance.py` |
 | Crew recommendations | Where a crew helps most, with the towns it saves | Paired Monte Carlo what-ifs, emulator shortlist | `forecast/recommend.py` |
 | Plan what-ifs | The operator's whole set of orders compared with doing nothing | Paired Monte Carlo | `forecast/plan.py` |
-| Learned emulator | An instant forecast preview, and a shortlist of crew spots | U-Net (MLX, 1.5M parameters) | `emulator/` |
+| Learned emulator | An instant forecast preview, and a shortlist of crew spots | U-Net (1.5M parameters; trains with MLX on a Mac or PyTorch on CUDA); optional wind-aware variant (off) | `emulator/` |
 | Incident commander Q&A | Typed or spoken questions answered in two sentences | Claude (`claude-haiku-5-5` by default) with 4 simulation tools | `commander/agent.py`, `commander/tools.py` |
 | Grounding guard | Rejects any answer with a number no tool produced | Rules | `commander/guard.py` |
 | Briefings | Short text alerts in the commander feed ("Paradise is threatened…") | Rules, no LLM | `commander/briefings.py` |
@@ -27,6 +27,7 @@ Everything else builds on a stochastic cellular automaton: each cell is 94 m and
 - **Spread:** each tick, a burning cell lights each neighbour with probability `P_H × fuel × slope × wind × (1 − suppression)`.
 - **Wind:** the wind term is `e^(C1·v) · e^(C2·v·(cos θ − 1))`, with `C1 = 0.14` and `C2 = 0.3`.
 - **Embers:** above 9 m/s, burning cells throw embers downwind.
+- **Wind in a forecast:** by default every run keeps the wind at issue for the whole horizon. That is the main reason outlines fail after wind shifts (see "Future wind" below). An optional ensemble gives each run its own plausible wind path instead (`forecast/wind.py`, #228). It is off, because in testing it didn't buy enough coverage for its extra area.
 - **Validation:** the constants are checked against two real fires, the 2018 Camp Fire (`eval/campfire.py`) and the 2021 Marshall Fire (`eval/marshall.py`). PLAN.md's "Choosing C2" has the scores.
 
 A **forecast** runs 32 copies of the current fire forward, each with its own random draws, and records when each cell first burned in each run. From that:
@@ -78,10 +79,24 @@ If a town takes longer to empty than the 10 h forecast covers, the clock says so
 The operator's full set of orders is simulated against doing nothing, with each unit acting from when it can actually get there. The result is acres saved, with a 90% interval from the paired differences, and a map of where the plan changes the outcome.
 
 ### Learned emulator (`emulator/`)
-- **Architecture:** a U-Net (widths 32–128, dilated convolutions, GroupNorm) trained with MLX on the GPU.
-- **Inputs:** 15 channels: burning, burned, burn time left, 8 directional spread-times-wind channels, and suppression at +0, 15, 30 and 60 min.
-- **Output:** P(burn by T+30 / T+60).
-- **Speed and accuracy:** 6 ms against about 0.6 s for 32 runs. On 342 held-out fires its Brier score against the hedged 64-run label is 0.0038, slightly better than the engine's own 32-run forecast (0.0039). It is well calibrated: in every probability bin the mean prediction is within 0.003 of the label. Its 50% outline overlaps the engine's forecast by 79%.
+The emulator is a surrogate for the Monte Carlo forecast: a network trained to output what 64 simulator runs would, in one pass.
+- **Architecture:** a U-Net with widths 32–128, three 2× downsamplings, dilated convolutions at 1/8 scale (so each output sees about 160 cells, more than fire can travel in an hour), and GroupNorm.
+- **Inputs:** 15 channels:
+  - burning, burned, and burn time left;
+  - 8 directional spread-times-wind channels: the chance a burning neighbour lights the cell, from fuel, slope and the wind at issue;
+  - suppression at +0, 15, 30 and 60 min.
+- **Output:** two logits per cell, P(burn by T+30) and P(burn by T+60).
+- **Post-processing:**
+  - cells already burning are set to 1;
+  - cells farther than h king moves from the fire are set to 0, since fire moves at most a cell a minute;
+  - T+60 is kept at least as high as T+30.
+- **Training:** binary cross-entropy against the 64-run Monte Carlo probability maps, only on the cells in between, with random flips. It trains with MLX on a Mac's GPU or with PyTorch on an NVIDIA GPU (`emulator/backends.py`). The two are the same network and recipe. For the same weights they give the same outputs to within 1e-4 (tested). Weights are always saved in MLX's file layout, which the engine loads.
+- **Speed and accuracy:**
+  - Speed: about 31 ms per forecast on the full 512 × 480 map on an M2 Max (measured for #229). The 6 ms measured in #113 predates the map's growth. The 32-run forecast takes 0.4–1.5 s.
+  - Accuracy: on 342 held-out fires its Brier score against the hedged 64-run label is 0.0038, slightly better than the engine's own 32-run forecast (0.0039).
+  - Calibration: in every probability bin the mean prediction is within 0.003 of the label.
+  - Overlap: its 50% outline overlaps the engine's forecast by 79%.
+- **Wind-aware variant (#229), off:** the same U-Net with 3 more input planes, trained on labels simulated under future-wind scenarios. It turned out no better than the original as a surrogate on wind-shift fires; see "Future wind" under Uncertainty. `EMULATOR=wind` turns it on for previews and screening only.
 
 **Training labels include model error (#170).** Each training sample's 64-run label uses its own `C2` (0.22–0.4, the range the two real fires support) and a ×0.85–1.15 spread rate, and each run draws its own wind (±20% speed, ±15° direction). The inputs stay at the nominal constants, so the emulator learns a forecast that hedges over model error rather than copying one exact setting. The training data covers Paradise and Marshall.
 
@@ -249,6 +264,8 @@ Both are for 0/1 miscoverage, immediate feedback and unclipped levels, with assu
 
 **Empirically supported** (simulator only, below): average miss near target in steady wind, and the size of the excess under shifts.
 
+**Wind scenarios don't add guarantees.** The bound above holds whatever probability maps the controller is given: constant-wind Monte Carlo, the wind-scenario ensemble, or an emulator. A better forecast can only make it easier to meet with smaller outlines. Sampling future winds makes the maps hedge; it doesn't make them calibrated or give distribution-free coverage (see "Future wind" below).
+
 **Not guaranteed, by either controller:**
 - any single outline;
 - coverage within a window, e.g. the hour after a shift;
@@ -324,6 +341,138 @@ uv run python -m eval.conformal_compare --episodes 8 --cache /tmp/streams.pkl --
 - M. Herbster, M. Warmuth. *Tracking the Best Expert.* Machine Learning 32, 1998.
 - N. Cesa-Bianchi, G. Lugosi. *Prediction, Learning, and Games.* Cambridge, 2006.
 
+#### Future wind: the wind-scenario ensemble (#228) and the wind-aware emulator (#229)
+
+**Why constant wind fails.** Every forecast run assumes the wind at issue holds for the whole horizon. When the wind turns, all 32 runs are wrong in the same way, so the probability map is confidently wrong. No conformal controller can repair outlines that were already shown (previous section). The only place to act is at forecast time: let the runs disagree about the future wind.
+
+**How future wind is sampled (`forecast/wind.py`).** Each run gets its own minute-by-minute wind path, built from the wind at issue only (speed v₀, direction d₀):
+- **Slow wander:** offsets in direction (δ) and log-speed (s) follow AR(1) processes that start at zero:
+
+  ```
+  δ_{t+1} = ρ δ_t + √(1 − ρ²) · σ_d · ε,    ρ = e^(−1 min / 60 min),  σ_d = 15°   (s likewise, σ_s = 0.15)
+  ```
+
+  Minute to minute the wind is strongly correlated. The spread grows with lead time (σ_d · √(1 − ρ^(2t))), so the next few minutes look like now and the hour ahead doesn't.
+- **Abrupt shifts:** Poisson, at 0.25 per hour, so about 1 run in 5 sees one within the hour. A shift turns the wind by a uniform 30–180° either way, and scales its speed by a lognormal factor (σ 0.4, about ×0.67–1.5). The wander then continues around the new wind.
+- **Gusts:** in any minute, a 5% chance of +30% speed.
+- **Into the fire model:** the runs feed their wind to the same fire kernel, tick by tick. Ember spotting follows each run's own wind too.
+- **What the sampler assumes:**
+  - The scenarios ship no weather forecast, so the centre is persistence of the current wind.
+  - The parameters are a scenario prior (what changes are plausible in a round), not fitted to observed weather. The ensemble is a scenario model, not a calibrated meteorological forecast.
+  - Nothing about the eval's wind schedules is coded into it.
+  - A forecast sees only the snapshot at issue. A test checks that two fires with identical pasts and different futures get identical forecasts.
+
+**What it does to the probability maps.** A cell's probability becomes the share of runs that burn it under their own wind. So it now mixes two uncertainties:
+- the fire's own randomness (spread and ember draws, which is all the constant-wind forecast has);
+- the wind's.
+
+Runs whose wind turned spread fire in other directions. That adds a thin low-probability fringe in those directions and shrinks the confident core. With 32 runs and about 1 in 5 seeing a shift, each pointing its own way, any particular shift (say, a reversal) is usually represented by one or two runs: a probability of 1/32 to 2/32. That is often below the cutoff the controller uses. The ensemble hedges against shifts in general, not against the one that happens.
+
+**How the conformal controller calibrates it.** Nothing changes in the controller: the same CRC-style missed-area loss, the same fixed-rate ACI update and 10% target. Each forecaster gets its own controller state from the same warm start, and nothing learned on one is reused for another. The ensemble only changes the probability maps whose cutoff and margin the controller tunes. Ensemble probabilities are not calibrated by construction (they are only as good as the scenario prior), which is why the controller still sits on top.
+
+**The wind-aware emulator (#229).** The emulator learns to output the ensemble's map in one pass.
+- **Labels:** 64-run maps simulated under wind scenarios, with the model-error hedging the original labels already had (`C2`, spread rate).
+  - Each training fire draws its own uncertainty level: shift rate 0–1 per hour, direction wander 5–30°, speed wander 0.05–0.3.
+  - 20% of fires get none, and their label is exactly the original constant-wind label.
+- **Inputs:** the original 15 channels, all as at issue, plus 3 constant planes holding that uncertainty level (`features.wind_code`).
+  - The model never sees a future wind, only how uncertain the future is assumed to be, and it learns the spread of outcomes that implies.
+  - That differs from the original labels' per-run wind perturbation (±15°, ±20%, fixed for a whole run), which can't represent a wind that changes partway through a forecast.
+- **Data and training:** 3,063 training and 301 held-out test fires, generated separately (seeds 2 and 3; fires that burn out before the snapshot are skipped). Trained for 12 epochs at batch 16 with the original recipe, on PyTorch/CUDA (an RTX A6000). The original model saw about 5,200 training fires, so the comparison below is confounded by data size.
+
+**Guarantees and measurements, kept apart:**
+- **Guaranteed:** only the ACI bound in "Statistical guarantees" above. Whichever forecaster feeds it, it bounds the average missed area of the outlines shown, provided the widest outline is wide enough. It says nothing about how good the probabilities are.
+- **Not guaranteed:**
+  - that ensemble probabilities are calibrated (they inherit the scenario prior);
+  - that the emulator matches the ensemble (it's an approximation, measured below);
+  - any distribution-free coverage from adding scenarios;
+  - whole-fire containment.
+- **Measured, simulator only:** everything below. These say how the methods behave against our own fire model with scripted winds, not against real fires.
+
+**Evaluation protocol** (`eval.wind_ensemble`, built on `eval.conformal_compare`).
+- **Fires:** Paradise, with a forecast every 5 min for 300 min. All forecasters forecast from the same snapshots of the same fires.
+- **Reproducibility:**
+  - Recordings on the Linux server and on the Mac were checked to give bit-identical constant-wind episodes (fires and forecasts).
+  - A second server run of the 48 fires reproduced all 48 constant-wind episodes exactly, and 47 of 48 ensemble episodes. In the one exception, a single late forecast differed. The cause isn't pinned down (rare floating-point differences in vectorized math are a guess).
+  - The tables use the first run.
+- **Schedules:** steady, veer (a gradual 90° turn), reversal, surge (7 → 18 m/s), flip-flop and gusty.
+- **Tuning:** the shift rate was chosen on seeds 0–3 by a rule fixed beforehand: the least outline area at a pooled 10% miss, relative to constant wind. It picked 0.25/h. The higher rates cut pre-shift misses there, but cost about 16% more area.
+- **Final run:** seeds 4–11, 48 fires, reported here.
+- **Pre-shift:** forecasts issued in the h minutes before an abrupt shift (reversal, surge, flip-flop).
+
+**Held-out results, Monte Carlo** (seeds 4–11). "Equal risk" uses no controller: the cutoff at which the pooled miss is 10%, and the outline area needed there.
+
+| | T+30 constant | T+30 ensemble | T+60 constant | T+60 ensemble |
+|---|---|---|---|---|
+| Equal risk: area for a pooled 10% miss | 12.8 km² | 13.3 km² | 44.9 km² | 45.4 km² |
+| Equal risk: pre-shift miss | 20.5% | 20.3% | 24.2% | 25.3% |
+| Under ACI: mean miss | 10.8% | 10.4% | 11.9% | 10.8% |
+| Under ACI: pre-shift miss | 15.0% | 14.7% | 24.9% | 22.6% |
+| Under ACI: mean outline area | 16.6 km² | 17.7 km² | 45.1 km² | 89.7 km² |
+| Under ACI: surge outline area | 32.5 km² | 37.9 km² | 96.6 km² | 282.4 km² |
+| Forecast time (server CPU, mean) | 1.5 s | 3.5 s | | |
+
+- **The selected ensemble doesn't fix the pre-shift failure.** At equal risk it is area-neutral but no better before shifts. Under the controller, it lowers T+60 misses by about 1–2 points but doubles the outline area, mostly in the surge (rollouts at 18 m/s with random shifts sprawl).
+- **That is not a better trade-off than constant wind, so constant wind stays the default** (`runner.WIND_MODEL = None`).
+
+**Held-out results, emulators** (`emulator.evaluate --compare`, 301 test fires; open cells only). Brier score is mean squared error (lower is better). Calibration error is the mean |prediction − label| gap across probability bins (lower is better). IoU is the overlap of 50% areas (higher is better).
+
+| Predictor | Brier vs wind-scenario label | Calibration error | IoU | Brier vs constant-wind label |
+|---|---|---|---|---|
+| Original U-Net (#192 weights) | 0.00370 | 0.0056 | 0.778 | 0.00373 |
+| Wind-aware U-Net | 0.00363 | 0.0003 | 0.770 | 0.00428 |
+| 32-run Monte Carlo, constant wind | 0.00313 | 0.0132 | 0.844 | 0.00333 |
+| 32-run Monte Carlo, wind scenarios | 0.00207 | 0.0044 | 0.852 | 0.00288 |
+
+- **On fires whose label carries wind uncertainty (236 of 301),** the wind-aware U-Net's Brier is 0.00340 against the original's 0.00366. On the 65 constant-wind fires it is worse: 0.00438 against 0.00383.
+- **Speed:** both U-Nets take about 31 ms per forecast on an M2 Max.
+
+**Emulators on the same 48 wind-shift fires,** each with its own ACI state:
+
+| T+60 | Mean miss | Pre-shift miss | Mean outline area | Recovery after a shift | Equal-risk area |
+|---|---|---|---|---|---|
+| Monte Carlo, constant | 11.9% | 24.9% | 45.1 km² | 29 min | 44.9 km² |
+| Monte Carlo, ensemble | 10.8% | 22.6% | 89.7 km² | 29 min | 45.4 km² |
+| Original U-Net | 10.7% | 22.2% | 44.0 km² | 45 min | 32.1 km² |
+| Wind-aware U-Net | 11.1% | 22.4% | 57.8 km² | 42 min | 36.4 km² |
+
+T+30 is similar: miss 10.0–10.8% for all four, outline area 16–18 km².
+
+**Is the wind-aware U-Net a useful surrogate?**
+- **As an approximation of the ensemble: partly.**
+  - It is better calibrated than the original U-Net against ensemble labels.
+  - Its Brier is slightly better against those labels (7% on wind-uncertain fires), but its 50% outline overlap is slightly worse.
+  - It is clearly worse than the original where the wind holds.
+  - It is well short of a 32-run ensemble forecast (Brier 0.00363 against 0.00207).
+- **As a forecaster under the controller: no gain.** On the 48 fires it needs more area than the original U-Net for about the same misses.
+- **Speed:** both U-Nets are about 50–100× faster than Monte Carlo. The runtimes are on different hardware (a Mac GPU against server CPUs), so take the ratio as rough.
+- **The data-size confound** (3,063 against about 5,200 training fires) may explain part of the gap.
+- **Both U-Nets recover more slowly after a shift** (42–45 min against 29). Recovery is the minutes until the 30-min miss of outlines shown after the shift stays within 15%. A preview's line is the plain 50% edge in the console anyway (see "Learned emulator").
+- **Neither changes production.** The original U-Net stays the preview model; Monte Carlo stays authoritative.
+
+**Exploratory, not validated: a 1/h shift rate.** This was looked at only after the held-out result above was known, because the higher rates had cut pre-shift misses in tuning. It was not chosen by the tuning rule, and it is measured on the same seeds 4–11, so treat it as a hypothesis for a fresh test, not a result.
+
+| Seeds 4–11 | T+30 constant | T+30 ensemble, 1/h | T+60 constant | T+60 ensemble, 1/h |
+|---|---|---|---|---|
+| Equal risk: area for a pooled 10% miss | 12.8 km² | 14.5 km² | 44.9 km² | 51.6 km² |
+| Equal risk: pre-shift miss | 20.5% | 17.5% | 24.2% | 20.7% |
+| Under ACI: mean miss | 10.8% | 10.3% | 11.9% | 10.7% |
+| Under ACI: pre-shift miss | 15.0% | 13.8% | 24.9% | 19.6% |
+| Under ACI: mean outline area | 16.6 km² | 21.9 km² | 45.1 km² | 138.4 km² |
+
+- **Equal risk:** with no controller, the 1/h ensemble cuts pre-shift misses by 3–3.5 points for about 14% more area. That matches what tuning showed for the higher rates, so the trade looks real.
+- **Under ACI:** its T+60 outlines are three times the constant-wind area. The controller widens the hedged maps a lot more than it widens constant-wind ones.
+- **The wind-aware U-Net, given 1/h as its input,** follows its Monte Carlo counterpart in direction. At equal risk its pre-shift miss falls from 20.1% to 18.9% (T+30) and from 27.1% to 24.7% (T+60), at about the same area.
+- **Verdict:** a fresh test on new seeds would be needed before calling this an improvement. Even then the controller's area cost at T+60 is a problem to solve first. The setting stays off.
+
+**Limitations.**
+- **The truth is our own simulator.** Wind changes are scripted and the fire model is the same one that forecasts, so this measures the value of hedging over future wind, not real-world skill (layer 3).
+- **The scenario prior isn't fitted to weather data.** A real wind forecast (direction-change likelihoods, frontal timing) is what would help pre-shift outlines most. The sampler takes one as its centre trivially, if one ever exists.
+- **32 runs spread thin over many possible shifts,** so the ensemble rarely puts much probability on the shift that actually happens. More runs cost linearly more time, and the ensemble is already about 2× slower.
+- **Ensemble outlines can grow very large in strong winds** (surge), which hurts more than the hedging helps.
+- **Emulator caveats:** the wind-aware emulator's training set was smaller than the original's, and both emulators were evaluated on Paradise only. The test fires come from the training distribution (both maps), not from unseen scenarios.
+
+**Reproduce:** `docs/wind_experiments_runbook.md` has every command and the server/Mac split. Reports: `docs/wind_ensemble_tune.md`, `docs/wind_ensemble.md`, `docs/emulator_compare.json`.
+
 **Town arrival ranges (`ArrivalCalibrator`).**
 - **Raw range:** each threatened town gets the 5–95% range of fire arrival across the long forecast's runs.
 - **Correction:** a learned correction Q per lead-time bucket (under 30 min, 30–120 min, over 120 min) widens or narrows it to `[lo − Q, hi + Q]`.
@@ -374,6 +523,8 @@ cd engine
 uv run python -m eval.run            # forecast skill, envelope miss rate, routing, recommendations (~75 s)
 uv run python -m eval.arrival        # arrival-range coverage per wind schedule (~15 min)
 uv run python -m eval.conformal_compare --cache /tmp/streams.pkl   # outline calibration: fixed-rate ACI vs DtACI under wind shifts (~10 min)
+uv run python -m eval.wind_ensemble --phase final --cache wind_final.pkl   # constant wind vs the wind-scenario ensemble (big CPU job; see docs/wind_experiments_runbook.md)
+uv run --extra ml python -m emulator.evaluate --compare --test emulator/data/test_wind   # original vs wind-aware emulator vs Monte Carlo
 uv run python -m eval.campfire       # the Camp Fire replay (~3 s)
 uv run python -m eval.marshall --measured   # the Marshall Fire replay
 uv run python -m eval.early_attack   # does crew dispatch contain fires at 3/8/13 m/s
