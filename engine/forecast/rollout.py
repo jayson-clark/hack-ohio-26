@@ -42,10 +42,16 @@ def _wind_rng(seed: int | None, stream: int = 1) -> np.random.Generator:
     return np.random.default_rng(None if seed is None else (seed, stream))
 
 
-def _wind_input(wind: Wind, n: int, ticks: int, seed, wind_spread, wind_model):
-    """Per-rollout wind for _run: None, fixed rows (WindSpread), or per-tick paths (WindScenarios)."""
-    if wind_spread is not None and wind_model is not None:
-        raise ValueError("use wind_spread or wind_model, not both")
+def _wind_input(wind: Wind, n: int, ticks: int, seed, wind_spread, wind_model, wind_paths=None):
+    """Per-rollout wind for _run: None, fixed rows (WindSpread), per-tick paths
+    sampled from a WindScenarios, or given paths (WindPaths, shape (T, n) or (T, 1))."""
+    if sum(x is not None for x in (wind_spread, wind_model, wind_paths)) > 1:
+        raise ValueError("use one of wind_spread, wind_model, wind_paths")
+    if wind_paths is not None:
+        sp, fr = np.asarray(wind_paths.speed_ms, np.float32), np.asarray(wind_paths.from_deg, np.float32)
+        if sp.shape[1] == 1:  # one path for every rollout
+            sp, fr = np.repeat(sp, n, axis=1), np.repeat(fr, n, axis=1)
+        return WindPaths(sp, fr)
     if wind_model is not None:
         return sample_paths(wind, n, ticks, wind_model, _wind_rng(seed, 2))
     if wind_spread is not None:
@@ -63,6 +69,7 @@ def rollout(
     seed: int | None = None,
     wind_spread: WindSpread | None = None,
     wind_model: WindScenarios | None = None,
+    wind_paths: WindPaths | None = None,
 ) -> np.ndarray:
     """Ticks from now until each cell first burns, float32 (n, H, W).
 
@@ -83,7 +90,7 @@ def rollout(
         return base if extra is None else np.maximum(base, extra)
 
     wind = wind or snapshot.wind
-    rows = _wind_input(wind, n, ticks, seed, wind_spread, wind_model)
+    rows = _wind_input(wind, n, ticks, seed, wind_spread, wind_model, wind_paths)
     sup = sup_at if _varies(snapshot) else sup_at(0)
     return _run(snapshot, n, ticks, sup, wind, rows, np.random.default_rng(seed), group=1)
 
