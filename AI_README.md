@@ -27,7 +27,10 @@ Everything else builds on a stochastic cellular automaton: each cell is 94 m and
 - **Spread:** each tick, a burning cell lights each neighbour with probability `P_H × fuel × slope × wind × (1 − suppression)`.
 - **Wind:** the wind term is `e^(C1·v) · e^(C2·v·(cos θ − 1))`, with `C1 = 0.14` and `C2 = 0.3`.
 - **Embers:** above 9 m/s, burning cells throw embers downwind.
-- **Wind in a forecast:** by default every run keeps the wind at issue for the whole horizon. That is the main reason outlines fail after wind shifts (see "Future wind" below). An optional ensemble gives each run its own plausible wind path instead (`forecast/wind.py`, #228). It is off, because in testing it didn't buy enough coverage for its extra area.
+- **Wind in a forecast:** by default every run keeps the wind at issue for the whole horizon. That is the main reason outlines fail after wind shifts (see "Future wind" below).
+  - An optional ensemble gives each run its own plausible wind path instead (`forecast/wind.py`, #228).
+  - A forecast-conditioned version sets its shift rate from a small risk model (#231).
+  - Both are off. In testing neither bought enough coverage for its extra area, and short-term shifts proved only weakly predictable.
 - **Validation:** the constants are checked against two real fires, the 2018 Camp Fire (`eval/campfire.py`) and the 2021 Marshall Fire (`eval/marshall.py`). PLAN.md's "Choosing C2" has the scores.
 
 A **forecast** runs 32 copies of the current fire forward, each with its own random draws, and records when each cell first burned in each run. From that:
@@ -473,6 +476,80 @@ T+30 is similar: miss 10.0–10.8% for all four, outline area 16–18 km².
 
 **Reproduce:** `docs/wind_experiments_runbook.md` has every command and the server/Mac split. Reports: `docs/wind_ensemble_tune.md`, `docs/wind_ensemble.md`, `docs/emulator_compare.json`.
 
+#### Forecast-conditioned wind uncertainty (#231): is a wind shift predictable when the forecast is made?
+
+**Why the earlier methods failed:**
+- **DtACI** (#227) adapts the outline faster, but only after errors are observed. It can't change an outline that was already shown.
+- **Unconditional wind ensembles** (#228) hedge every forecast equally. At 0.25 shifts/h that bought nothing; at 1/h it cut pre-shift misses but cost area all the time, including in steady weather.
+- **The wind-aware U-Net** (#229) is fast, but it imitates those same unconditional ensembles.
+- **Common thread:** none of them knows *when* a shift is likely. Adaptive calibration can't supply that, because the feedback that would tell it arrives after the shift. The open question was whether information available at issue time can say when to hedge.
+
+**The model (`forecast/wind_risk.py`):** P(a shift > 45°, or a surge, within 30 or 60 min) from what is known at issue, by logistic regression.
+- **On-board features:** what a drone measures itself. The current wind as vector components (no wraparound at 0°/360°), its change over the last 30 and 60 min, its direction change over the hour, steadiness, gustiness and time of day.
+- **Preloaded-forecast features:** an archived HRRR run, used only once it would have been published, an hour after it started. The forecast's predicted change over the horizon, its gusts, its spatial spread over about 15 km, its current error against the observed wind, and its age.
+- **Size:** about 17 numbers in a 1–2 KB JSON file (`forecast/wind_risk_models/`), NumPy only, so it runs on a drone's flight computer with no network.
+- **Data is offline only:** HRRR and the station archives are research data (`weather/`). Nothing at inference time makes an API call.
+- **In the simulator** (`eval.wind_replay`): each forecast's shift rate is rate = −ln(1 − P(shift within 60 min)) per hour, fed to the existing wind-scenario sampler. The Monte Carlo runs, burn-probability maps and conformal controller are unchanged, and each forecaster keeps its own controller state.
+
+**Four kinds of uncertainty, kept apart:**
+1. **Weather:** P(shift) from the risk model.
+2. **Fire spread:** the Monte Carlo runs under each sampled wind path.
+3. **Empirical missed-area calibration:** the ACI controller, learned from observed errors.
+4. **Formal guarantee:** only the ACI average-miss bound, which holds whatever maps it is fed.
+
+The risk model adds no guarantee. It is not conditional coverage or whole-fire containment; its job is better maps.
+
+**Stage 1: is shift risk predictable?** (`eval.wind_shift_skill`, `docs/wind_shift_skill.md`)
+- **Data:** Oroville ASOS (1-minute data, Butte County) and Broomfield ASOS (20-minute reports, Boulder County), standing in for a drone's anemometer, Sep–Dec 2018–2024.
+- **Splits:** fit on 2018–22 and tested on 2023–24, plus a cross-station test and a stale preload (7–13 h old).
+- **Ranking: yes, modestly.**
+  - At windy times (≥ 2.5 m/s), within one station, the models rank risk with AUC 0.67–0.82. AUC is the chance a real shift is scored above a non-shift; 0.5 is no skill.
+  - The riskiest 20% of times hold 40–62% of 60-min shifts, where 20% would be no skill.
+  - The preloaded forecast helps most at Oroville (47% → 62%) and adds little once 7–13 h old.
+- **Probabilities: barely better than a constant rate.**
+  - Risk stays low even when flagged: about 20% in the riskiest tenth of times for a 60-min shift, under 4% for reversals.
+  - Brier skill over a constant rate at windy times is a few percent at most (+0.025 to +0.041 for shifts, about zero for reversals and surges).
+  - The fire-relevant reversals and surges rest on only 22–37 test events, at one station.
+- **Wind speed and direction:** raw HRRR wind 30–60 min ahead is worse than persistence (direction error 24–41° vs 9–27° across the splits). A linear blend of the two helps a little.
+- **Labelling:** the windy-times analysis and the concentration measure were defined after the first results and are reported as a follow-up.
+
+**Stage 2: does it help the fire forecast?** (`eval.wind_replay`, `docs/wind_replay.md`)
+- **Fires:** 60, driven minute by minute by the observed 2023–24 wind of each region's station: Oroville on the Paradise map, Broomfield on Marshall. Seeded starts at windy times, which no model had seen. Ignitions are near each real fire's origin.
+- **Forecasters:** seven, all from the same snapshot and seed.
+- **Decision rule, fixed before the run:** the conditional (on-board + forecast) method must cut pre-shift misses against constant wind at equal risk (90% interval over fires excluding zero), and need less area than the 1/h ensemble.
+
+| Equal risk, no controller | Pre-shift miss T+30 | Pre-shift miss T+60 | Outline area T+60 |
+|---|---|---|---|
+| Constant wind | 15.7% | 19.4% | 15.3 km² |
+| Ensemble 0.25/h | 15.0% | 19.5% | 14.9 km² |
+| Ensemble 1/h | 14.3% | 18.1% | 15.1 km² |
+| Conditional, on-board | 15.0% | 19.7% | 14.9 km² |
+| Conditional, on-board + forecast (primary) | 15.1% | 19.6% | 14.9 km² |
+| Conditional, budget-matched (secondary) | 14.5% | 18.1% | 15.2 km² |
+| Oracle, fed the future wind (diagnostic, not deployable) | 10.6% | 10.6% | 13.8 km² |
+
+- **The primary method fails the rule.**
+  - Its pre-shift difference against constant wind spans [−1.2%, +0.1%] at T+30 and [−1.8%, +0.5%] at T+60, both including zero.
+  - Its area against the 1/h ensemble is 0.97–1.02×.
+  - The cause: calibrated risk is low, so its average rate is 0.04/h and it barely hedges. It behaves almost like constant wind.
+- **The budget-matched variant concentrates hedging, but doesn't pay off.**
+  - Its rate is 1/h × P / P_train, so it roughly matches the 1/h ensemble's hedging (it averaged 1.24/h in these windier fires) but moves it to risky times. It was added after a smoke test showed the low rates, and is defined from training data only.
+  - Against the 1/h ensemble: pre-shift difference [−1.5%, +1.0%] (T+30) and [−3.2%, +0.6%] (T+60), area 1.00–1.07×.
+  - So concentrating the hedging gave no measurable gain over hedging uniformly.
+- **Under the controller,** both ensemble-style methods cut T+60 pre-shift misses (constant 17.4%, 1/h 14.7%, budget-matched 14.1%). They pay 9–13% more outline area to do it, and the conditional calibrated method sits with constant wind (16.6%).
+- **The oracle shows the room for improvement:** knowing the future wind would roughly halve pre-shift misses with less area. The gap is the wind's unpredictability at 30–60 min, not the fire model or the controller.
+- **Power is limited:** only 104 (T+30) and 190 (T+60) of about 3,500 forecasts per horizon had an observed shift in their window, so intervals are wide. Real winds here were rarely as abrupt as the scripted reversals.
+- **Granularity:** with 32 runs, probabilities come in steps of 1/32, so the equal-risk cutoff often lands on the same level and areas differ little.
+- **Decision:** production defaults stay. Constant wind, no wind model, the original U-Net and fixed-rate ACI. The risk models and sampler hooks stay as research tools.
+
+**What would change the answer:**
+- **More information:** a real short-range wind forecast with skill at 30–60 min. HRRR's hourly point forecasts didn't beat persistence at these stations; a nowcast, more local sensors, or an upwind drone reading could.
+- **More events:** more stations and seasons with abrupt shifts, which would give a fair test of reversals and surges specifically.
+- **More runs,** or a better representation of low-probability shifts, so a 5–10% risk can show up in the map at all.
+- **Real fires:** everything here is against our own simulator under observed winds. It tests weather predictability and the simulator's response, not real-fire skill (layer 3).
+
+**Reproduce:** `docs/wind_experiments_runbook.md`, sections 7 and earlier: `python -m weather.fetch`, then `python -m eval.wind_shift_skill` and `python -m eval.wind_replay`.
+
 **Town arrival ranges (`ArrivalCalibrator`).**
 - **Raw range:** each threatened town gets the 5–95% range of fire arrival across the long forecast's runs.
 - **Correction:** a learned correction Q per lead-time bucket (under 30 min, 30–120 min, over 120 min) widens or narrows it to `[lo − Q, hi + Q]`.
@@ -525,6 +602,8 @@ uv run python -m eval.arrival        # arrival-range coverage per wind schedule 
 uv run python -m eval.conformal_compare --cache /tmp/streams.pkl   # outline calibration: fixed-rate ACI vs DtACI under wind shifts (~10 min)
 uv run python -m eval.wind_ensemble --phase final --cache wind_final.pkl   # constant wind vs the wind-scenario ensemble (big CPU job; see docs/wind_experiments_runbook.md)
 uv run --extra ml python -m emulator.evaluate --compare --test emulator/data/test_wind   # original vs wind-aware emulator vs Monte Carlo
+uv run python -m eval.wind_shift_skill   # are 30-60 min wind shifts predictable? (needs python -m weather.fetch first)
+uv run python -m eval.wind_replay --workers 24   # conditional wind ensemble on real-wind fire replays (big CPU job)
 uv run python -m eval.campfire       # the Camp Fire replay (~3 s)
 uv run python -m eval.marshall --measured   # the Marshall Fire replay
 uv run python -m eval.early_attack   # does crew dispatch contain fires at 3/8/13 m/s

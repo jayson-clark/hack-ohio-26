@@ -22,3 +22,6 @@ engine/emulator_compare.json
 engine/emulator_compare.log
 # Fetched HRRR point series and station observations (regenerate with python -m weather.fetch)
 engine/weather/data/
+
+# Stage-2 replay cache and logs (published report: docs/wind_replay.md)
+engine/wind_replay.*
