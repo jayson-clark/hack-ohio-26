@@ -19,7 +19,30 @@ Commit the new `weights/fire_emulator.safetensors` and `.json` (training history
 
 Device: training and `evaluate` print the device they use, and the `.json` records it under `trained_on`. `--device auto` (the default) picks MLX's GPU: Metal on Apple silicon, which is what PyTorch calls MPS, or CUDA on NVIDIA. With no GPU it falls back to the CPU, which is slow (`emulator/device.py`). `--device gpu` fails instead of falling back, and `--device cpu` forces the CPU.
 
-Training on an NVIDIA machine (e.g. a cluster) is optional. The repo is macOS-only, so the `ml` extra only installs on Apple silicon. On Linux, sync normally, run `uv pip install "mlx[cuda]"`, then `uv run --no-sync python -m emulator.train --device gpu`. The weights are plain safetensors, so they load on a Mac whichever GPU trained them.
+**Backends:** `emulator.train` trains with MLX on a Mac (Metal) or PyTorch on NVIDIA (CUDA). `--backend auto` (the default) uses PyTorch when it sees a CUDA GPU, else MLX. The recipe is the same either way (`emulator/backends.py`).
+- **Weights:** both save MLX's weights layout (`emulator/weights_io.py`, NumPy only), so the engine loads any of them.
+- **Equivalence:** `emulator/torch_model.py` is the same net with the same parameter names. The same weights give the same outputs (within 1e-4) in both frameworks; `tests/test_emulator.py` checks it.
+- **Inference:** `Emulator` uses MLX if installed, else PyTorch, so the emulator evals also run on a CUDA box.
+- **MLX on Linux:** don't use it. Its wheels need glibc >= 2.35 (RHEL/Rocky 9 have 2.34), and its CUDA backend needs an SM 7.5+ GPU (no V100).
+- **PyTorch for NVIDIA:** install it by hand, `uv pip install torch --index-url https://download.pytorch.org/whl/cu126`. A V100 needs a CUDA 12 build, since CUDA 13 dropped Volta. Check that `torch.cuda.get_arch_list()` includes your GPU's `sm_XX`. It isn't in the lockfile: an optional, platform-specific install, like the old `mlx[cuda]` note.
+- **CUDA run:** `uv run --no-sync python -u -m emulator.train --backend torch --device gpu --builders 8 ...`. `--amp` (float16) and `--torch-compile` are optional speedups, off by default so results match the MLX recipe.
+- **The GPU is rarely the bottleneck:** training takes ~15 min on an M2 Max, while data generation is CPU-bound. `docs/wind_experiments_runbook.md` has the full server/Mac workflow.
+- **What worked (#229):** run `emulator.data` (and the CPU evals) on a many-core Linux box with a plain `uv sync`; it doesn't import MLX. Copy `emulator/data/<set>/` back, then train and evaluate on the Mac.
+- **Big runs:** use `tmux` on the server, since a dropped SSH session kills background jobs.
+- **Python 3.14 on Linux:** a stray `multiprocessing.forkserver` can outlive the script. Its outputs are already written; `pkill -f multiprocessing.forkserver`.
+- **Bad shards:** `emulator.data` refuses an `--out` that already has shards. If a run died, delete the directory and rerun.
+
+**Wind-aware model (#229).** Same U-Net, 18 inputs: the 15 above plus 3 constant planes holding the label's future-wind uncertainty (`features.wind_code`: shift rate, direction and speed wander of a `forecast.wind.WindScenarios`; zeros = constant wind). The wind channels stay the wind at issue. It has its own data and weights, and never touches the original:
+```sh
+uv run python -m emulator.data --wind-aware --samples 4000 --out emulator/data/train_wind --seed 2 --workers 20
+uv run python -m emulator.data --wind-aware --samples 400 --out emulator/data/test_wind --seed 3 --with-32 --workers 4
+uv run --extra ml python -u -m emulator.train --wind-aware --train emulator/data/train_wind --test emulator/data/test_wind > emulator/data/train_wind.log
+uv run --extra ml python -m emulator.evaluate --compare --test emulator/data/test_wind   # 4 predictors x 2 targets
+```
+- **Weights:** `weights/fire_emulator_wind.safetensors`, plus a `.json` sidecar (`wind_aware`, `input_channels`) that `Emulator` reads to build the right net. Training refuses to overwrite existing weights unless `--overwrite`.
+- **In the engine:** `EMULATOR=wind` loads it for previews and screening, told `forecast.runner.WIND_MODEL`. The original stays the default.
+- **Samples:** about a quarter of samples are skipped because the fire burns out before the snapshot (4000 requested gave 3063).
+- **Results:** in AI_README.md.
 
 Training speed (#193): `BUILDERS` threads build batches ahead of the GPU and the step is compiled (`mx.compile`), so an epoch of 5,200 fires takes ~74 s at batch 16 (was ~125 s at batch 8). On maps bigger than `WINDOW` (256 cells), training uses a random 256 x 256 square holding the fire's 76-cell reach, so the 512 x 480 Paradise trains about as fast as today's maps. Inference still runs on the whole map. Inputs are rebuilt per batch rather than held in memory, since a 512 x 480 map's inputs would take tens of GB.
 - **Batch 16 is the sweet spot on an M2 Max.** Batch 32 took 264 s an epoch at full map size and learned less per epoch.

@@ -1,6 +1,8 @@
-"""The fire emulator network and its runtime wrapper (#113). Needs MLX
-(Apple silicon): `uv sync --extra ml`. Without it, `load_emulator()` returns
-None and the engine runs exactly as before.
+"""The fire emulator network and its runtime wrapper (#113). Runs on MLX
+(Apple silicon: `uv sync --extra ml`), or on PyTorch where MLX isn't
+installed (NVIDIA machines: emulator.torch_model, same weights file).
+Without either, `load_emulator()` returns None and the engine runs exactly
+as before.
 
 A small U-Net: three 2x downsamplings, then dilated convolutions at 1/8
 scale, so each output sees ~160 cells around it, more than the 60 a fire can
@@ -12,9 +14,15 @@ from pathlib import Path
 
 import numpy as np
 
-from emulator.features import MULTIPLE, N_CHANNELS, finish, from_snapshot
+import json
+
+from emulator.features import MULTIPLE, N_CHANNELS, finish, from_snapshot, wind_code
 
 WEIGHTS = Path(__file__).resolve().parent / "weights" / "fire_emulator.safetensors"
+# The wind-aware model (#229): trained on wind-scenario ensemble labels, with
+# the ensemble's uncertainty as 3 extra input planes. A separate file, so the
+# original stays the baseline; EMULATOR=wind loads this one in the engine.
+WIND_WEIGHTS = WEIGHTS.with_name("fire_emulator_wind.safetensors")
 WIDTHS = (32, 64, 96, 128)
 
 try:
@@ -70,18 +78,50 @@ def pad_to(x: np.ndarray, multiple: int = MULTIPLE) -> tuple[np.ndarray, int, in
     return x, h, w
 
 
+def sidecar(path: Path) -> dict:
+    """The training record saved next to the weights (emulator.train)."""
+    try:
+        return json.loads(Path(path).with_suffix(".json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 class Emulator:
     """Loaded weights, ready to predict. predict() takes a batch of input
     stacks (B, C, H, W) for one map and returns raw probabilities (B, 2, H, W);
-    forecast() does a whole snapshot, certain cells included."""
+    inputs() builds that stack for a snapshot; forecast() does a whole
+    snapshot, certain cells included. A wind-aware model (its sidecar says
+    "wind_aware") also takes the forecast's wind uncertainty, a
+    forecast.wind.WindScenarios or None for constant wind."""
 
-    def __init__(self, path: Path = WEIGHTS) -> None:
-        self.net = FireUNet()
-        self.net.load_weights(str(path))
+    def __init__(self, path: Path = WEIGHTS, wind_model=None, backend: str = "auto") -> None:
+        meta = sidecar(path)
+        self.wind_aware = bool(meta.get("wind_aware", False))
+        self.wind_model = wind_model
+        cin = int(meta.get("input_channels", N_CHANNELS))
+        self.backend = backend if backend != "auto" else ("mlx" if nn is not None else "torch")
+        if self.backend == "mlx":
+            self.net = FireUNet(cin=cin)
+            self.net.load_weights(str(path))
+        else:
+            from emulator import torch_model as T
+
+            self._dev = T.device("auto")
+            self.net = T.FireUNet(cin=cin)
+            T.load(self.net, path)
+            self.net.to(self._dev)
         self.net.eval()
+
+    def inputs(self, snapshot) -> np.ndarray:
+        """Input channels (C, H, W) for a snapshot, as this model expects them."""
+        return from_snapshot(snapshot, wind_code(self.wind_model) if self.wind_aware else None)
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         x, h, w = pad_to(x.astype(np.float32))
+        if self.backend == "torch":
+            from emulator import torch_model as T
+
+            return T.predict(self.net, x, self._dev)[:, :, :h, :w]
         logits = self.net(mx.array(x.transpose(0, 2, 3, 1)))
         p = mx.sigmoid(logits)
         mx.eval(p)
@@ -89,7 +129,7 @@ class Emulator:
 
     def forecast(self, snapshot) -> np.ndarray:
         """P(burn by T+30, T+60), float32 (2, H, W), like Forecast.probability."""
-        return finish(self.predict(from_snapshot(snapshot)[None])[0], snapshot.state)
+        return finish(self.predict(self.inputs(snapshot)[None])[0], snapshot.state)
 
 
 def disabled() -> bool:
@@ -99,9 +139,24 @@ def disabled() -> bool:
     return os.environ.get("EMULATOR", "").strip().lower() in ("off", "0", "false", "no")
 
 
-def load_emulator(path: Path = WEIGHTS) -> Emulator | None:
+def _torch_available() -> bool:
+    try:
+        import torch  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def load_emulator(path: Path | None = None) -> Emulator | None:
     """The trained emulator, or None when it's switched off (EMULATOR=off) or
-    there's no MLX or no weights."""
-    if disabled() or nn is None or not path.exists():
+    there's neither MLX nor PyTorch, or no weights. EMULATOR=wind picks the
+    wind-aware model, told the live forecast's wind model
+    (forecast.runner.WIND_MODEL)."""
+    if path is None:
+        path = WIND_WEIGHTS if os.environ.get("EMULATOR", "").strip().lower() == "wind" else WEIGHTS
+    if disabled() or not path.exists() or (nn is None and not _torch_available()):
         return None
-    return Emulator(path)
+    from forecast.runner import WIND_MODEL
+
+    return Emulator(path, wind_model=WIND_MODEL)

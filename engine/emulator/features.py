@@ -9,6 +9,12 @@ Input channels, float32 (C, H, W):
                                  lights the cell (fuel, slope, wind), the same
                                  numbers advance() uses, scaled by 1/SPREAD_SCALE
   11-14 suppression at +0, +15, +30, +60 ticks (crews dig in, drops dry, #56)
+  15-17 (wind-aware model only, #229) the forecast's future-wind uncertainty,
+        constant planes: shift_rate_per_h, dir_sd_deg / 30, speed_sd / 0.3 of
+        the forecast.wind.WindScenarios the labels were simulated under, or
+        zeros for constant wind. The wind itself is still only the wind at
+        issue, in channels 3-10: the net learns what spread the *uncertainty*
+        implies, never a particular future wind.
 
 Output: P(burn by T+30) and P(burn by T+60), (2, H, W).
 
@@ -26,6 +32,8 @@ HORIZONS = (30, 60)  # ticks (= sim minutes); the forecast's own horizons
 SUP_TICKS = (0, 15, 30, 60)
 SPREAD_SCALE = 0.5  # head-fire spread chances top out around here
 N_CHANNELS = 3 + 8 + len(SUP_TICKS)
+N_WIND = 3  # extra planes of the wind-aware model
+N_CHANNELS_WIND = N_CHANNELS + N_WIND
 MULTIPLE = 8  # the U-Net halves the grid three times
 
 
@@ -37,21 +45,34 @@ def suppression_stack(snapshot: FireSnapshot) -> np.ndarray:
     return np.stack([sched.at(t) for t in SUP_TICKS]).astype(np.float32)
 
 
-def inputs(state: np.ndarray, burn_left: np.ndarray, spread: np.ndarray, wind, sup: np.ndarray) -> np.ndarray:
+def wind_code(model) -> np.ndarray:
+    """A forecast.wind.WindScenarios (or None: constant wind) as the 3 numbers
+    of channels 15-17, float32 (3,)."""
+    if model is None:
+        return np.zeros(N_WIND, np.float32)
+    return np.array([model.shift_rate_per_h, model.dir_sd_deg / 30.0, model.speed_sd / 0.3], np.float32)
+
+
+def inputs(state: np.ndarray, burn_left: np.ndarray, spread: np.ndarray, wind, sup: np.ndarray,
+           wind_unc: np.ndarray | None = None) -> np.ndarray:
     """Input channels from raw pieces: state uint8 (H, W), burn_left (H, W),
-    the layers' spread (8, H, W), a Wind, and suppression (4, H, W)."""
+    the layers' spread (8, H, W), a Wind, and suppression (4, H, W). With
+    `wind_unc` (wind_code(...)), the wind-aware model's 3 extra planes."""
     h, w = state.shape
-    x = np.empty((N_CHANNELS, h, w), np.float32)
+    x = np.empty((N_CHANNELS if wind_unc is None else N_CHANNELS_WIND, h, w), np.float32)
     x[0] = state == BURNING
     x[1] = state == BURNED
     x[2] = np.where(state == BURNING, burn_left, 0) / BURN_TICKS
     x[3:11] = np.minimum(spread * wind_factors(wind)[:, None, None], 1.0) / SPREAD_SCALE
-    x[11:] = sup
+    x[11:N_CHANNELS] = sup
+    if wind_unc is not None:
+        x[N_CHANNELS:] = np.asarray(wind_unc, np.float32)[:, None, None]
     return x
 
 
-def from_snapshot(snapshot: FireSnapshot) -> np.ndarray:
-    return inputs(snapshot.state, snapshot.burn_left, snapshot.layers.spread, snapshot.wind, suppression_stack(snapshot))
+def from_snapshot(snapshot: FireSnapshot, wind_unc: np.ndarray | None = None) -> np.ndarray:
+    return inputs(snapshot.state, snapshot.burn_left, snapshot.layers.spread, snapshot.wind, suppression_stack(snapshot),
+                  wind_unc)
 
 
 def reach(burning: np.ndarray, steps: int) -> np.ndarray:

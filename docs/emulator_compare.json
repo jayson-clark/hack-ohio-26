@@ -1,0 +1,206 @@
+{
+  "test_samples": 301,
+  "results": [
+    {
+      "group": "all",
+      "target": "wind-scenario label",
+      "predictor": "original emulator",
+      "brier": 0.0037,
+      "ece": 0.0056,
+      "iou_50": 0.778
+    },
+    {
+      "group": "all",
+      "target": "wind-scenario label",
+      "predictor": "wind-aware emulator",
+      "brier": 0.00363,
+      "ece": 0.0003,
+      "iou_50": 0.77
+    },
+    {
+      "group": "all",
+      "target": "wind-scenario label",
+      "predictor": "MC 32, constant wind",
+      "brier": 0.00313,
+      "ece": 0.0132,
+      "iou_50": 0.844
+    },
+    {
+      "group": "all",
+      "target": "wind-scenario label",
+      "predictor": "MC 32, wind scenarios",
+      "brier": 0.00207,
+      "ece": 0.0044,
+      "iou_50": 0.852
+    },
+    {
+      "group": "all",
+      "target": "constant-wind label",
+      "predictor": "original emulator",
+      "brier": 0.00373,
+      "ece": 0.0023,
+      "iou_50": 0.768
+    },
+    {
+      "group": "all",
+      "target": "constant-wind label",
+      "predictor": "wind-aware emulator",
+      "brier": 0.00428,
+      "ece": 0.0029,
+      "iou_50": 0.749
+    },
+    {
+      "group": "all",
+      "target": "constant-wind label",
+      "predictor": "MC 32, constant wind",
+      "brier": 0.00333,
+      "ece": 0.0109,
+      "iou_50": 0.828
+    },
+    {
+      "group": "all",
+      "target": "constant-wind label",
+      "predictor": "MC 32, wind scenarios",
+      "brier": 0.00288,
+      "ece": 0.0025,
+      "iou_50": 0.823
+    },
+    {
+      "group": "with wind uncertainty",
+      "target": "wind-scenario label",
+      "predictor": "original emulator",
+      "brier": 0.00366,
+      "ece": 0.0075,
+      "iou_50": 0.775
+    },
+    {
+      "group": "with wind uncertainty",
+      "target": "wind-scenario label",
+      "predictor": "wind-aware emulator",
+      "brier": 0.0034,
+      "ece": 0.0009,
+      "iou_50": 0.771
+    },
+    {
+      "group": "with wind uncertainty",
+      "target": "wind-scenario label",
+      "predictor": "MC 32, constant wind",
+      "brier": 0.00305,
+      "ece": 0.0136,
+      "iou_50": 0.842
+    },
+    {
+      "group": "with wind uncertainty",
+      "target": "wind-scenario label",
+      "predictor": "MC 32, wind scenarios",
+      "brier": 0.00167,
+      "ece": 0.0028,
+      "iou_50": 0.852
+    },
+    {
+      "group": "with wind uncertainty",
+      "target": "constant-wind label",
+      "predictor": "original emulator",
+      "brier": 0.0037,
+      "ece": 0.0033,
+      "iou_50": 0.762
+    },
+    {
+      "group": "with wind uncertainty",
+      "target": "constant-wind label",
+      "predictor": "wind-aware emulator",
+      "brier": 0.00426,
+      "ece": 0.0039,
+      "iou_50": 0.741
+    },
+    {
+      "group": "with wind uncertainty",
+      "target": "constant-wind label",
+      "predictor": "MC 32, constant wind",
+      "brier": 0.00332,
+      "ece": 0.0106,
+      "iou_50": 0.82
+    },
+    {
+      "group": "with wind uncertainty",
+      "target": "constant-wind label",
+      "predictor": "MC 32, wind scenarios",
+      "brier": 0.00273,
+      "ece": 0.0033,
+      "iou_50": 0.814
+    },
+    {
+      "group": "constant-wind label",
+      "target": "wind-scenario label",
+      "predictor": "original emulator",
+      "brier": 0.00383,
+      "ece": 0.0018,
+      "iou_50": 0.786
+    },
+    {
+      "group": "constant-wind label",
+      "target": "wind-scenario label",
+      "predictor": "wind-aware emulator",
+      "brier": 0.00438,
+      "ece": 0.0028,
+      "iou_50": 0.769
+    },
+    {
+      "group": "constant-wind label",
+      "target": "wind-scenario label",
+      "predictor": "MC 32, constant wind",
+      "brier": 0.00339,
+      "ece": 0.012,
+      "iou_50": 0.85
+    },
+    {
+      "group": "constant-wind label",
+      "target": "wind-scenario label",
+      "predictor": "MC 32, wind scenarios",
+      "brier": 0.00339,
+      "ece": 0.012,
+      "iou_50": 0.85
+    },
+    {
+      "group": "constant-wind label",
+      "target": "constant-wind label",
+      "predictor": "original emulator",
+      "brier": 0.00383,
+      "ece": 0.0018,
+      "iou_50": 0.786
+    },
+    {
+      "group": "constant-wind label",
+      "target": "constant-wind label",
+      "predictor": "wind-aware emulator",
+      "brier": 0.00438,
+      "ece": 0.0028,
+      "iou_50": 0.769
+    },
+    {
+      "group": "constant-wind label",
+      "target": "constant-wind label",
+      "predictor": "MC 32, constant wind",
+      "brier": 0.00339,
+      "ece": 0.012,
+      "iou_50": 0.85
+    },
+    {
+      "group": "constant-wind label",
+      "target": "constant-wind label",
+      "predictor": "MC 32, wind scenarios",
+      "brier": 0.00339,
+      "ece": 0.012,
+      "iou_50": 0.85
+    }
+  ],
+  "emulator_ms": {
+    "original emulator": 31.0,
+    "wind-aware emulator": 31.3
+  },
+  "device": {
+    "backend": "metal",
+    "device": "Apple M2 Max",
+    "memory_gb": 96.0
+  }
+}
